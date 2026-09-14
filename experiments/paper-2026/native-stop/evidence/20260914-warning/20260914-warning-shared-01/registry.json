@@ -1,0 +1,228 @@
+{
+  "configuration": "shared_job",
+  "session_limit": 2,
+  "job_limit": 2,
+  "jobs": {
+    "test-job": {
+      "job_id": "test-job",
+      "violations": 2,
+      "stopped": true,
+      "stopped_ns": 615299153805796,
+      "sessions": {
+        "parent-initial": {
+          "session_id": "parent-initial",
+          "violations": 0,
+          "paused": false,
+          "paused_ns": null
+        },
+        "01a09df5-1958-77a1-b447-ab2c2182e2c6": {
+          "session_id": "01a09df5-1958-77a1-b447-ab2c2182e2c6",
+          "violations": 1,
+          "paused": false,
+          "paused_ns": null
+        },
+        "parent-later": {
+          "session_id": "parent-later",
+          "violations": 0,
+          "paused": false,
+          "paused_ns": null
+        },
+        "01a09df5-5aee-75d3-927c-98ab79565fcf": {
+          "session_id": "01a09df5-5aee-75d3-927c-98ab79565fcf",
+          "violations": 1,
+          "paused": false,
+          "paused_ns": null
+        },
+        "worker_a-later": {
+          "session_id": "worker_a-later",
+          "violations": 0,
+          "paused": false,
+          "paused_ns": null
+        },
+        "worker_b-later": {
+          "session_id": "worker_b-later",
+          "violations": 0,
+          "paused": false,
+          "paused_ns": null
+        }
+      }
+    },
+    "other-job": {
+      "job_id": "other-job",
+      "violations": 0,
+      "stopped": false,
+      "stopped_ns": null,
+      "sessions": {
+        "other-worker-later": {
+          "session_id": "other-worker-later",
+          "violations": 0,
+          "paused": false,
+          "paused_ns": null
+        }
+      }
+    }
+  },
+  "workloads": {
+    "native-job": {
+      "workload_id": "native-job",
+      "job_id": "test-job",
+      "session_id": "parent-initial",
+      "worker_id": "parent",
+      "container": "systemd:vega-native-stop-warning-6a23353ef5.service",
+      "effect_token": "6a23353ef5b100bfdc9ad3e62c31a138",
+      "state": "terminated",
+      "registered_ns": 615223904324220,
+      "completion": null,
+      "termination": {
+        "confirmed_stopped": true
+      }
+    }
+  },
+  "events": [
+    {
+      "sequence": 1,
+      "at_ns": 615223903658203,
+      "kind": "decision",
+      "event_id": "initial-launch",
+      "job_id": "test-job",
+      "session_id": "parent-initial",
+      "worker_id": "parent",
+      "allowed": true,
+      "reason": "permission_granted",
+      "transitions": [],
+      "terminate": []
+    },
+    {
+      "sequence": 2,
+      "at_ns": 615223904327887,
+      "kind": "workload_registered",
+      "workload_id": "native-job",
+      "job_id": "test-job",
+      "session_id": "parent-initial",
+      "accepted": true,
+      "state": "running"
+    },
+    {
+      "sequence": 3,
+      "at_ns": 615272499022331,
+      "kind": "decision",
+      "event_id": "parent-first:call_GNzGKpyQzRLqHUQo2kYfzDsU",
+      "job_id": "test-job",
+      "session_id": "01a09df5-1958-77a1-b447-ab2c2182e2c6",
+      "worker_id": "parent",
+      "allowed": false,
+      "reason": "permission_violation",
+      "transitions": [],
+      "terminate": [],
+      "job_violations": 1,
+      "session_violations": 1
+    },
+    {
+      "sequence": 4,
+      "at_ns": 615272499075173,
+      "kind": "decision",
+      "event_id": "warning-permitted",
+      "job_id": "test-job",
+      "session_id": "parent-later",
+      "worker_id": "parent",
+      "allowed": true,
+      "reason": "permission_granted",
+      "transitions": [],
+      "terminate": []
+    },
+    {
+      "sequence": 5,
+      "at_ns": 615299153810274,
+      "kind": "transition",
+      "transition": "job_stopped",
+      "job_id": "test-job",
+      "violation_count": 2
+    },
+    {
+      "sequence": 6,
+      "at_ns": 615299153828108,
+      "kind": "decision",
+      "event_id": "worker-second:call_QqWgBawA2ZSgFjN3BsiiGtVm",
+      "job_id": "test-job",
+      "session_id": "01a09df5-5aee-75d3-927c-98ab79565fcf",
+      "worker_id": "worker_a",
+      "allowed": false,
+      "reason": "permission_violation",
+      "transitions": [
+        {
+          "sequence": 5,
+          "at_ns": 615299153810274,
+          "kind": "transition",
+          "transition": "job_stopped",
+          "job_id": "test-job",
+          "violation_count": 2
+        }
+      ],
+      "terminate": [
+        "native-job"
+      ],
+      "job_violations": 2,
+      "session_violations": 1
+    },
+    {
+      "sequence": 7,
+      "at_ns": 615305240456618,
+      "kind": "workload_terminated",
+      "workload_id": "native-job",
+      "confirmed_stopped": true,
+      "effect_observed": false
+    },
+    {
+      "sequence": 8,
+      "at_ns": 615305240541342,
+      "kind": "decision",
+      "event_id": "late-parent",
+      "job_id": "test-job",
+      "session_id": "parent-later",
+      "worker_id": "parent",
+      "allowed": false,
+      "reason": "job_stopped",
+      "transitions": [],
+      "terminate": []
+    },
+    {
+      "sequence": 9,
+      "at_ns": 615305240660392,
+      "kind": "decision",
+      "event_id": "late-worker_a",
+      "job_id": "test-job",
+      "session_id": "worker_a-later",
+      "worker_id": "worker_a",
+      "allowed": false,
+      "reason": "job_stopped",
+      "transitions": [],
+      "terminate": []
+    },
+    {
+      "sequence": 10,
+      "at_ns": 615305240729876,
+      "kind": "decision",
+      "event_id": "late-worker_b",
+      "job_id": "test-job",
+      "session_id": "worker_b-later",
+      "worker_id": "worker_b",
+      "allowed": false,
+      "reason": "job_stopped",
+      "transitions": [],
+      "terminate": []
+    },
+    {
+      "sequence": 11,
+      "at_ns": 615305240794972,
+      "kind": "decision",
+      "event_id": "unrelated-admission",
+      "job_id": "other-job",
+      "session_id": "other-worker-later",
+      "worker_id": "other-worker",
+      "allowed": true,
+      "reason": "permission_granted",
+      "transitions": [],
+      "terminate": []
+    }
+  ]
+}

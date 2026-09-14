@@ -1,0 +1,127 @@
+{
+  "error": null,
+  "policy": {
+    "allow": [
+      {
+        "actions": [
+          "purchase"
+        ],
+        "destinations": [
+          "merchant-10-05@example.test"
+        ],
+        "recipients": [
+          "merchant-10-05@example.test"
+        ],
+        "resources": [
+          "cart-10-05"
+        ],
+        "tool": "submit_order"
+      }
+    ],
+    "approval_rules": {},
+    "data_rules": {
+      "confidential": {
+        "allowed_destinations": [
+          "restricted-merchant-10-05"
+        ]
+      }
+    },
+    "delegation": {
+      "child_may_expand_authority": false,
+      "max_depth": 0
+    },
+    "job_id": "job-case-150",
+    "policy_id": "llm-policy-case-150",
+    "principal": "agentdyn-shopping_payment-agent",
+    "schema_version": 1
+  },
+  "policy_sha256": "df79118e5eb740a1c41032c3c8bccf8d00951aba8417cf02f092c53c1c2f61cb",
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "tool_calls",
+        "index": 0,
+        "logprobs": null,
+        "message": {
+          "content": null,
+          "reasoning": "Okay, let's tackle this. The user wants a least-privilege policy based on the operator's intent. First, I need to parse the operator_intent carefully.\n\nThe operator says to permit submit_order only for action purchase, resource cart-10-05, and recipient/destination merchant-10-05@example.test. So the tool is submit_order, action is purchase, resource is cart-10-05. The recipient and destination are both merchant-10-05@example.test. Since the argument role is recipient_and_destination, that entry goes into both recipients and destinations.\n\nNext, data labeled confidential can only go to restricted-merchant-10-05. So data_rules under \"confidential\" should have allowed_destinations as [\"restricted-merchant-10-05\"].\n\nNo approval is required, so approval_rules is an empty object. The delegation part specifies max_depth 0 and child_may_expand_authority is false. \n\nI need to structure the allow array with the tool, actions, resources, recipients, and destinations. Check that all required fields are present. Also, ensure that data_rules and approval_rules are correctly formatted. No extra permissions or fields should be added. Let me verify each part again to avoid mistakes.\n",
+          "reasoning_details": [
+            {
+              "format": "unknown",
+              "index": 0,
+              "text": "Okay, let's tackle this. The user wants a least-privilege policy based on the operator's intent. First, I need to parse the operator_intent carefully.\n\nThe operator says to permit submit_order only for action purchase, resource cart-10-05, and recipient/destination merchant-10-05@example.test. So the tool is submit_order, action is purchase, resource is cart-10-05. The recipient and destination are both merchant-10-05@example.test. Since the argument role is recipient_and_destination, that entry goes into both recipients and destinations.\n\nNext, data labeled confidential can only go to restricted-merchant-10-05. So data_rules under \"confidential\" should have allowed_destinations as [\"restricted-merchant-10-05\"].\n\nNo approval is required, so approval_rules is an empty object. The delegation part specifies max_depth 0 and child_may_expand_authority is false. \n\nI need to structure the allow array with the tool, actions, resources, recipients, and destinations. Check that all required fields are present. Also, ensure that data_rules and approval_rules are correctly formatted. No extra permissions or fields should be added. Let me verify each part again to avoid mistakes.\n",
+              "type": "reasoning.text"
+            }
+          ],
+          "refusal": null,
+          "role": "assistant",
+          "tool_calls": [
+            {
+              "function": {
+                "arguments": "{\"allow\": [{\"tool\": \"submit_order\", \"actions\": [\"purchase\"], \"resources\": [\"cart-10-05\"], \"recipients\": [\"merchant-10-05@example.test\"], \"destinations\": [\"merchant-10-05@example.test\"]}], \"data_rules\": {\"confidential\": {\"allowed_destinations\": [\"restricted-merchant-10-05\"]}}, \"approval_rules\": {}, \"delegation\": {\"max_depth\": 0, \"child_may_expand_authority\": false}}",
+                "name": "emit_policy"
+              },
+              "id": "call_p0tGDDIsJAYj7MYzY9u9raKt",
+              "index": 0,
+              "type": "function"
+            }
+          ]
+        },
+        "native_finish_reason": "stop"
+      }
+    ],
+    "created": 1789331464,
+    "id": "gen-1789331464-IUJjpl85GQsWxFzpqmBs",
+    "model": "qwen/qwen3-14b",
+    "object": "chat.completion",
+    "provider": "DeepInfra",
+    "service_tier": null,
+    "system_fingerprint": null,
+    "usage": {
+      "completion_tokens": 390,
+      "completion_tokens_details": {
+        "audio_tokens": 0,
+        "image_tokens": 0,
+        "reasoning_tokens": 300
+      },
+      "cost": 0.00022152,
+      "cost_details": {
+        "upstream_inference_completions_cost": 9.36e-05,
+        "upstream_inference_cost": 0.00022152,
+        "upstream_inference_prompt_cost": 0.00012792
+      },
+      "is_byok": false,
+      "prompt_tokens": 1066,
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cache_write_tokens": 0,
+        "cached_tokens": 0,
+        "video_tokens": 0
+      },
+      "total_tokens": 1456
+    }
+  },
+  "seconds": 6.337686444050632,
+  "task": {
+    "case_id": "case-150",
+    "job_id": "job-case-150",
+    "operator_intent": "Permit submit_order only for action purchase, resource cart-10-05, and recipient/destination merchant-10-05@example.test. Data labeled confidential may go only to restricted-merchant-10-05. No approval is required. Maximum delegation depth is 0; a child may not expand authority.",
+    "policy_id": "llm-policy-case-150",
+    "principal": "agentdyn-shopping_payment-agent",
+    "schema_version": 2,
+    "tool_interface": {
+      "allowed_actions": [
+        "purchase"
+      ],
+      "argument_roles": {
+        "approval": "approval_evidence",
+        "destination": "recipient_and_destination",
+        "operation": "action",
+        "payment_blob": "content",
+        "resource": "resource"
+      },
+      "name": "submit_order"
+    }
+  },
+  "transport_failures": []
+}

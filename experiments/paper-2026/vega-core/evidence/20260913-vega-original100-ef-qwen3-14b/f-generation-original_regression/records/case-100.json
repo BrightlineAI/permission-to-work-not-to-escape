@@ -1,0 +1,383 @@
+{
+  "completion_tokens": 1034,
+  "critic_model": "qwen/qwen3-14b",
+  "error": null,
+  "final_ir": {
+    "allow": [
+      {
+        "actions": [
+          "create"
+        ],
+        "destinations": [
+          "hotel-20"
+        ],
+        "recipients": [],
+        "resources": [
+          "BK-20"
+        ],
+        "tool": "finalize_booking"
+      }
+    ],
+    "approval_rules": [
+      {
+        "bind_fields": [
+          "resource",
+          "amount"
+        ],
+        "required_issuer": "corporate-approver",
+        "tool": "finalize_booking"
+      }
+    ],
+    "data_rules": [],
+    "delegation": {
+      "child_may_expand_authority": false,
+      "max_depth": 1
+    }
+  },
+  "mode": "F",
+  "model": "qwen/qwen3-14b",
+  "policy": {
+    "allow": [
+      {
+        "actions": [
+          "create"
+        ],
+        "destinations": [
+          "hotel-20"
+        ],
+        "recipients": [],
+        "resources": [
+          "BK-20"
+        ],
+        "tool": "finalize_booking"
+      }
+    ],
+    "approval_rules": {
+      "finalize_booking": {
+        "bind_fields": [
+          "resource",
+          "amount"
+        ],
+        "required_issuer": "corporate-approver"
+      }
+    },
+    "data_rules": {},
+    "delegation": {
+      "child_may_expand_authority": false,
+      "max_depth": 1
+    },
+    "job_id": "job-case-100",
+    "policy_id": "e-policy-case-100",
+    "principal": "travel-agent",
+    "schema_version": 1
+  },
+  "policy_sha256": "e0651357da98537cb2031bfc26e25ace64052387c6d567bb8885741584718b18",
+  "prompt_tokens": 1869,
+  "reported_cost_usd": 0.00047243999999999997,
+  "rounds": 1,
+  "seconds": 18.81906730995979,
+  "task": {
+    "case_id": "case-100",
+    "job_id": "job-case-100",
+    "operator_intent": "Permit finalize_booking action create on resource BK-20 at destination hotel-20. It requires approval issued by corporate-approver bound to resource and amount. Permit delegation depth one, and a child may not expand authority. No data-flow rule is required.",
+    "policy_id": "e-policy-case-100",
+    "principal": "travel-agent",
+    "schema_version": 1,
+    "tool_interface": {
+      "allowed_actions": [
+        "create"
+      ],
+      "argument_roles": {
+        "approval": "approval_evidence",
+        "booking": "resource",
+        "hotel": "destination",
+        "price": "amount"
+      },
+      "name": "finalize_booking"
+    }
+  },
+  "transcript": [
+    {
+      "candidate": {
+        "allow": [
+          {
+            "actions": [
+              "create"
+            ],
+            "destinations": [
+              "hotel-20"
+            ],
+            "recipients": [],
+            "resources": [
+              "BK-20"
+            ],
+            "tool": "finalize_booking"
+          }
+        ],
+        "approval_rules": [
+          {
+            "bind_fields": [
+              "resource",
+              "amount"
+            ],
+            "required_issuer": "corporate-approver",
+            "tool": "finalize_booking"
+          }
+        ],
+        "data_rules": [],
+        "delegation": {
+          "child_may_expand_authority": false,
+          "max_depth": 1
+        }
+      },
+      "request": {
+        "deterministic_compiler_contract": {
+          "allow_grants_required": 1,
+          "identifier_list_sources": {
+            "destinations": [
+              "hotel"
+            ],
+            "recipients": [],
+            "resources": [
+              "booking"
+            ]
+          },
+          "literal_scope_may_be_declared_in_operator_intent": true,
+          "never_copy_an_identifier_to_another_role_without_an_explicit_declaration": true,
+          "ordinary_allow_and_labeled_data_rule_are_distinct_layers": true
+        },
+        "trusted_operator_record": {
+          "case_id": "case-100",
+          "job_id": "job-case-100",
+          "operator_intent": "Permit finalize_booking action create on resource BK-20 at destination hotel-20. It requires approval issued by corporate-approver bound to resource and amount. Permit delegation depth one, and a child may not expand authority. No data-flow rule is required.",
+          "policy_id": "e-policy-case-100",
+          "principal": "travel-agent",
+          "schema_version": 1,
+          "tool_interface": {
+            "allowed_actions": [
+              "create"
+            ],
+            "argument_roles": {
+              "approval": "approval_evidence",
+              "booking": "resource",
+              "hotel": "destination",
+              "price": "amount"
+            },
+            "name": "finalize_booking"
+          }
+        }
+      },
+      "response": {
+        "choices": [
+          {
+            "finish_reason": "tool_calls",
+            "index": 0,
+            "logprobs": null,
+            "message": {
+              "content": null,
+              "reasoning": "Okay, let's tackle this. The user wants me to convert the trusted operator record into a least-privilege policy proposal. First, I need to parse the operator's intent and the tool interface provided.\n\nThe operator's intent says: Permit \"finalize_booking\" action with \"create\" on resource \"BK-20\" at destination \"hotel-20\". It requires approval from \"corporate-approver\" bound to resource and amount. Delegation depth is one, and children can't expand authority. No data-flow rules are needed.\n\nLooking at the tool interface, the allowed action is \"create\", the resource is \"booking\" (but the operator mentions \"BK-20\", which is a specific resource). Wait, the identifier_list_sources in the contract says resources include \"booking\", but the operator specifies \"BK-20\". The note says to preserve exact strings even if they differ. So the resource should be \"BK-20\" as per the operator's intent.\n\nThe destination is \"hotel-20\", and the tool interface has \"hotel\" as a destination argument. But the operator specifies \"hotel-20\", which is a literal. The contract allows literal scopes even if the adapter doesn't have a resource argument. So the destination should be \"hotel-20\".\n\nRecipients are empty in the identifier_list_sources, so the recipients list should be empty. The allow section needs the tool name, actions, resources, recipients, and destinations. The tool name is \"finalize_booking\", action is [\"create\"], resources [\"BK-20\"], recipients [], destinations [\"hotel-20\"].\n\nFor approval rules, the required issuer is \"corporate-approver\", and bind_fields are \"resource\" and \"amount\". The tool is \"finalize_booking\".\n\nDelegation: max_depth is 1, child_may_expand_authority is false.\n\nData rules are not required, so the data_rules list is empty.\n\nPutting it all together, the policy should have the allow block with the specific resource and destination, the approval rule with the issuer and bind fields, delegation settings, and empty data rules.\n",
+              "reasoning_details": [
+                {
+                  "format": "unknown",
+                  "index": 0,
+                  "text": "Okay, let's tackle this. The user wants me to convert the trusted operator record into a least-privilege policy proposal. First, I need to parse the operator's intent and the tool interface provided.\n\nThe operator's intent says: Permit \"finalize_booking\" action with \"create\" on resource \"BK-20\" at destination \"hotel-20\". It requires approval from \"corporate-approver\" bound to resource and amount. Delegation depth is one, and children can't expand authority. No data-flow rules are needed.\n\nLooking at the tool interface, the allowed action is \"create\", the resource is \"booking\" (but the operator mentions \"BK-20\", which is a specific resource). Wait, the identifier_list_sources in the contract says resources include \"booking\", but the operator specifies \"BK-20\". The note says to preserve exact strings even if they differ. So the resource should be \"BK-20\" as per the operator's intent.\n\nThe destination is \"hotel-20\", and the tool interface has \"hotel\" as a destination argument. But the operator specifies \"hotel-20\", which is a literal. The contract allows literal scopes even if the adapter doesn't have a resource argument. So the destination should be \"hotel-20\".\n\nRecipients are empty in the identifier_list_sources, so the recipients list should be empty. The allow section needs the tool name, actions, resources, recipients, and destinations. The tool name is \"finalize_booking\", action is [\"create\"], resources [\"BK-20\"], recipients [], destinations [\"hotel-20\"].\n\nFor approval rules, the required issuer is \"corporate-approver\", and bind_fields are \"resource\" and \"amount\". The tool is \"finalize_booking\".\n\nDelegation: max_depth is 1, child_may_expand_authority is false.\n\nData rules are not required, so the data_rules list is empty.\n\nPutting it all together, the policy should have the allow block with the specific resource and destination, the approval rule with the issuer and bind fields, delegation settings, and empty data rules.\n",
+                  "type": "reasoning.text"
+                }
+              ],
+              "refusal": null,
+              "role": "assistant",
+              "tool_calls": [
+                {
+                  "function": {
+                    "arguments": "{\"allow\": [{\"tool\": \"finalize_booking\", \"actions\": [\"create\"], \"resources\": [\"BK-20\"], \"recipients\": [], \"destinations\": [\"hotel-20\"]}], \"data_rules\": [], \"approval_rules\": [{\"tool\": \"finalize_booking\", \"required_issuer\": \"corporate-approver\", \"bind_fields\": [\"resource\", \"amount\"]}], \"delegation\": {\"max_depth\": 1, \"child_may_expand_authority\": false}}",
+                    "name": "propose_policy"
+                  },
+                  "id": "call_Y8jYCGYJQXXlJaxsFwvK9Phe",
+                  "index": 0,
+                  "type": "function"
+                }
+              ]
+            },
+            "native_finish_reason": "stop"
+          }
+        ],
+        "created": 1789315754,
+        "id": "gen-1789315754-GSzMWFzbGAHK8pp2HSpo",
+        "model": "qwen/qwen3-14b",
+        "object": "chat.completion",
+        "provider": "DeepInfra",
+        "service_tier": null,
+        "system_fingerprint": null,
+        "usage": {
+          "completion_tokens": 554,
+          "completion_tokens_details": {
+            "audio_tokens": 0,
+            "image_tokens": 0,
+            "reasoning_tokens": 495
+          },
+          "cost": 0.00025944,
+          "cost_details": {
+            "upstream_inference_completions_cost": 0.00013296,
+            "upstream_inference_cost": 0.00025944,
+            "upstream_inference_prompt_cost": 0.00012648
+          },
+          "is_byok": false,
+          "prompt_tokens": 1054,
+          "prompt_tokens_details": {
+            "audio_tokens": 0,
+            "cache_write_tokens": 0,
+            "cached_tokens": 0,
+            "video_tokens": 0
+          },
+          "total_tokens": 1608
+        }
+      },
+      "role": "proposer",
+      "round": 1,
+      "validation": []
+    },
+    {
+      "request": {
+        "candidate_policy": {
+          "allow": [
+            {
+              "actions": [
+                "create"
+              ],
+              "destinations": [
+                "hotel-20"
+              ],
+              "recipients": [],
+              "resources": [
+                "BK-20"
+              ],
+              "tool": "finalize_booking"
+            }
+          ],
+          "approval_rules": [
+            {
+              "bind_fields": [
+                "resource",
+                "amount"
+              ],
+              "required_issuer": "corporate-approver",
+              "tool": "finalize_booking"
+            }
+          ],
+          "data_rules": [],
+          "delegation": {
+            "child_may_expand_authority": false,
+            "max_depth": 1
+          }
+        },
+        "deterministic_compiler_contract": {
+          "allow_grants_required": 1,
+          "identifier_list_sources": {
+            "destinations": [
+              "hotel"
+            ],
+            "recipients": [],
+            "resources": [
+              "booking"
+            ]
+          },
+          "literal_scope_may_be_declared_in_operator_intent": true,
+          "never_copy_an_identifier_to_another_role_without_an_explicit_declaration": true,
+          "ordinary_allow_and_labeled_data_rule_are_distinct_layers": true
+        },
+        "deterministic_validation_findings": [],
+        "trusted_operator_record": {
+          "case_id": "case-100",
+          "job_id": "job-case-100",
+          "operator_intent": "Permit finalize_booking action create on resource BK-20 at destination hotel-20. It requires approval issued by corporate-approver bound to resource and amount. Permit delegation depth one, and a child may not expand authority. No data-flow rule is required.",
+          "policy_id": "e-policy-case-100",
+          "principal": "travel-agent",
+          "schema_version": 1,
+          "tool_interface": {
+            "allowed_actions": [
+              "create"
+            ],
+            "argument_roles": {
+              "approval": "approval_evidence",
+              "booking": "resource",
+              "hotel": "destination",
+              "price": "amount"
+            },
+            "name": "finalize_booking"
+          }
+        }
+      },
+      "response": {
+        "choices": [
+          {
+            "finish_reason": "tool_calls",
+            "index": 0,
+            "logprobs": null,
+            "message": {
+              "content": null,
+              "reasoning": "Okay, let's see. I need to review this candidate policy against the trusted operator record. The user provided a detailed structure, so I should check each part step by step.\n\nFirst, looking at the \"allow\" section. The candidate allows the \"create\" action on resource \"BK-20\" with destination \"hotel-20\" using the tool \"finalize_booking\". The operator's intent mentions permitting this action, so that matches. The destinations in the allow clause are [\"hotel-20\"], which is a literal as specified. The resources are [\"BK-20\"], which is also a literal. The recipients are empty, which is fine since the operator didn't mention any.\n\nNext, the approval rules. The candidate has a rule that binds \"resource\" and \"amount\" and requires the issuer \"corporate-approver\". The tool is \"finalize_booking\", which matches. The operator's intent says approval is needed bound to resource and amount, so this seems correct. The \"amount\" here probably refers to the \"price\" argument from the tool interface, which is mapped to \"amount\" in the approval rule. That makes sense.\n\nThe data_rules are empty, which aligns with the operator's statement that no data-flow rule is required. The delegation settings say child_may_expand_authority is false and max_depth is 1. The operator's intent mentions delegation depth one and no expansion, so that's correct.\n\nChecking the deterministic_compiler_contract: allow_grants_required is 1, which matches the single allow grant in the candidate. Identifier list sources for destinations are [\"hotel\"], which is the base for \"hotel-20\". Resources are [\"booking\"], and \"BK-20\" is a literal, which is allowed. The other parameters like never copying identifiers without explicit declaration seem to be followed.\n\nNo issues found. The policy matches the operator's intent in all aspects. So, I should approve it with feedback stating that it aligns correctly.\n",
+              "reasoning_details": [
+                {
+                  "format": "unknown",
+                  "index": 0,
+                  "text": "Okay, let's see. I need to review this candidate policy against the trusted operator record. The user provided a detailed structure, so I should check each part step by step.\n\nFirst, looking at the \"allow\" section. The candidate allows the \"create\" action on resource \"BK-20\" with destination \"hotel-20\" using the tool \"finalize_booking\". The operator's intent mentions permitting this action, so that matches. The destinations in the allow clause are [\"hotel-20\"], which is a literal as specified. The resources are [\"BK-20\"], which is also a literal. The recipients are empty, which is fine since the operator didn't mention any.\n\nNext, the approval rules. The candidate has a rule that binds \"resource\" and \"amount\" and requires the issuer \"corporate-approver\". The tool is \"finalize_booking\", which matches. The operator's intent says approval is needed bound to resource and amount, so this seems correct. The \"amount\" here probably refers to the \"price\" argument from the tool interface, which is mapped to \"amount\" in the approval rule. That makes sense.\n\nThe data_rules are empty, which aligns with the operator's statement that no data-flow rule is required. The delegation settings say child_may_expand_authority is false and max_depth is 1. The operator's intent mentions delegation depth one and no expansion, so that's correct.\n\nChecking the deterministic_compiler_contract: allow_grants_required is 1, which matches the single allow grant in the candidate. Identifier list sources for destinations are [\"hotel\"], which is the base for \"hotel-20\". Resources are [\"booking\"], and \"BK-20\" is a literal, which is allowed. The other parameters like never copying identifiers without explicit declaration seem to be followed.\n\nNo issues found. The policy matches the operator's intent in all aspects. So, I should approve it with feedback stating that it aligns correctly.\n",
+                  "type": "reasoning.text"
+                }
+              ],
+              "refusal": null,
+              "role": "assistant",
+              "tool_calls": [
+                {
+                  "function": {
+                    "arguments": "{\"approved\": true, \"feedback\": \"Policy aligns with operator intent: correct allow grant for create action on BK-20 at hotel-20, proper approval rule binding resource/amount to corporate-approver, and accurate delegation constraints. No over-grants or missing rules.\"}",
+                    "name": "review_policy"
+                  },
+                  "id": "call_U2Sh5NoYJ4Rhjvbg6h2qOMkR",
+                  "index": 0,
+                  "type": "function"
+                }
+              ]
+            },
+            "native_finish_reason": "stop"
+          }
+        ],
+        "created": 1789315763,
+        "id": "gen-1789315763-YPBorp2jjTvnjs6DO4Zr",
+        "model": "qwen/qwen3-14b",
+        "object": "chat.completion",
+        "provider": "DeepInfra",
+        "service_tier": null,
+        "system_fingerprint": null,
+        "usage": {
+          "completion_tokens": 480,
+          "completion_tokens_details": {
+            "audio_tokens": 0,
+            "image_tokens": 0,
+            "reasoning_tokens": 474
+          },
+          "cost": 0.000213,
+          "cost_details": {
+            "upstream_inference_completions_cost": 0.0001152,
+            "upstream_inference_cost": 0.000213,
+            "upstream_inference_prompt_cost": 9.78e-05
+          },
+          "is_byok": false,
+          "prompt_tokens": 815,
+          "prompt_tokens_details": {
+            "audio_tokens": 0,
+            "cache_write_tokens": 0,
+            "cached_tokens": 0,
+            "video_tokens": 0
+          },
+          "total_tokens": 1295
+        }
+      },
+      "review": {
+        "approved": true,
+        "feedback": "Policy aligns with operator intent: correct allow grant for create action on BK-20 at hotel-20, proper approval rule binding resource/amount to corporate-approver, and accurate delegation constraints. No over-grants or missing rules."
+      },
+      "role": "critic",
+      "round": 1
+    }
+  ]
+}

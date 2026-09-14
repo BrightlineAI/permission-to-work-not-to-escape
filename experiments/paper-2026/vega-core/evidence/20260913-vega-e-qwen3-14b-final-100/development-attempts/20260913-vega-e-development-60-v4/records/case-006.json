@@ -1,0 +1,117 @@
+{
+  "error": null,
+  "policy": {
+    "allow": [
+      {
+        "actions": [
+          "upload_release"
+        ],
+        "destinations": [
+          "release-06.tar.gz"
+        ],
+        "recipients": [],
+        "resources": [
+          "org/assigned-06"
+        ],
+        "tool": "github_mutation"
+      }
+    ],
+    "approval_rules": {},
+    "data_rules": {},
+    "delegation": {
+      "child_may_expand_authority": false,
+      "max_depth": 0
+    },
+    "job_id": "job-case-006",
+    "policy_id": "e-policy-case-006",
+    "principal": "repo-agent",
+    "schema_version": 1
+  },
+  "policy_sha256": "219ddee0fb91f3cc8f5bf2438672608ed09ce798bbf0281deb3f4baa6a2eaf9c",
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "tool_calls",
+        "index": 0,
+        "logprobs": null,
+        "message": {
+          "content": null,
+          "reasoning": "Okay, let's break down the user's request. They want a policy for the github_mutation tool, allowing only the upload_release action on the resource org/assigned-06, with destination release-06.tar.gz. No approval or data-flow rules are needed. Delegation depth is zero, and children can't expand authority.\n\nFirst, the 'allow' section. The tool name is github_mutation. The action is upload_release. The resource is org/assigned-06. The destination is release-06.tar.gz. Recipients aren't mentioned, so maybe leave that as an empty array? Wait, the required fields in the schema include recipients. But the user didn't specify any. Hmm, the schema says required fields are tool, actions, resources, recipients, destinations. So even if not mentioned, recipients must be present. But the user's intent doesn't mention recipients, so maybe it's an empty array.\n\nNext, data_rules: the user says no data-flow rule is required, so data_rules should be an empty object {}.\n\nApproval_rules: same here, no approval rule, so approval_rules is {}.\n\nDelegation: max_depth 0 and child_may_expand_authority is false. So delegation object has those values.\n\nWait, the tool_interface's argument_roles have \"target\" as destination. So the destination in the policy is release-06.tar.gz. The resource is org/assigned-06. The action is upload_release. The principal is repo-agent, but in the allow block, the principal isn't part of the structure. The principal is the identity, but the allow entries are about tools and their permissions. So the allow entry is correct as per the tool's actions.\n\nSo putting it all together:\n\nallow array has one entry with tool, actions, resources, recipients (empty?), destinations. Wait, the user didn't mention recipients. The tool_interface's argument_roles don't have a recipient role. So recipients should be an empty array. The required fields in the allow object include recipients, so even if empty, it's needed.\n\nSo the allow entry would be:\n\n{\n  \"tool\": \"github_mutation\",\n  \"actions\": [\"upload_release\"],\n  \"resources\": [\"org/assigned-06\"],\n  \"recipients\": [],\n  \"destinations\": [\"release-06.tar.gz\"]\n}\n\nThen data_rules is {}, approval_rules is {}, and delegation is { \"max_depth\": 0, \"child_may_expand_authority\": false }.\n\nI think that's correct. Let me check the schema again. The data_rules is an object with allowed_destinations, but since the user says no data-flow rule, data_rules is exactly {}. Same for approval_rules. Delegation parameters are set as specified. Yes, that should do it.\n",
+          "reasoning_details": [
+            {
+              "format": "unknown",
+              "index": 0,
+              "text": "Okay, let's break down the user's request. They want a policy for the github_mutation tool, allowing only the upload_release action on the resource org/assigned-06, with destination release-06.tar.gz. No approval or data-flow rules are needed. Delegation depth is zero, and children can't expand authority.\n\nFirst, the 'allow' section. The tool name is github_mutation. The action is upload_release. The resource is org/assigned-06. The destination is release-06.tar.gz. Recipients aren't mentioned, so maybe leave that as an empty array? Wait, the required fields in the schema include recipients. But the user didn't specify any. Hmm, the schema says required fields are tool, actions, resources, recipients, destinations. So even if not mentioned, recipients must be present. But the user's intent doesn't mention recipients, so maybe it's an empty array.\n\nNext, data_rules: the user says no data-flow rule is required, so data_rules should be an empty object {}.\n\nApproval_rules: same here, no approval rule, so approval_rules is {}.\n\nDelegation: max_depth 0 and child_may_expand_authority is false. So delegation object has those values.\n\nWait, the tool_interface's argument_roles have \"target\" as destination. So the destination in the policy is release-06.tar.gz. The resource is org/assigned-06. The action is upload_release. The principal is repo-agent, but in the allow block, the principal isn't part of the structure. The principal is the identity, but the allow entries are about tools and their permissions. So the allow entry is correct as per the tool's actions.\n\nSo putting it all together:\n\nallow array has one entry with tool, actions, resources, recipients (empty?), destinations. Wait, the user didn't mention recipients. The tool_interface's argument_roles don't have a recipient role. So recipients should be an empty array. The required fields in the allow object include recipients, so even if empty, it's needed.\n\nSo the allow entry would be:\n\n{\n  \"tool\": \"github_mutation\",\n  \"actions\": [\"upload_release\"],\n  \"resources\": [\"org/assigned-06\"],\n  \"recipients\": [],\n  \"destinations\": [\"release-06.tar.gz\"]\n}\n\nThen data_rules is {}, approval_rules is {}, and delegation is { \"max_depth\": 0, \"child_may_expand_authority\": false }.\n\nI think that's correct. Let me check the schema again. The data_rules is an object with allowed_destinations, but since the user says no data-flow rule, data_rules is exactly {}. Same for approval_rules. Delegation parameters are set as specified. Yes, that should do it.\n",
+              "type": "reasoning.text"
+            }
+          ],
+          "refusal": null,
+          "role": "assistant",
+          "tool_calls": [
+            {
+              "function": {
+                "arguments": "{\"allow\": [{\"tool\": \"github_mutation\", \"actions\": [\"upload_release\"], \"resources\": [\"org/assigned-06\"], \"recipients\": [], \"destinations\": [\"release-06.tar.gz\"]}], \"data_rules\": {}, \"approval_rules\": {}, \"delegation\": {\"max_depth\": 0, \"child_may_expand_authority\": false}}",
+                "name": "emit_policy"
+              },
+              "id": "call_QygCeQ1RgX3cjdHGEXde1N8k",
+              "index": 0,
+              "type": "function"
+            }
+          ]
+        },
+        "native_finish_reason": "stop"
+      }
+    ],
+    "created": 1789289669,
+    "id": "gen-1789289669-U8NqgoB5pXqAt4yjkcGe",
+    "model": "qwen/qwen3-14b",
+    "object": "chat.completion",
+    "provider": "DeepInfra",
+    "service_tier": null,
+    "system_fingerprint": null,
+    "usage": {
+      "completion_tokens": 670,
+      "completion_tokens_details": {
+        "audio_tokens": 0,
+        "image_tokens": 0,
+        "reasoning_tokens": 640
+      },
+      "cost": 0.0002652,
+      "cost_details": {
+        "upstream_inference_completions_cost": 0.0001608,
+        "upstream_inference_cost": 0.0002652,
+        "upstream_inference_prompt_cost": 0.0001044
+      },
+      "is_byok": false,
+      "prompt_tokens": 870,
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cache_write_tokens": 0,
+        "cached_tokens": 0,
+        "video_tokens": 0
+      },
+      "total_tokens": 1540
+    }
+  },
+  "seconds": 18.06941563996952,
+  "task": {
+    "case_id": "case-006",
+    "job_id": "job-case-006",
+    "operator_intent": "Permit tool github_mutation only for action upload_release on resource org/assigned-06 and destination release-06.tar.gz. No approval or data-flow rule is required. Delegation depth is zero and a child may not expand authority.",
+    "policy_id": "e-policy-case-006",
+    "principal": "repo-agent",
+    "schema_version": 1,
+    "tool_interface": {
+      "allowed_actions": [
+        "upload_release"
+      ],
+      "argument_roles": {
+        "operation": "action",
+        "repository": "resource",
+        "target": "destination"
+      },
+      "name": "github_mutation"
+    }
+  },
+  "transport_failures": []
+}

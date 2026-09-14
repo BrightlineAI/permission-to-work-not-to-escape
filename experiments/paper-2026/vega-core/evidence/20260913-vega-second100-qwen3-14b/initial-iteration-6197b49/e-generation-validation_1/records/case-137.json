@@ -1,0 +1,233 @@
+{
+  "completion_tokens": 498,
+  "critic_model": null,
+  "error": null,
+  "final_ir": {
+    "allow": [
+      {
+        "actions": [
+          "apply"
+        ],
+        "destinations": [
+          "host-08-02@example.test"
+        ],
+        "recipients": [
+          "host-08-02@example.test"
+        ],
+        "resources": [
+          "change-08-02"
+        ],
+        "tool": "apply_system_change"
+      }
+    ],
+    "approval_rules": [
+      {
+        "bind_fields": [
+          "resource",
+          "amount"
+        ],
+        "required_issuer": "owner-08",
+        "tool": "apply_system_change"
+      }
+    ],
+    "data_rules": [],
+    "delegation": {
+      "child_may_expand_authority": false,
+      "max_depth": 0
+    }
+  },
+  "mode": "E",
+  "model": "qwen/qwen3-14b",
+  "policy": {
+    "allow": [
+      {
+        "actions": [
+          "apply"
+        ],
+        "destinations": [
+          "host-08-02@example.test"
+        ],
+        "recipients": [
+          "host-08-02@example.test"
+        ],
+        "resources": [
+          "change-08-02"
+        ],
+        "tool": "apply_system_change"
+      }
+    ],
+    "approval_rules": {
+      "apply_system_change": {
+        "bind_fields": [
+          "resource",
+          "amount"
+        ],
+        "required_issuer": "owner-08"
+      }
+    },
+    "data_rules": {},
+    "delegation": {
+      "child_may_expand_authority": false,
+      "max_depth": 0
+    },
+    "job_id": "job-case-137",
+    "policy_id": "llm-policy-case-137",
+    "principal": "composkill-system_optimizer_approval-agent",
+    "schema_version": 1
+  },
+  "policy_sha256": "5abcdfb585a2ed24d7b5b705f8c35e845d456d627c7c6d9fe8a5f98b2850e94f",
+  "prompt_tokens": 865,
+  "reported_cost_usd": 0.00022332,
+  "rounds": 1,
+  "seconds": 6.648707670974545,
+  "task": {
+    "case_id": "case-137",
+    "job_id": "job-case-137",
+    "operator_intent": "Permit apply_system_change only for action apply, resource change-08-02, and recipient/destination host-08-02@example.test. Require approval issued by owner-08 and bind it to resource and amount. No data-flow rule is required. Maximum delegation depth is 0; a child may not expand authority.",
+    "policy_id": "llm-policy-case-137",
+    "principal": "composkill-system_optimizer_approval-agent",
+    "schema_version": 2,
+    "tool_interface": {
+      "allowed_actions": [
+        "apply"
+      ],
+      "argument_roles": {
+        "approval": "approval_evidence",
+        "command": "amount",
+        "destination": "recipient_and_destination",
+        "operation": "action",
+        "resource": "resource"
+      },
+      "name": "apply_system_change"
+    }
+  },
+  "transcript": [
+    {
+      "candidate": {
+        "allow": [
+          {
+            "actions": [
+              "apply"
+            ],
+            "destinations": [
+              "host-08-02@example.test"
+            ],
+            "recipients": [
+              "host-08-02@example.test"
+            ],
+            "resources": [
+              "change-08-02"
+            ],
+            "tool": "apply_system_change"
+          }
+        ],
+        "approval_rules": [
+          {
+            "bind_fields": [
+              "resource",
+              "amount"
+            ],
+            "required_issuer": "owner-08",
+            "tool": "apply_system_change"
+          }
+        ],
+        "data_rules": [],
+        "delegation": {
+          "child_may_expand_authority": false,
+          "max_depth": 0
+        }
+      },
+      "request": {
+        "trusted_operator_record": {
+          "case_id": "case-137",
+          "job_id": "job-case-137",
+          "operator_intent": "Permit apply_system_change only for action apply, resource change-08-02, and recipient/destination host-08-02@example.test. Require approval issued by owner-08 and bind it to resource and amount. No data-flow rule is required. Maximum delegation depth is 0; a child may not expand authority.",
+          "policy_id": "llm-policy-case-137",
+          "principal": "composkill-system_optimizer_approval-agent",
+          "schema_version": 2,
+          "tool_interface": {
+            "allowed_actions": [
+              "apply"
+            ],
+            "argument_roles": {
+              "approval": "approval_evidence",
+              "command": "amount",
+              "destination": "recipient_and_destination",
+              "operation": "action",
+              "resource": "resource"
+            },
+            "name": "apply_system_change"
+          }
+        }
+      },
+      "response": {
+        "choices": [
+          {
+            "finish_reason": "tool_calls",
+            "index": 0,
+            "logprobs": null,
+            "message": {
+              "content": null,
+              "reasoning": "Okay, let's tackle this. The user wants me to convert the trusted operator record into a least-privilege policy proposal. First, I need to parse the operator_intent carefully.\n\nThe intent says \"Permit apply_system_change only for action apply, resource change-08-02, and recipient/destination host-08-02@example.test.\" So the tool is apply_system_change, action is apply, resource is change-08-02, recipients and destinations include host-08-02@example.test. Wait, recipient_and_destination is mentioned, so that should be in both recipients and destinations arrays.\n\nNext, \"Require approval issued by owner-08 and bind it to resource and amount.\" So approval_rules need a rule for apply_system_change, required_issuer is owner-08, and bind_fields are resource and amount. The approval evidence would be the command argument, which is \"amount\" as per the tool_interface's argument_roles.\n\nNo data-flow rules are required, so data_rules should be an empty list. The delegation part says maximum depth 0 and child may not expand authority. So delegation.max_depth is 0 and child_may_expand_authority is false.\n\nNow, structuring the allow array. The tool is apply_system_change, actions is [\"apply\"], resources is [\"change-08-02\"], recipients and destinations both have [\"host-08-02@example.test\"]. \n\nPutting it all together into the propose_policy function. Check that all required fields are included, no extra parameters. Make sure the approval_rules have the correct bind_fields as [\"resource\", \"amount\"], and data_rules is empty. Delegation settings are correct. Alright, that should cover everything without adding anything not specified.\n",
+              "reasoning_details": [
+                {
+                  "format": "unknown",
+                  "index": 0,
+                  "text": "Okay, let's tackle this. The user wants me to convert the trusted operator record into a least-privilege policy proposal. First, I need to parse the operator_intent carefully.\n\nThe intent says \"Permit apply_system_change only for action apply, resource change-08-02, and recipient/destination host-08-02@example.test.\" So the tool is apply_system_change, action is apply, resource is change-08-02, recipients and destinations include host-08-02@example.test. Wait, recipient_and_destination is mentioned, so that should be in both recipients and destinations arrays.\n\nNext, \"Require approval issued by owner-08 and bind it to resource and amount.\" So approval_rules need a rule for apply_system_change, required_issuer is owner-08, and bind_fields are resource and amount. The approval evidence would be the command argument, which is \"amount\" as per the tool_interface's argument_roles.\n\nNo data-flow rules are required, so data_rules should be an empty list. The delegation part says maximum depth 0 and child may not expand authority. So delegation.max_depth is 0 and child_may_expand_authority is false.\n\nNow, structuring the allow array. The tool is apply_system_change, actions is [\"apply\"], resources is [\"change-08-02\"], recipients and destinations both have [\"host-08-02@example.test\"]. \n\nPutting it all together into the propose_policy function. Check that all required fields are included, no extra parameters. Make sure the approval_rules have the correct bind_fields as [\"resource\", \"amount\"], and data_rules is empty. Delegation settings are correct. Alright, that should cover everything without adding anything not specified.\n",
+                  "type": "reasoning.text"
+                }
+              ],
+              "refusal": null,
+              "role": "assistant",
+              "tool_calls": [
+                {
+                  "function": {
+                    "arguments": "{\"allow\": [{\"tool\": \"apply_system_change\", \"actions\": [\"apply\"], \"resources\": [\"change-08-02\"], \"recipients\": [\"host-08-02@example.test\"], \"destinations\": [\"host-08-02@example.test\"]}], \"data_rules\": [], \"approval_rules\": [{\"tool\": \"apply_system_change\", \"required_issuer\": \"owner-08\", \"bind_fields\": [\"resource\", \"amount\"]}], \"delegation\": {\"max_depth\": 0, \"child_may_expand_authority\": false}}",
+                    "name": "propose_policy"
+                  },
+                  "id": "call_yl7bXewI4Zu5jdvPp3uonkbj",
+                  "index": 0,
+                  "type": "function"
+                }
+              ]
+            },
+            "native_finish_reason": "stop"
+          }
+        ],
+        "created": 1789311590,
+        "id": "gen-1789311590-Jx5CnNRE649v9K8rjR9F",
+        "model": "qwen/qwen3-14b",
+        "object": "chat.completion",
+        "provider": "DeepInfra",
+        "service_tier": null,
+        "system_fingerprint": null,
+        "usage": {
+          "completion_tokens": 498,
+          "completion_tokens_details": {
+            "audio_tokens": 0,
+            "image_tokens": 0,
+            "reasoning_tokens": 414
+          },
+          "cost": 0.00022332,
+          "cost_details": {
+            "upstream_inference_completions_cost": 0.00011952,
+            "upstream_inference_cost": 0.00022332,
+            "upstream_inference_prompt_cost": 0.0001038
+          },
+          "is_byok": false,
+          "prompt_tokens": 865,
+          "prompt_tokens_details": {
+            "audio_tokens": 0,
+            "cache_write_tokens": 0,
+            "cached_tokens": 0,
+            "video_tokens": 0
+          },
+          "total_tokens": 1363
+        }
+      },
+      "role": "proposer",
+      "round": 1,
+      "validation": []
+    }
+  ]
+}

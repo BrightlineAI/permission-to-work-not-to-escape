@@ -1,0 +1,121 @@
+{
+  "error": null,
+  "policy": {
+    "allow": [
+      {
+        "actions": [
+          "trade"
+        ],
+        "destinations": [
+          "venue-20-05@example.test"
+        ],
+        "recipients": [
+          "venue-20-05@example.test"
+        ],
+        "resources": [
+          "order-20-05"
+        ],
+        "tool": "submit_trade"
+      }
+    ],
+    "approval_rules": {},
+    "data_rules": {},
+    "delegation": {
+      "child_may_expand_authority": false,
+      "max_depth": 1
+    },
+    "job_id": "job-case-200",
+    "policy_id": "llm-policy-case-200",
+    "principal": "weclaw-trading_delegation-agent",
+    "schema_version": 1
+  },
+  "policy_sha256": "33dd1388c84a8f0795f293e267232d00e555f1f83d53b1d61e757b9e1646bb91",
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "tool_calls",
+        "index": 0,
+        "logprobs": null,
+        "message": {
+          "content": null,
+          "reasoning": "Okay, let's tackle this. The user wants me to create a Vega least-privilege policy based on the operator's intent. First, I need to parse the operator_intent carefully.\n\nThe operator says to permit submit_trade only for action 'trade', resource 'order-20-05', and recipient/destination 'venue-20-05@example.test'. No approval or data-flow rules are needed. Delegation max depth is 1, and children can't expand authority.\n\nStarting with the 'allow' section. The tool is submit_trade. Actions should be [\"trade\"], resources [\"order-20-05\"], recipients and destinations both need [\"venue-20-05@example.test\"] because the intent says recipient/destination. Since the argument role is recipient_and_destination, it goes into both lists.\n\nData_rules: the operator says no data-flow rules, so that's an empty object {}.\n\nApproval_rules: also none required, so another empty object {}.\n\nDelegation: max_depth 1 and child_may_expand_authority is false. Need to make sure the JSON reflects that.\n\nCheck for any missing restrictions. The policy should not include anything beyond what's explicitly stated. No wildcards or defaults. All entries are exactly as specified. Looks good. Now structure the JSON according to the emit_policy function's parameters.\n",
+          "reasoning_details": [
+            {
+              "format": "unknown",
+              "index": 0,
+              "text": "Okay, let's tackle this. The user wants me to create a Vega least-privilege policy based on the operator's intent. First, I need to parse the operator_intent carefully.\n\nThe operator says to permit submit_trade only for action 'trade', resource 'order-20-05', and recipient/destination 'venue-20-05@example.test'. No approval or data-flow rules are needed. Delegation max depth is 1, and children can't expand authority.\n\nStarting with the 'allow' section. The tool is submit_trade. Actions should be [\"trade\"], resources [\"order-20-05\"], recipients and destinations both need [\"venue-20-05@example.test\"] because the intent says recipient/destination. Since the argument role is recipient_and_destination, it goes into both lists.\n\nData_rules: the operator says no data-flow rules, so that's an empty object {}.\n\nApproval_rules: also none required, so another empty object {}.\n\nDelegation: max_depth 1 and child_may_expand_authority is false. Need to make sure the JSON reflects that.\n\nCheck for any missing restrictions. The policy should not include anything beyond what's explicitly stated. No wildcards or defaults. All entries are exactly as specified. Looks good. Now structure the JSON according to the emit_policy function's parameters.\n",
+              "type": "reasoning.text"
+            }
+          ],
+          "refusal": null,
+          "role": "assistant",
+          "tool_calls": [
+            {
+              "function": {
+                "arguments": "{\"allow\": [{\"tool\": \"submit_trade\", \"actions\": [\"trade\"], \"resources\": [\"order-20-05\"], \"recipients\": [\"venue-20-05@example.test\"], \"destinations\": [\"venue-20-05@example.test\"]}], \"data_rules\": {}, \"approval_rules\": {}, \"delegation\": {\"max_depth\": 1, \"child_may_expand_authority\": false}}",
+                "name": "emit_policy"
+              },
+              "id": "call_Mf6xPuTJjzHn9vKR5fgAlPsk",
+              "index": 0,
+              "type": "function"
+            }
+          ]
+        },
+        "native_finish_reason": "stop"
+      }
+    ],
+    "created": 1789331516,
+    "id": "gen-1789331516-FpgLzSxxy53NcbMYRP9J",
+    "model": "qwen/qwen3-14b",
+    "object": "chat.completion",
+    "provider": "DeepInfra",
+    "service_tier": null,
+    "system_fingerprint": null,
+    "usage": {
+      "completion_tokens": 383,
+      "completion_tokens_details": {
+        "audio_tokens": 0,
+        "image_tokens": 0,
+        "reasoning_tokens": 316
+      },
+      "cost": 0.00021852,
+      "cost_details": {
+        "upstream_inference_completions_cost": 9.192e-05,
+        "upstream_inference_cost": 0.00021852,
+        "upstream_inference_prompt_cost": 0.0001266
+      },
+      "is_byok": false,
+      "prompt_tokens": 1055,
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cache_write_tokens": 0,
+        "cached_tokens": 0,
+        "video_tokens": 0
+      },
+      "total_tokens": 1438
+    }
+  },
+  "seconds": 5.926514860009775,
+  "task": {
+    "case_id": "case-200",
+    "job_id": "job-case-200",
+    "operator_intent": "Permit submit_trade only for action trade, resource order-20-05, and recipient/destination venue-20-05@example.test. No approval or data-flow rule is required. Maximum delegation depth is 1; a child may not expand authority.",
+    "policy_id": "llm-policy-case-200",
+    "principal": "weclaw-trading_delegation-agent",
+    "schema_version": 2,
+    "tool_interface": {
+      "allowed_actions": [
+        "trade"
+      ],
+      "argument_roles": {
+        "approval": "approval_evidence",
+        "destination": "recipient_and_destination",
+        "instructions": "content",
+        "operation": "action",
+        "resource": "resource"
+      },
+      "name": "submit_trade"
+    }
+  },
+  "transport_failures": []
+}

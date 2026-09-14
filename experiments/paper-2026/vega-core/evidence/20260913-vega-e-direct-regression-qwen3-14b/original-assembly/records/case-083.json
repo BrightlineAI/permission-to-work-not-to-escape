@@ -1,0 +1,91 @@
+{
+  "error": "SchemaError('approval bind_fields must contain resource and/or amount')",
+  "policy": null,
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "tool_calls",
+        "index": 0,
+        "logprobs": null,
+        "message": {
+          "content": null,
+          "reasoning": "Okay, let's break down the user's request. They want a least-privilege policy based on the operator's intent provided in the trusted operator record. The key points from the operator_intent are:\n\n- Permit the 'finalize_booking' action with 'create' on resource BK-03 at destination hotel-03.\n- Requires approval from corporate-approver, bound to resource and amount (which are booking and price fields).\n- Delegation depth is 1, and children can't expand authority.\n- No data-flow rules needed.\n\nFirst, the 'allow' section. The tool is 'finalize_booking', action is 'create', resource is BK-03, recipient isn't mentioned, but destination is hotel-03. Wait, the tool_interface's argument_roles have 'hotel' as destination and 'booking' as resource. So resources should include BK-03, and destinations include hotel-03. Recipients aren't specified here, so maybe leave that as an empty array? But the operator didn't mention any recipients, so according to the instructions, anything omitted is denied. So recipients would be empty.\n\nNext, approval_rules. The tool 'finalize_booking' requires approval by corporate-approver. The bind_fields are the resource (booking) and amount (price). So approval_rules should have 'finalize_booking' as the key, with required_issuer 'corporate-approver' and bind_fields ['booking', 'price'].\n\nData_rules: the operator says no data-flow rule is required, so return {}.\n\nDelegation: max_depth is 1, child_may_expand_authority is false.\n\nCheck if all elements are covered. The allow entry has tool, actions, resources, recipients (empty?), destinations. Wait, the operator_intent says destination hotel-03. So destinations array should have hotel-03. Recipients aren't mentioned, so it's an empty array. But the tool_interface's argument_roles have 'approval' as approval_evidence, but that's part of the approval process, not a recipient. So recipients are not present here.\n\nSo the allow array should have one entry with tool: 'finalize_booking', actions: ['create'], resources: ['BK-03'], recipients: [], destinations: ['hotel-03'].\n\nApproval_rules is keyed by the tool, so 'finalize_booking' has required_issuer 'corporate-approver' and bind_fields ['booking', 'price'].\n\nData_rules is empty. Delegation max_depth 1, child_may_expand_authority false.\n\nI need to make sure that all the parameters are correctly mapped and that no extra permissions are added. The final policy should strictly follow the operator's intent without any assumptions.\n",
+          "reasoning_details": [
+            {
+              "format": "unknown",
+              "index": 0,
+              "text": "Okay, let's break down the user's request. They want a least-privilege policy based on the operator's intent provided in the trusted operator record. The key points from the operator_intent are:\n\n- Permit the 'finalize_booking' action with 'create' on resource BK-03 at destination hotel-03.\n- Requires approval from corporate-approver, bound to resource and amount (which are booking and price fields).\n- Delegation depth is 1, and children can't expand authority.\n- No data-flow rules needed.\n\nFirst, the 'allow' section. The tool is 'finalize_booking', action is 'create', resource is BK-03, recipient isn't mentioned, but destination is hotel-03. Wait, the tool_interface's argument_roles have 'hotel' as destination and 'booking' as resource. So resources should include BK-03, and destinations include hotel-03. Recipients aren't specified here, so maybe leave that as an empty array? But the operator didn't mention any recipients, so according to the instructions, anything omitted is denied. So recipients would be empty.\n\nNext, approval_rules. The tool 'finalize_booking' requires approval by corporate-approver. The bind_fields are the resource (booking) and amount (price). So approval_rules should have 'finalize_booking' as the key, with required_issuer 'corporate-approver' and bind_fields ['booking', 'price'].\n\nData_rules: the operator says no data-flow rule is required, so return {}.\n\nDelegation: max_depth is 1, child_may_expand_authority is false.\n\nCheck if all elements are covered. The allow entry has tool, actions, resources, recipients (empty?), destinations. Wait, the operator_intent says destination hotel-03. So destinations array should have hotel-03. Recipients aren't mentioned, so it's an empty array. But the tool_interface's argument_roles have 'approval' as approval_evidence, but that's part of the approval process, not a recipient. So recipients are not present here.\n\nSo the allow array should have one entry with tool: 'finalize_booking', actions: ['create'], resources: ['BK-03'], recipients: [], destinations: ['hotel-03'].\n\nApproval_rules is keyed by the tool, so 'finalize_booking' has required_issuer 'corporate-approver' and bind_fields ['booking', 'price'].\n\nData_rules is empty. Delegation max_depth 1, child_may_expand_authority false.\n\nI need to make sure that all the parameters are correctly mapped and that no extra permissions are added. The final policy should strictly follow the operator's intent without any assumptions.\n",
+              "type": "reasoning.text"
+            }
+          ],
+          "refusal": null,
+          "role": "assistant",
+          "tool_calls": [
+            {
+              "function": {
+                "arguments": "{\"allow\": [{\"tool\": \"finalize_booking\", \"actions\": [\"create\"], \"resources\": [\"BK-03\"], \"recipients\": [], \"destinations\": [\"hotel-03\"]}], \"data_rules\": {}, \"approval_rules\": {\"finalize_booking\": {\"required_issuer\": \"corporate-approver\", \"bind_fields\": [\"booking\", \"price\"]}}, \"delegation\": {\"max_depth\": 1, \"child_may_expand_authority\": false}}",
+                "name": "emit_policy"
+              },
+              "id": "call_hyjcYOdlnFvPbOEODr1MWf5h",
+              "index": 0,
+              "type": "function"
+            }
+          ]
+        },
+        "native_finish_reason": "stop"
+      }
+    ],
+    "created": 1789331589,
+    "id": "gen-1789331589-IwQjYuV5qhlK7j3bXdjt",
+    "model": "qwen/qwen3-14b",
+    "object": "chat.completion",
+    "provider": "DeepInfra",
+    "service_tier": null,
+    "system_fingerprint": null,
+    "usage": {
+      "completion_tokens": 671,
+      "completion_tokens_details": {
+        "audio_tokens": 0,
+        "image_tokens": 0,
+        "reasoning_tokens": 627
+      },
+      "cost": 0.00028572,
+      "cost_details": {
+        "upstream_inference_completions_cost": 0.00016104,
+        "upstream_inference_cost": 0.00028572,
+        "upstream_inference_prompt_cost": 0.00012468
+      },
+      "is_byok": false,
+      "prompt_tokens": 1039,
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cache_write_tokens": 0,
+        "cached_tokens": 0,
+        "video_tokens": 0
+      },
+      "total_tokens": 1710
+    }
+  },
+  "seconds": 8.756295323022641,
+  "task": {
+    "case_id": "case-083",
+    "job_id": "job-case-083",
+    "operator_intent": "Permit finalize_booking action create on resource BK-03 at destination hotel-03. It requires approval issued by corporate-approver bound to resource and amount. Permit delegation depth one, and a child may not expand authority. No data-flow rule is required.",
+    "policy_id": "e-policy-case-083",
+    "principal": "travel-agent",
+    "schema_version": 1,
+    "tool_interface": {
+      "allowed_actions": [
+        "create"
+      ],
+      "argument_roles": {
+        "approval": "approval_evidence",
+        "booking": "resource",
+        "hotel": "destination",
+        "price": "amount"
+      },
+      "name": "finalize_booking"
+    }
+  },
+  "transport_failures": []
+}

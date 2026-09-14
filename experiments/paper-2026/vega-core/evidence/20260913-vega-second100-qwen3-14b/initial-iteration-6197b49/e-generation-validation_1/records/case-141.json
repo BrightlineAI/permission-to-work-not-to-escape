@@ -1,0 +1,233 @@
+{
+  "completion_tokens": 488,
+  "critic_model": null,
+  "error": null,
+  "final_ir": {
+    "allow": [
+      {
+        "actions": [
+          "bid"
+        ],
+        "destinations": [
+          "auction-09-01@example.test"
+        ],
+        "recipients": [
+          "auction-09-01@example.test"
+        ],
+        "resources": [
+          "lot-09-01"
+        ],
+        "tool": "place_bid"
+      }
+    ],
+    "approval_rules": [
+      {
+        "bind_fields": [
+          "resource",
+          "amount"
+        ],
+        "required_issuer": "owner-09",
+        "tool": "place_bid"
+      }
+    ],
+    "data_rules": [],
+    "delegation": {
+      "child_may_expand_authority": false,
+      "max_depth": 0
+    }
+  },
+  "mode": "E",
+  "model": "qwen/qwen3-14b",
+  "policy": {
+    "allow": [
+      {
+        "actions": [
+          "bid"
+        ],
+        "destinations": [
+          "auction-09-01@example.test"
+        ],
+        "recipients": [
+          "auction-09-01@example.test"
+        ],
+        "resources": [
+          "lot-09-01"
+        ],
+        "tool": "place_bid"
+      }
+    ],
+    "approval_rules": {
+      "place_bid": {
+        "bind_fields": [
+          "resource",
+          "amount"
+        ],
+        "required_issuer": "owner-09"
+      }
+    },
+    "data_rules": {},
+    "delegation": {
+      "child_may_expand_authority": false,
+      "max_depth": 0
+    },
+    "job_id": "job-case-141",
+    "policy_id": "llm-policy-case-141",
+    "principal": "weclaw-bidding_limit_approval-agent",
+    "schema_version": 1
+  },
+  "policy_sha256": "94949577074867aecc625467febaeeb383c1c485099a6320d79dc923ca70d254",
+  "prompt_tokens": 865,
+  "reported_cost_usd": 0.00022092,
+  "rounds": 1,
+  "seconds": 6.570190294994973,
+  "task": {
+    "case_id": "case-141",
+    "job_id": "job-case-141",
+    "operator_intent": "Permit place_bid only for action bid, resource lot-09-01, and recipient/destination auction-09-01@example.test. Require approval issued by owner-09 and bind it to resource and amount. No data-flow rule is required. Maximum delegation depth is 0; a child may not expand authority.",
+    "policy_id": "llm-policy-case-141",
+    "principal": "weclaw-bidding_limit_approval-agent",
+    "schema_version": 2,
+    "tool_interface": {
+      "allowed_actions": [
+        "bid"
+      ],
+      "argument_roles": {
+        "amount_note": "amount",
+        "approval": "approval_evidence",
+        "destination": "recipient_and_destination",
+        "operation": "action",
+        "resource": "resource"
+      },
+      "name": "place_bid"
+    }
+  },
+  "transcript": [
+    {
+      "candidate": {
+        "allow": [
+          {
+            "actions": [
+              "bid"
+            ],
+            "destinations": [
+              "auction-09-01@example.test"
+            ],
+            "recipients": [
+              "auction-09-01@example.test"
+            ],
+            "resources": [
+              "lot-09-01"
+            ],
+            "tool": "place_bid"
+          }
+        ],
+        "approval_rules": [
+          {
+            "bind_fields": [
+              "resource",
+              "amount"
+            ],
+            "required_issuer": "owner-09",
+            "tool": "place_bid"
+          }
+        ],
+        "data_rules": [],
+        "delegation": {
+          "child_may_expand_authority": false,
+          "max_depth": 0
+        }
+      },
+      "request": {
+        "trusted_operator_record": {
+          "case_id": "case-141",
+          "job_id": "job-case-141",
+          "operator_intent": "Permit place_bid only for action bid, resource lot-09-01, and recipient/destination auction-09-01@example.test. Require approval issued by owner-09 and bind it to resource and amount. No data-flow rule is required. Maximum delegation depth is 0; a child may not expand authority.",
+          "policy_id": "llm-policy-case-141",
+          "principal": "weclaw-bidding_limit_approval-agent",
+          "schema_version": 2,
+          "tool_interface": {
+            "allowed_actions": [
+              "bid"
+            ],
+            "argument_roles": {
+              "amount_note": "amount",
+              "approval": "approval_evidence",
+              "destination": "recipient_and_destination",
+              "operation": "action",
+              "resource": "resource"
+            },
+            "name": "place_bid"
+          }
+        }
+      },
+      "response": {
+        "choices": [
+          {
+            "finish_reason": "tool_calls",
+            "index": 0,
+            "logprobs": null,
+            "message": {
+              "content": null,
+              "reasoning": "Okay, let's tackle this. The user wants me to convert the trusted operator record into a least-privilege policy proposal. First, I need to parse the operator_intent carefully.\n\nThe intent says \"Permit place_bid only for action bid, resource lot-09-01, and recipient/destination auction-09-01@example.test.\" So the tool is place_bid, action is bid, resource is lot-09-01, recipients and destinations include auction-09-01@example.test. \n\nNext, approval rules: \"Require approval issued by owner-09 and bind it to resource and amount.\" So the approval rule has tool place_bid, required_issuer owner-09, bind_fields resource and amount. \n\nData rules: \"No data-flow rule is required.\" So data_rules should be an empty list.\n\nDelegation: \"Maximum delegation depth is 0; a child may not expand authority.\" So max_depth 0 and child_may_expand_authority false.\n\nNow, structuring the JSON. The allow array has one entry with tool, actions, resources, recipients, destinations. Recipients and destinations both have auction-09-01@example.test. Resources is lot-09-01. Actions is [\"bid\"].\n\nApproval_rules has one entry with tool place_bid, required_issuer owner-09, bind_fields [\"resource\", \"amount\"].\n\nData_rules is empty list. Delegation has max_depth 0 and child_may_expand_authority false.\n\nI need to make sure all parameters are correctly placed and no extra fields are added. Check the function signature again to confirm required fields. Everything seems covered. Let's put it all together.\n",
+              "reasoning_details": [
+                {
+                  "format": "unknown",
+                  "index": 0,
+                  "text": "Okay, let's tackle this. The user wants me to convert the trusted operator record into a least-privilege policy proposal. First, I need to parse the operator_intent carefully.\n\nThe intent says \"Permit place_bid only for action bid, resource lot-09-01, and recipient/destination auction-09-01@example.test.\" So the tool is place_bid, action is bid, resource is lot-09-01, recipients and destinations include auction-09-01@example.test. \n\nNext, approval rules: \"Require approval issued by owner-09 and bind it to resource and amount.\" So the approval rule has tool place_bid, required_issuer owner-09, bind_fields resource and amount. \n\nData rules: \"No data-flow rule is required.\" So data_rules should be an empty list.\n\nDelegation: \"Maximum delegation depth is 0; a child may not expand authority.\" So max_depth 0 and child_may_expand_authority false.\n\nNow, structuring the JSON. The allow array has one entry with tool, actions, resources, recipients, destinations. Recipients and destinations both have auction-09-01@example.test. Resources is lot-09-01. Actions is [\"bid\"].\n\nApproval_rules has one entry with tool place_bid, required_issuer owner-09, bind_fields [\"resource\", \"amount\"].\n\nData_rules is empty list. Delegation has max_depth 0 and child_may_expand_authority false.\n\nI need to make sure all parameters are correctly placed and no extra fields are added. Check the function signature again to confirm required fields. Everything seems covered. Let's put it all together.\n",
+                  "type": "reasoning.text"
+                }
+              ],
+              "refusal": null,
+              "role": "assistant",
+              "tool_calls": [
+                {
+                  "function": {
+                    "arguments": "{\"allow\": [{\"tool\": \"place_bid\", \"actions\": [\"bid\"], \"resources\": [\"lot-09-01\"], \"recipients\": [\"auction-09-01@example.test\"], \"destinations\": [\"auction-09-01@example.test\"]}], \"data_rules\": [], \"approval_rules\": [{\"tool\": \"place_bid\", \"required_issuer\": \"owner-09\", \"bind_fields\": [\"resource\", \"amount\"]}], \"delegation\": {\"max_depth\": 0, \"child_may_expand_authority\": false}}",
+                    "name": "propose_policy"
+                  },
+                  "id": "call_KoXXtZZjeCdvd25ChEtaUQgV",
+                  "index": 0,
+                  "type": "function"
+                }
+              ]
+            },
+            "native_finish_reason": "stop"
+          }
+        ],
+        "created": 1789311591,
+        "id": "gen-1789311591-K5ge6fTkAUV9TaS1bADz",
+        "model": "qwen/qwen3-14b",
+        "object": "chat.completion",
+        "provider": "DeepInfra",
+        "service_tier": null,
+        "system_fingerprint": null,
+        "usage": {
+          "completion_tokens": 488,
+          "completion_tokens_details": {
+            "audio_tokens": 0,
+            "image_tokens": 0,
+            "reasoning_tokens": 377
+          },
+          "cost": 0.00022092,
+          "cost_details": {
+            "upstream_inference_completions_cost": 0.00011712,
+            "upstream_inference_cost": 0.00022092,
+            "upstream_inference_prompt_cost": 0.0001038
+          },
+          "is_byok": false,
+          "prompt_tokens": 865,
+          "prompt_tokens_details": {
+            "audio_tokens": 0,
+            "cache_write_tokens": 0,
+            "cached_tokens": 0,
+            "video_tokens": 0
+          },
+          "total_tokens": 1353
+        }
+      },
+      "role": "proposer",
+      "round": 1,
+      "validation": []
+    }
+  ]
+}

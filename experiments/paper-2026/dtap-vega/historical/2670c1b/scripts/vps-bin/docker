@@ -1,0 +1,8 @@
+#!/bin/sh
+# The benchmark account has passwordless sudo for Docker but no socket-group
+# membership. Keep this wrapper inside the isolated benchmark package.
+exec sudo -n env \
+  "OS_FILESYSTEM_API_PORT=${OS_FILESYSTEM_API_PORT:-}" \
+  "OS_FILESYSTEM_PROJECT_NAME=${OS_FILESYSTEM_PROJECT_NAME:-}" \
+  "COMPOSE_PROJECT_NAME=${COMPOSE_PROJECT_NAME:-}" \
+  /usr/bin/docker "$@"

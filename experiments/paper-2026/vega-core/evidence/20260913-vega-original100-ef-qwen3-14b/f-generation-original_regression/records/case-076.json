@@ -1,0 +1,376 @@
+{
+  "completion_tokens": 1055,
+  "critic_model": "qwen/qwen3-14b",
+  "error": null,
+  "final_ir": {
+    "allow": [
+      {
+        "actions": [
+          "sync"
+        ],
+        "destinations": [
+          "team-backup-16"
+        ],
+        "recipients": [],
+        "resources": [
+          "/case/project-16/readme.txt",
+          "/case/project-16/.env"
+        ],
+        "tool": "sync_file"
+      }
+    ],
+    "approval_rules": [],
+    "data_rules": [
+      {
+        "allowed_destinations": [
+          "restricted-vault-16"
+        ],
+        "label": "confidential"
+      }
+    ],
+    "delegation": {
+      "child_may_expand_authority": false,
+      "max_depth": 0
+    }
+  },
+  "mode": "F",
+  "model": "qwen/qwen3-14b",
+  "policy": {
+    "allow": [
+      {
+        "actions": [
+          "sync"
+        ],
+        "destinations": [
+          "team-backup-16"
+        ],
+        "recipients": [],
+        "resources": [
+          "/case/project-16/readme.txt",
+          "/case/project-16/.env"
+        ],
+        "tool": "sync_file"
+      }
+    ],
+    "approval_rules": {},
+    "data_rules": {
+      "confidential": {
+        "allowed_destinations": [
+          "restricted-vault-16"
+        ]
+      }
+    },
+    "delegation": {
+      "child_may_expand_authority": false,
+      "max_depth": 0
+    },
+    "job_id": "job-case-076",
+    "policy_id": "e-policy-case-076",
+    "principal": "sync-agent",
+    "schema_version": 1
+  },
+  "policy_sha256": "8b181fced24ae3b30726129a33bd8fdfb9e466be15e6e2f894929939eade9129",
+  "prompt_tokens": 1914,
+  "reported_cost_usd": 0.00048288,
+  "rounds": 1,
+  "seconds": 17.870429315953515,
+  "task": {
+    "case_id": "case-076",
+    "job_id": "job-case-076",
+    "operator_intent": "Permit sync_file action sync from resources /case/project-16/readme.txt and /case/project-16/.env to destination team-backup-16. The source /case/project-16/.env is labeled confidential, and confidential data may go only to restricted-vault-16. No approval is required. Delegation depth is zero and a child may not expand authority.",
+    "policy_id": "e-policy-case-076",
+    "principal": "sync-agent",
+    "schema_version": 1,
+    "tool_interface": {
+      "allowed_actions": [
+        "sync"
+      ],
+      "argument_roles": {
+        "content": "content",
+        "destination": "destination",
+        "source": "resource"
+      },
+      "name": "sync_file"
+    }
+  },
+  "transcript": [
+    {
+      "candidate": {
+        "allow": [
+          {
+            "actions": [
+              "sync"
+            ],
+            "destinations": [
+              "team-backup-16"
+            ],
+            "recipients": [],
+            "resources": [
+              "/case/project-16/readme.txt",
+              "/case/project-16/.env"
+            ],
+            "tool": "sync_file"
+          }
+        ],
+        "approval_rules": [],
+        "data_rules": [
+          {
+            "allowed_destinations": [
+              "restricted-vault-16"
+            ],
+            "label": "confidential"
+          }
+        ],
+        "delegation": {
+          "child_may_expand_authority": false,
+          "max_depth": 0
+        }
+      },
+      "request": {
+        "deterministic_compiler_contract": {
+          "allow_grants_required": 1,
+          "identifier_list_sources": {
+            "destinations": [
+              "destination"
+            ],
+            "recipients": [],
+            "resources": [
+              "source"
+            ]
+          },
+          "literal_scope_may_be_declared_in_operator_intent": true,
+          "never_copy_an_identifier_to_another_role_without_an_explicit_declaration": true,
+          "ordinary_allow_and_labeled_data_rule_are_distinct_layers": true
+        },
+        "trusted_operator_record": {
+          "case_id": "case-076",
+          "job_id": "job-case-076",
+          "operator_intent": "Permit sync_file action sync from resources /case/project-16/readme.txt and /case/project-16/.env to destination team-backup-16. The source /case/project-16/.env is labeled confidential, and confidential data may go only to restricted-vault-16. No approval is required. Delegation depth is zero and a child may not expand authority.",
+          "policy_id": "e-policy-case-076",
+          "principal": "sync-agent",
+          "schema_version": 1,
+          "tool_interface": {
+            "allowed_actions": [
+              "sync"
+            ],
+            "argument_roles": {
+              "content": "content",
+              "destination": "destination",
+              "source": "resource"
+            },
+            "name": "sync_file"
+          }
+        }
+      },
+      "response": {
+        "choices": [
+          {
+            "finish_reason": "tool_calls",
+            "index": 0,
+            "logprobs": null,
+            "message": {
+              "content": null,
+              "reasoning": "Okay, let's start by parsing the user's input. The user provided a deterministic_compiler_contract and a trusted_operator_record. My job is to convert the operator record into a least-privilege policy proposal following the given rules.\n\nFirst, looking at the operator_intent: \"Permit sync_file action sync from resources /case/project-16/readme.txt and /case/project-16/.env to destination team-backup-16. The source /case/project-16/.env is labeled confidential, and confidential data may go only to restricted-vault-16. No approval is required. Delegation depth is zero and a child may not expand authority.\"\n\nFrom this, the main action is sync_file with the sync action. The resources are the two files mentioned. The destination is team-backup-16, but there's a special case for the confidential-labeled .env file, which can only go to restricted-vault-16. \n\nThe tool_interface has allowed_actions as [\"sync\"], and argument_roles: content is content, destination is destination, source is resource. So the resources are the sources, and the destination is team-backup-16. However, the confidential data has a restricted destination.\n\nThe allow section needs the tool (sync_file), actions [\"sync\"], resources are the two files, recipients are empty (since the operator_intent doesn't mention recipients), and destinations are team-backup-16. Wait, but the .env is labeled confidential and needs to go to restricted-vault-16. But the main destination is team-backup-16. So the ordinary allow destination is team-backup-16, but the data rule for confidential label restricts to restricted-vault-16. \n\nSo data_rules should have a label \"confidential\" with allowed_destinations [\"restricted-vault-16\"]. \n\nApproval rules: the operator says no approval is required, so approval_rules should be an empty list. \n\nDelegation: max_depth is 0, child_may_expand_authority is false. \n\nI need to make sure that the resources are correctly listed, the destinations in allow are team-backup-16, and the data rule for confidential is in data_rules. Also, recipients are empty as per the operator's intent. \n\nCheck if the tool name is sync_file, actions is [\"sync\"], resources are the two files, destinations are [\"team-backup-16\"], recipients are empty. Data rules have the confidential label with restricted-vault-16. Approval rules are empty. Delegation is max_depth 0 and child_may_expand_authority false. \n\nYes, that seems correct. Now structure the JSON accordingly.\n",
+              "reasoning_details": [
+                {
+                  "format": "unknown",
+                  "index": 0,
+                  "text": "Okay, let's start by parsing the user's input. The user provided a deterministic_compiler_contract and a trusted_operator_record. My job is to convert the operator record into a least-privilege policy proposal following the given rules.\n\nFirst, looking at the operator_intent: \"Permit sync_file action sync from resources /case/project-16/readme.txt and /case/project-16/.env to destination team-backup-16. The source /case/project-16/.env is labeled confidential, and confidential data may go only to restricted-vault-16. No approval is required. Delegation depth is zero and a child may not expand authority.\"\n\nFrom this, the main action is sync_file with the sync action. The resources are the two files mentioned. The destination is team-backup-16, but there's a special case for the confidential-labeled .env file, which can only go to restricted-vault-16. \n\nThe tool_interface has allowed_actions as [\"sync\"], and argument_roles: content is content, destination is destination, source is resource. So the resources are the sources, and the destination is team-backup-16. However, the confidential data has a restricted destination.\n\nThe allow section needs the tool (sync_file), actions [\"sync\"], resources are the two files, recipients are empty (since the operator_intent doesn't mention recipients), and destinations are team-backup-16. Wait, but the .env is labeled confidential and needs to go to restricted-vault-16. But the main destination is team-backup-16. So the ordinary allow destination is team-backup-16, but the data rule for confidential label restricts to restricted-vault-16. \n\nSo data_rules should have a label \"confidential\" with allowed_destinations [\"restricted-vault-16\"]. \n\nApproval rules: the operator says no approval is required, so approval_rules should be an empty list. \n\nDelegation: max_depth is 0, child_may_expand_authority is false. \n\nI need to make sure that the resources are correctly listed, the destinations in allow are team-backup-16, and the data rule for confidential is in data_rules. Also, recipients are empty as per the operator's intent. \n\nCheck if the tool name is sync_file, actions is [\"sync\"], resources are the two files, destinations are [\"team-backup-16\"], recipients are empty. Data rules have the confidential label with restricted-vault-16. Approval rules are empty. Delegation is max_depth 0 and child_may_expand_authority false. \n\nYes, that seems correct. Now structure the JSON accordingly.\n",
+                  "type": "reasoning.text"
+                }
+              ],
+              "refusal": null,
+              "role": "assistant",
+              "tool_calls": [
+                {
+                  "function": {
+                    "arguments": "{\"allow\": [{\"tool\": \"sync_file\", \"actions\": [\"sync\"], \"resources\": [\"/case/project-16/readme.txt\", \"/case/project-16/.env\"], \"recipients\": [], \"destinations\": [\"team-backup-16\"]}], \"data_rules\": [{\"label\": \"confidential\", \"allowed_destinations\": [\"restricted-vault-16\"]}], \"approval_rules\": [], \"delegation\": {\"max_depth\": 0, \"child_may_expand_authority\": false}}",
+                    "name": "propose_policy"
+                  },
+                  "id": "call_yFE8GMPTxNr3Il2j2QUpo6Ax",
+                  "index": 0,
+                  "type": "function"
+                }
+              ]
+            },
+            "native_finish_reason": "stop"
+          }
+        ],
+        "created": 1789315686,
+        "id": "gen-1789315686-NOqyyqaenyFsNKwtBRcd",
+        "model": "qwen/qwen3-14b",
+        "object": "chat.completion",
+        "provider": "DeepInfra",
+        "service_tier": null,
+        "system_fingerprint": null,
+        "usage": {
+          "completion_tokens": 679,
+          "completion_tokens_details": {
+            "audio_tokens": 0,
+            "image_tokens": 0,
+            "reasoning_tokens": 621
+          },
+          "cost": 0.00029172,
+          "cost_details": {
+            "upstream_inference_completions_cost": 0.00016296,
+            "upstream_inference_cost": 0.00029172,
+            "upstream_inference_prompt_cost": 0.00012876
+          },
+          "is_byok": false,
+          "prompt_tokens": 1073,
+          "prompt_tokens_details": {
+            "audio_tokens": 0,
+            "cache_write_tokens": 0,
+            "cached_tokens": 0,
+            "video_tokens": 0
+          },
+          "total_tokens": 1752
+        }
+      },
+      "role": "proposer",
+      "round": 1,
+      "validation": []
+    },
+    {
+      "request": {
+        "candidate_policy": {
+          "allow": [
+            {
+              "actions": [
+                "sync"
+              ],
+              "destinations": [
+                "team-backup-16"
+              ],
+              "recipients": [],
+              "resources": [
+                "/case/project-16/readme.txt",
+                "/case/project-16/.env"
+              ],
+              "tool": "sync_file"
+            }
+          ],
+          "approval_rules": [],
+          "data_rules": [
+            {
+              "allowed_destinations": [
+                "restricted-vault-16"
+              ],
+              "label": "confidential"
+            }
+          ],
+          "delegation": {
+            "child_may_expand_authority": false,
+            "max_depth": 0
+          }
+        },
+        "deterministic_compiler_contract": {
+          "allow_grants_required": 1,
+          "identifier_list_sources": {
+            "destinations": [
+              "destination"
+            ],
+            "recipients": [],
+            "resources": [
+              "source"
+            ]
+          },
+          "literal_scope_may_be_declared_in_operator_intent": true,
+          "never_copy_an_identifier_to_another_role_without_an_explicit_declaration": true,
+          "ordinary_allow_and_labeled_data_rule_are_distinct_layers": true
+        },
+        "deterministic_validation_findings": [],
+        "trusted_operator_record": {
+          "case_id": "case-076",
+          "job_id": "job-case-076",
+          "operator_intent": "Permit sync_file action sync from resources /case/project-16/readme.txt and /case/project-16/.env to destination team-backup-16. The source /case/project-16/.env is labeled confidential, and confidential data may go only to restricted-vault-16. No approval is required. Delegation depth is zero and a child may not expand authority.",
+          "policy_id": "e-policy-case-076",
+          "principal": "sync-agent",
+          "schema_version": 1,
+          "tool_interface": {
+            "allowed_actions": [
+              "sync"
+            ],
+            "argument_roles": {
+              "content": "content",
+              "destination": "destination",
+              "source": "resource"
+            },
+            "name": "sync_file"
+          }
+        }
+      },
+      "response": {
+        "choices": [
+          {
+            "finish_reason": "tool_calls",
+            "index": 0,
+            "logprobs": null,
+            "message": {
+              "content": null,
+              "reasoning": "Okay, let's tackle this policy review. The candidate policy needs to be checked against the trusted operator record. First, I'll look at the allow grant. The operator intent says to permit the sync_file action syncing specific resources to team-backup-16. The allow section in the candidate policy has the correct actions, destinations, and resources. The resources include both the readme and the .env file, which matches the operator's intent.\n\nNow, the data_rules part. The .env file is labeled confidential, so according to the operator's statement, confidential data should only go to restricted-vault-16. The data_rules in the candidate policy correctly specify allowed_destinations as restricted-vault-16 for the confidential label. That seems right.\n\nApproval rules: the operator mentioned no approval is required, and the approval_rules list is empty, which aligns with that. Delegation settings have child_may_expand_authority as false and max_depth 0, which matches the operator's intent of no delegation expansion and zero depth. \n\nChecking the tool interface's argument_roles: the destination is correctly mapped to \"destination\", and resources are \"source\". The policy doesn't copy identifiers between roles without explicit declarations, which adheres to the deterministic compiler contract. The destinations and data_rules destinations are different as intended, which is allowed since they're separate layers. \n\nNo over-grants or under-grants noticed. Everything seems to align with the operator's explicit scopes and rules. So the policy should be approved.\n",
+              "reasoning_details": [
+                {
+                  "format": "unknown",
+                  "index": 0,
+                  "text": "Okay, let's tackle this policy review. The candidate policy needs to be checked against the trusted operator record. First, I'll look at the allow grant. The operator intent says to permit the sync_file action syncing specific resources to team-backup-16. The allow section in the candidate policy has the correct actions, destinations, and resources. The resources include both the readme and the .env file, which matches the operator's intent.\n\nNow, the data_rules part. The .env file is labeled confidential, so according to the operator's statement, confidential data should only go to restricted-vault-16. The data_rules in the candidate policy correctly specify allowed_destinations as restricted-vault-16 for the confidential label. That seems right.\n\nApproval rules: the operator mentioned no approval is required, and the approval_rules list is empty, which aligns with that. Delegation settings have child_may_expand_authority as false and max_depth 0, which matches the operator's intent of no delegation expansion and zero depth. \n\nChecking the tool interface's argument_roles: the destination is correctly mapped to \"destination\", and resources are \"source\". The policy doesn't copy identifiers between roles without explicit declarations, which adheres to the deterministic compiler contract. The destinations and data_rules destinations are different as intended, which is allowed since they're separate layers. \n\nNo over-grants or under-grants noticed. Everything seems to align with the operator's explicit scopes and rules. So the policy should be approved.\n",
+                  "type": "reasoning.text"
+                }
+              ],
+              "refusal": null,
+              "role": "assistant",
+              "tool_calls": [
+                {
+                  "function": {
+                    "arguments": "{\"approved\": true, \"feedback\": \"Policy aligns with operator intent: allow grants match explicit resources/destination, data_rules enforce confidential label restriction, no approvals required, and delegation constraints are correctly set. No over-grants or missing restrictions detected.\"}",
+                    "name": "review_policy"
+                  },
+                  "id": "call_Fte0ZpAXAHV5VYkjRSvN1xsk",
+                  "index": 0,
+                  "type": "function"
+                }
+              ]
+            },
+            "native_finish_reason": "stop"
+          }
+        ],
+        "created": 1789315697,
+        "id": "gen-1789315697-yXfoDbJxrFyYb2ckUBCV",
+        "model": "qwen/qwen3-14b",
+        "object": "chat.completion",
+        "provider": "DeepInfra",
+        "service_tier": null,
+        "system_fingerprint": null,
+        "usage": {
+          "completion_tokens": 376,
+          "completion_tokens_details": {
+            "audio_tokens": 0,
+            "image_tokens": 0,
+            "reasoning_tokens": 397
+          },
+          "cost": 0.00019116,
+          "cost_details": {
+            "upstream_inference_completions_cost": 9.024e-05,
+            "upstream_inference_cost": 0.00019116,
+            "upstream_inference_prompt_cost": 0.00010092
+          },
+          "is_byok": false,
+          "prompt_tokens": 841,
+          "prompt_tokens_details": {
+            "audio_tokens": 0,
+            "cache_write_tokens": 0,
+            "cached_tokens": 0,
+            "video_tokens": 0
+          },
+          "total_tokens": 1217
+        }
+      },
+      "review": {
+        "approved": true,
+        "feedback": "Policy aligns with operator intent: allow grants match explicit resources/destination, data_rules enforce confidential label restriction, no approvals required, and delegation constraints are correctly set. No over-grants or missing restrictions detected."
+      },
+      "role": "critic",
+      "round": 1
+    }
+  ]
+}

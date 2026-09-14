@@ -1,0 +1,143 @@
+{
+  "configuration": "shared_job",
+  "session_limit": 2,
+  "job_limit": 1,
+  "jobs": {
+    "test-job": {
+      "job_id": "test-job",
+      "violations": 1,
+      "stopped": true,
+      "stopped_ns": 612765733450820,
+      "sessions": {
+        "worker-session": {
+          "session_id": "worker-session",
+          "violations": 0,
+          "paused": false,
+          "paused_ns": null
+        },
+        "parent-session": {
+          "session_id": "parent-session",
+          "violations": 1,
+          "paused": false,
+          "paused_ns": null
+        },
+        "new-session": {
+          "session_id": "new-session",
+          "violations": 0,
+          "paused": false,
+          "paused_ns": null
+        }
+      }
+    },
+    "other-job": {
+      "job_id": "other-job",
+      "violations": 0,
+      "stopped": false,
+      "stopped_ns": null,
+      "sessions": {
+        "other-session": {
+          "session_id": "other-session",
+          "violations": 0,
+          "paused": false,
+          "paused_ns": null
+        }
+      }
+    }
+  },
+  "workloads": {
+    "native-worker": {
+      "workload_id": "native-worker",
+      "job_id": "test-job",
+      "session_id": "worker-session",
+      "worker_id": "ongoing_worker",
+      "container": "pid:948478",
+      "effect_token": "afe90cc316830dcca1e96659fb40ba7badf00c4c",
+      "state": "terminated",
+      "registered_ns": 612749448454189,
+      "completion": null,
+      "termination": {
+        "confirmed_stopped": true
+      }
+    }
+  },
+  "events": [
+    {
+      "sequence": 1,
+      "at_ns": 612749448461143,
+      "kind": "workload_registered",
+      "workload_id": "native-worker",
+      "job_id": "test-job",
+      "session_id": "worker-session",
+      "accepted": true,
+      "state": "running"
+    },
+    {
+      "sequence": 2,
+      "at_ns": 612765733455068,
+      "kind": "transition",
+      "transition": "job_stopped",
+      "job_id": "test-job",
+      "violation_count": 1
+    },
+    {
+      "sequence": 3,
+      "at_ns": 612765733470137,
+      "kind": "decision",
+      "event_id": "verified-trigger-replayed-after-native-observation",
+      "job_id": "test-job",
+      "session_id": "parent-session",
+      "worker_id": "parent",
+      "allowed": false,
+      "reason": "permission_violation",
+      "transitions": [
+        {
+          "sequence": 2,
+          "at_ns": 612765733455068,
+          "kind": "transition",
+          "transition": "job_stopped",
+          "job_id": "test-job",
+          "violation_count": 1
+        }
+      ],
+      "terminate": [
+        "native-worker"
+      ],
+      "job_violations": 1,
+      "session_violations": 1
+    },
+    {
+      "sequence": 4,
+      "at_ns": 612768744375080,
+      "kind": "workload_terminated",
+      "workload_id": "native-worker",
+      "confirmed_stopped": true,
+      "effect_observed": false
+    },
+    {
+      "sequence": 5,
+      "at_ns": 612768744384428,
+      "kind": "decision",
+      "event_id": "late-permitted-request",
+      "job_id": "test-job",
+      "session_id": "new-session",
+      "worker_id": "new-worker",
+      "allowed": false,
+      "reason": "job_stopped",
+      "transitions": [],
+      "terminate": []
+    },
+    {
+      "sequence": 6,
+      "at_ns": 612768744402072,
+      "kind": "decision",
+      "event_id": "other-job-request",
+      "job_id": "other-job",
+      "session_id": "other-session",
+      "worker_id": "other-worker",
+      "allowed": true,
+      "reason": "permission_granted",
+      "transitions": [],
+      "terminate": []
+    }
+  ]
+}

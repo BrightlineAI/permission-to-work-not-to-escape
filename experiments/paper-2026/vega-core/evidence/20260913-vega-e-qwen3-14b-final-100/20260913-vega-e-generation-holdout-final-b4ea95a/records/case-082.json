@@ -1,0 +1,91 @@
+{
+  "error": "SchemaError('approval_rules must name an allowed tool and contain issuer/bind fields')",
+  "policy": null,
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "tool_calls",
+        "index": 0,
+        "logprobs": null,
+        "message": {
+          "content": null,
+          "reasoning": "Okay, let's tackle this. The user wants me to convert the operator's intent into a policy body using the provided function. First, I need to parse the operator_intent carefully.\n\nThe intent says: Permit finalize_booking action create on resource BK-02 at destination hotel-02. It requires approval by corporate-approver bound to resource and amount. Delegation depth one, child can't expand. No data-flow rule.\n\nStarting with the 'allow' section. The tool is finalize_booking, action is create. The resource is BK-02, destination is hotel-02. Recipients aren't mentioned, so maybe leave it as an empty array? Wait, the required fields for allow include recipients. But the intent doesn't mention any recipients. Hmm, the function's required fields for allow are tool, actions, resources, recipients, destinations. So even if not specified, do I need to include recipients as an empty array? The user said \"do not infer permissions not explicit\", but the required fields might require them. Wait, the tool_interface.argument_roles has \"booking\": \"resource\", \"hotel\": \"destination\", \"price\": \"amount\". So resource is BK-02, destination is hotel-02. Recipients aren't mentioned, so maybe it's an empty array? But the required field is there. So I have to include recipients as an empty array.\n\nNext, approval_rules. The intent says requires approval by corporate-approver bound to resource and amount. So approval_rules should have required_issuer as corporate-approver, and bind_fields as [\"resource\", \"amount\"]. The data_rules are supposed to be empty because the intent says no data-flow rule is required. So data_rules is exactly {}.\n\nDelegation: max_depth is 1, child_may_expand_authority is false.\n\nSo putting it all together:\n\nallow array has one entry with tool: finalize_booking, actions: [\"create\"], resources: [\"BK-02\"], recipients: [], destinations: [\"hotel-02\"].\n\napproval_rules: {\"corporate-approver\": {\"required_issuer\": \"corporate-approver\", \"bind_fields\": [\"resource\", \"amount\"]}}.\n\nWait, the approval_rules structure is an object where each key is an approval type, but the intent says \"requires approval issued by corporate-approver\", so maybe the key is the approval_evidence type? Wait, the tool_interface has \"approval\": \"approval_evidence\", so maybe the approval rule is under the approval_evidence key? Wait, the function's approval_rules is an object where each key is an approval type, and each value has required_issuer and bind_fields. But the user's intent says \"requires approval issued by corporate-approver bound to resource and amount.\" So the approval type here is \"approval_evidence\" as per the tool_interface's argument_roles. So the approval_rules should be { \"approval_evidence\": { \"required_issuer\": \"corporate-approver\", \"bind_fields\": [\"resource\", \"amount\"] } }.\n\nBut the user's instruction says to use the exact strings from the intent. The intent says \"approval issued by corporate-approver\", so the required_issuer is \"corporate-approver\". The bind_fields are \"resource\" and \"amount\", which are from the argument_roles. So that's correct.\n\nData_rules must be exactly {} as per the intent.\n\nDelegation: max_depth is 1, child_may_expand_authority is false.\n\nSo the final policy should have all these parts. Let me check again for any missing parts. Recipients were not mentioned, so they are an empty array. Destinations are [\"hotel-02\"], resources [\"BK-02\"], actions [\"create\"], tool \"finalize_booking\".\n",
+          "reasoning_details": [
+            {
+              "format": "unknown",
+              "index": 0,
+              "text": "Okay, let's tackle this. The user wants me to convert the operator's intent into a policy body using the provided function. First, I need to parse the operator_intent carefully.\n\nThe intent says: Permit finalize_booking action create on resource BK-02 at destination hotel-02. It requires approval by corporate-approver bound to resource and amount. Delegation depth one, child can't expand. No data-flow rule.\n\nStarting with the 'allow' section. The tool is finalize_booking, action is create. The resource is BK-02, destination is hotel-02. Recipients aren't mentioned, so maybe leave it as an empty array? Wait, the required fields for allow include recipients. But the intent doesn't mention any recipients. Hmm, the function's required fields for allow are tool, actions, resources, recipients, destinations. So even if not specified, do I need to include recipients as an empty array? The user said \"do not infer permissions not explicit\", but the required fields might require them. Wait, the tool_interface.argument_roles has \"booking\": \"resource\", \"hotel\": \"destination\", \"price\": \"amount\". So resource is BK-02, destination is hotel-02. Recipients aren't mentioned, so maybe it's an empty array? But the required field is there. So I have to include recipients as an empty array.\n\nNext, approval_rules. The intent says requires approval by corporate-approver bound to resource and amount. So approval_rules should have required_issuer as corporate-approver, and bind_fields as [\"resource\", \"amount\"]. The data_rules are supposed to be empty because the intent says no data-flow rule is required. So data_rules is exactly {}.\n\nDelegation: max_depth is 1, child_may_expand_authority is false.\n\nSo putting it all together:\n\nallow array has one entry with tool: finalize_booking, actions: [\"create\"], resources: [\"BK-02\"], recipients: [], destinations: [\"hotel-02\"].\n\napproval_rules: {\"corporate-approver\": {\"required_issuer\": \"corporate-approver\", \"bind_fields\": [\"resource\", \"amount\"]}}.\n\nWait, the approval_rules structure is an object where each key is an approval type, but the intent says \"requires approval issued by corporate-approver\", so maybe the key is the approval_evidence type? Wait, the tool_interface has \"approval\": \"approval_evidence\", so maybe the approval rule is under the approval_evidence key? Wait, the function's approval_rules is an object where each key is an approval type, and each value has required_issuer and bind_fields. But the user's intent says \"requires approval issued by corporate-approver bound to resource and amount.\" So the approval type here is \"approval_evidence\" as per the tool_interface's argument_roles. So the approval_rules should be { \"approval_evidence\": { \"required_issuer\": \"corporate-approver\", \"bind_fields\": [\"resource\", \"amount\"] } }.\n\nBut the user's instruction says to use the exact strings from the intent. The intent says \"approval issued by corporate-approver\", so the required_issuer is \"corporate-approver\". The bind_fields are \"resource\" and \"amount\", which are from the argument_roles. So that's correct.\n\nData_rules must be exactly {} as per the intent.\n\nDelegation: max_depth is 1, child_may_expand_authority is false.\n\nSo the final policy should have all these parts. Let me check again for any missing parts. Recipients were not mentioned, so they are an empty array. Destinations are [\"hotel-02\"], resources [\"BK-02\"], actions [\"create\"], tool \"finalize_booking\".\n",
+              "type": "reasoning.text"
+            }
+          ],
+          "refusal": null,
+          "role": "assistant",
+          "tool_calls": [
+            {
+              "function": {
+                "arguments": "{\"allow\": [{\"tool\": \"finalize_booking\", \"actions\": [\"create\"], \"resources\": [\"BK-02\"], \"recipients\": [], \"destinations\": [\"hotel-02\"]}], \"data_rules\": {}, \"approval_rules\": {\"approval_evidence\": {\"required_issuer\": \"corporate-approver\", \"bind_fields\": [\"resource\", \"amount\"]}}, \"delegation\": {\"max_depth\": 1, \"child_may_expand_authority\": false}}",
+                "name": "emit_policy"
+              },
+              "id": "call_5zxHlxxH5UttGcySsdTq4zv7",
+              "index": 0,
+              "type": "function"
+            }
+          ]
+        },
+        "native_finish_reason": "stop"
+      }
+    ],
+    "created": 1789290060,
+    "id": "gen-1789290060-YXwr322SAe6FcDvBCJ0Z",
+    "model": "qwen/qwen3-14b",
+    "object": "chat.completion",
+    "provider": "DeepInfra",
+    "service_tier": null,
+    "system_fingerprint": null,
+    "usage": {
+      "completion_tokens": 893,
+      "completion_tokens_details": {
+        "audio_tokens": 0,
+        "image_tokens": 0,
+        "reasoning_tokens": 868
+      },
+      "cost": 0.00031992,
+      "cost_details": {
+        "upstream_inference_completions_cost": 0.00021432,
+        "upstream_inference_cost": 0.00031992,
+        "upstream_inference_prompt_cost": 0.0001056
+      },
+      "is_byok": false,
+      "prompt_tokens": 880,
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cache_write_tokens": 0,
+        "cached_tokens": 0,
+        "video_tokens": 0
+      },
+      "total_tokens": 1773
+    }
+  },
+  "seconds": 11.829868950066157,
+  "task": {
+    "case_id": "case-082",
+    "job_id": "job-case-082",
+    "operator_intent": "Permit finalize_booking action create on resource BK-02 at destination hotel-02. It requires approval issued by corporate-approver bound to resource and amount. Permit delegation depth one, and a child may not expand authority. No data-flow rule is required.",
+    "policy_id": "e-policy-case-082",
+    "principal": "travel-agent",
+    "schema_version": 1,
+    "tool_interface": {
+      "allowed_actions": [
+        "create"
+      ],
+      "argument_roles": {
+        "approval": "approval_evidence",
+        "booking": "resource",
+        "hotel": "destination",
+        "price": "amount"
+      },
+      "name": "finalize_booking"
+    }
+  },
+  "transport_failures": []
+}

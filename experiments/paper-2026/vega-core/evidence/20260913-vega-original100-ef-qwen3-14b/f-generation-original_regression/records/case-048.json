@@ -1,0 +1,385 @@
+{
+  "completion_tokens": 957,
+  "critic_model": "qwen/qwen3-14b",
+  "error": null,
+  "final_ir": {
+    "allow": [
+      {
+        "actions": [
+          "send"
+        ],
+        "destinations": [
+          "owner-08@example.test",
+          "partner-08@example.test"
+        ],
+        "recipients": [
+          "owner-08@example.test",
+          "partner-08@example.test"
+        ],
+        "resources": [
+          "doc-08"
+        ],
+        "tool": "send_message"
+      }
+    ],
+    "approval_rules": [],
+    "data_rules": [
+      {
+        "allowed_destinations": [
+          "owner-08@example.test"
+        ],
+        "label": "confidential"
+      }
+    ],
+    "delegation": {
+      "child_may_expand_authority": false,
+      "max_depth": 0
+    }
+  },
+  "mode": "F",
+  "model": "qwen/qwen3-14b",
+  "policy": {
+    "allow": [
+      {
+        "actions": [
+          "send"
+        ],
+        "destinations": [
+          "owner-08@example.test",
+          "partner-08@example.test"
+        ],
+        "recipients": [
+          "owner-08@example.test",
+          "partner-08@example.test"
+        ],
+        "resources": [
+          "doc-08"
+        ],
+        "tool": "send_message"
+      }
+    ],
+    "approval_rules": {},
+    "data_rules": {
+      "confidential": {
+        "allowed_destinations": [
+          "owner-08@example.test"
+        ]
+      }
+    },
+    "delegation": {
+      "child_may_expand_authority": false,
+      "max_depth": 0
+    },
+    "job_id": "job-case-048",
+    "policy_id": "e-policy-case-048",
+    "principal": "message-agent",
+    "schema_version": 1
+  },
+  "policy_sha256": "80093387673124b0b72c313a6f616326125da34732ed9ac041cc8f21a39d42d6",
+  "prompt_tokens": 1873,
+  "reported_cost_usd": 0.00045443999999999997,
+  "rounds": 1,
+  "seconds": 31.19994566508103,
+  "task": {
+    "case_id": "case-048",
+    "job_id": "job-case-048",
+    "operator_intent": "Permit send_message action send on resource doc-08 to either owner-08@example.test or partner-08@example.test. Data labeled confidential may go only to owner-08@example.test. No approval is required. Delegation depth is zero and a child may not expand authority.",
+    "policy_id": "e-policy-case-048",
+    "principal": "message-agent",
+    "schema_version": 1,
+    "tool_interface": {
+      "allowed_actions": [
+        "send"
+      ],
+      "argument_roles": {
+        "message": "content",
+        "recipient": "recipient_and_destination"
+      },
+      "name": "send_message"
+    }
+  },
+  "transcript": [
+    {
+      "candidate": {
+        "allow": [
+          {
+            "actions": [
+              "send"
+            ],
+            "destinations": [
+              "owner-08@example.test",
+              "partner-08@example.test"
+            ],
+            "recipients": [
+              "owner-08@example.test",
+              "partner-08@example.test"
+            ],
+            "resources": [
+              "doc-08"
+            ],
+            "tool": "send_message"
+          }
+        ],
+        "approval_rules": [],
+        "data_rules": [
+          {
+            "allowed_destinations": [
+              "owner-08@example.test"
+            ],
+            "label": "confidential"
+          }
+        ],
+        "delegation": {
+          "child_may_expand_authority": false,
+          "max_depth": 0
+        }
+      },
+      "request": {
+        "deterministic_compiler_contract": {
+          "allow_grants_required": 1,
+          "identifier_list_sources": {
+            "destinations": [
+              "recipient"
+            ],
+            "recipients": [
+              "recipient"
+            ],
+            "resources": []
+          },
+          "literal_scope_may_be_declared_in_operator_intent": true,
+          "never_copy_an_identifier_to_another_role_without_an_explicit_declaration": true,
+          "ordinary_allow_and_labeled_data_rule_are_distinct_layers": true
+        },
+        "trusted_operator_record": {
+          "case_id": "case-048",
+          "job_id": "job-case-048",
+          "operator_intent": "Permit send_message action send on resource doc-08 to either owner-08@example.test or partner-08@example.test. Data labeled confidential may go only to owner-08@example.test. No approval is required. Delegation depth is zero and a child may not expand authority.",
+          "policy_id": "e-policy-case-048",
+          "principal": "message-agent",
+          "schema_version": 1,
+          "tool_interface": {
+            "allowed_actions": [
+              "send"
+            ],
+            "argument_roles": {
+              "message": "content",
+              "recipient": "recipient_and_destination"
+            },
+            "name": "send_message"
+          }
+        }
+      },
+      "response": {
+        "choices": [
+          {
+            "finish_reason": "tool_calls",
+            "index": 0,
+            "logprobs": null,
+            "message": {
+              "content": null,
+              "reasoning": "Okay, let's tackle this. The user wants me to convert the trusted operator record into a least-privilege policy proposal. I need to make sure I follow all the rules they mentioned.\n\nFirst, looking at the operator intent: Permit send_message action on resource doc-08 to either owner-08@example.test or partner-08@example.test. So the allow part should have the tool as send_message, action send, resource doc-08, recipients including both owners and partners. Wait, the identifier_list_sources says destinations are from recipient, and recipients are from recipient. So the destinations and recipients lists should include those two emails. But the resources are empty in the identifier_list_sources, so the resources array is empty. But the operator mentions the resource doc-08, so I need to include that in the resources array. Wait, the tool_interface has a resource argument? Let me check the tool_interface: the allowed_actions are [\"send\"], and argument_roles have \"recipient\" as recipient_and_destination. The resource isn't mentioned here. But the operator intent explicitly names the resource doc-08. The deterministic_compiler_contract says that if the operator names a literal resource scope even when the adapter has no resource argument, preserve it. So even though the tool_interface doesn't have a resource argument, the operator specified doc-08, so I should include that in resources.\n\nNext, data rules: Data labeled confidential can only go to owner-08@example.test. So the data_rules array should have a label \"confidential\" and allowed_destinations as [\"owner-08@example.test\"]. \n\nApproval rules: The operator says no approval is required. So the approval_rules should be an empty list. \n\nDelegation: Max depth is zero, and child may not expand authority. So delegation.max_depth is 0, child_may_expand_authority is false.\n\nPutting it all together, the allow block has tool send_message, actions [\"send\"], resources [\"doc-08\"], recipients [\"owner-08@example.test\", \"partner-08@example.test\"], and destinations same as recipients. Then data_rules with the confidential label and allowed destination. Approval_rules is empty. Delegation settings as specified.\n",
+              "reasoning_details": [
+                {
+                  "format": "unknown",
+                  "index": 0,
+                  "text": "Okay, let's tackle this. The user wants me to convert the trusted operator record into a least-privilege policy proposal. I need to make sure I follow all the rules they mentioned.\n\nFirst, looking at the operator intent: Permit send_message action on resource doc-08 to either owner-08@example.test or partner-08@example.test. So the allow part should have the tool as send_message, action send, resource doc-08, recipients including both owners and partners. Wait, the identifier_list_sources says destinations are from recipient, and recipients are from recipient. So the destinations and recipients lists should include those two emails. But the resources are empty in the identifier_list_sources, so the resources array is empty. But the operator mentions the resource doc-08, so I need to include that in the resources array. Wait, the tool_interface has a resource argument? Let me check the tool_interface: the allowed_actions are [\"send\"], and argument_roles have \"recipient\" as recipient_and_destination. The resource isn't mentioned here. But the operator intent explicitly names the resource doc-08. The deterministic_compiler_contract says that if the operator names a literal resource scope even when the adapter has no resource argument, preserve it. So even though the tool_interface doesn't have a resource argument, the operator specified doc-08, so I should include that in resources.\n\nNext, data rules: Data labeled confidential can only go to owner-08@example.test. So the data_rules array should have a label \"confidential\" and allowed_destinations as [\"owner-08@example.test\"]. \n\nApproval rules: The operator says no approval is required. So the approval_rules should be an empty list. \n\nDelegation: Max depth is zero, and child may not expand authority. So delegation.max_depth is 0, child_may_expand_authority is false.\n\nPutting it all together, the allow block has tool send_message, actions [\"send\"], resources [\"doc-08\"], recipients [\"owner-08@example.test\", \"partner-08@example.test\"], and destinations same as recipients. Then data_rules with the confidential label and allowed destination. Approval_rules is empty. Delegation settings as specified.\n",
+                  "type": "reasoning.text"
+                }
+              ],
+              "refusal": null,
+              "role": "assistant",
+              "tool_calls": [
+                {
+                  "function": {
+                    "arguments": "{\"allow\": [{\"tool\": \"send_message\", \"actions\": [\"send\"], \"resources\": [\"doc-08\"], \"recipients\": [\"owner-08@example.test\", \"partner-08@example.test\"], \"destinations\": [\"owner-08@example.test\", \"partner-08@example.test\"]}], \"data_rules\": [{\"label\": \"confidential\", \"allowed_destinations\": [\"owner-08@example.test\"]}], \"approval_rules\": [], \"delegation\": {\"max_depth\": 0, \"child_may_expand_authority\": false}}",
+                    "name": "propose_policy"
+                  },
+                  "id": "call_1lJe8hUiEbVoZmi0fCjRiXrU",
+                  "index": 0,
+                  "type": "function"
+                }
+              ]
+            },
+            "native_finish_reason": "stop"
+          }
+        ],
+        "created": 1789315599,
+        "id": "gen-1789315599-xUDGspYJS3D4g3TYmitM",
+        "model": "qwen/qwen3-14b",
+        "object": "chat.completion",
+        "provider": "DeepInfra",
+        "service_tier": null,
+        "system_fingerprint": null,
+        "usage": {
+          "completion_tokens": 588,
+          "completion_tokens_details": {
+            "audio_tokens": 0,
+            "image_tokens": 0,
+            "reasoning_tokens": 548
+          },
+          "cost": 0.00026688,
+          "cost_details": {
+            "upstream_inference_completions_cost": 0.00014112,
+            "upstream_inference_cost": 0.00026688,
+            "upstream_inference_prompt_cost": 0.00012576
+          },
+          "is_byok": false,
+          "prompt_tokens": 1048,
+          "prompt_tokens_details": {
+            "audio_tokens": 0,
+            "cache_write_tokens": 0,
+            "cached_tokens": 0,
+            "video_tokens": 0
+          },
+          "total_tokens": 1636
+        }
+      },
+      "role": "proposer",
+      "round": 1,
+      "validation": []
+    },
+    {
+      "request": {
+        "candidate_policy": {
+          "allow": [
+            {
+              "actions": [
+                "send"
+              ],
+              "destinations": [
+                "owner-08@example.test",
+                "partner-08@example.test"
+              ],
+              "recipients": [
+                "owner-08@example.test",
+                "partner-08@example.test"
+              ],
+              "resources": [
+                "doc-08"
+              ],
+              "tool": "send_message"
+            }
+          ],
+          "approval_rules": [],
+          "data_rules": [
+            {
+              "allowed_destinations": [
+                "owner-08@example.test"
+              ],
+              "label": "confidential"
+            }
+          ],
+          "delegation": {
+            "child_may_expand_authority": false,
+            "max_depth": 0
+          }
+        },
+        "deterministic_compiler_contract": {
+          "allow_grants_required": 1,
+          "identifier_list_sources": {
+            "destinations": [
+              "recipient"
+            ],
+            "recipients": [
+              "recipient"
+            ],
+            "resources": []
+          },
+          "literal_scope_may_be_declared_in_operator_intent": true,
+          "never_copy_an_identifier_to_another_role_without_an_explicit_declaration": true,
+          "ordinary_allow_and_labeled_data_rule_are_distinct_layers": true
+        },
+        "deterministic_validation_findings": [],
+        "trusted_operator_record": {
+          "case_id": "case-048",
+          "job_id": "job-case-048",
+          "operator_intent": "Permit send_message action send on resource doc-08 to either owner-08@example.test or partner-08@example.test. Data labeled confidential may go only to owner-08@example.test. No approval is required. Delegation depth is zero and a child may not expand authority.",
+          "policy_id": "e-policy-case-048",
+          "principal": "message-agent",
+          "schema_version": 1,
+          "tool_interface": {
+            "allowed_actions": [
+              "send"
+            ],
+            "argument_roles": {
+              "message": "content",
+              "recipient": "recipient_and_destination"
+            },
+            "name": "send_message"
+          }
+        }
+      },
+      "response": {
+        "choices": [
+          {
+            "finish_reason": "tool_calls",
+            "index": 0,
+            "logprobs": null,
+            "message": {
+              "content": null,
+              "reasoning": "Okay, let's take a look at this candidate policy. The user wants me to review it based on the trusted operator record. First, I need to check if the allow grant matches the operator's intent. The operator said to permit the send_message action on doc-08 to either owner-08 or partner-08. The allow section in the policy has destinations and recipients set to both those emails, which seems correct.\n\nNext, the data_rules part. The operator mentioned that data labeled confidential should only go to owner-08. The data_rule in the policy has allowed_destinations as owner-08, which aligns with that. The label is \"confidential\" as specified. So that's good.\n\nApproval rules are empty, which matches the operator's note that no approval is required. Delegation settings have child_may_expand_authority as false and max_depth 0, which matches the operator's statement about no delegation expansion and depth zero. \n\nI need to check if there are any over-grants or under-grants. The allow destinations include both owner and partner, which is correct. The data_rule restricts confidential data to owner only. No extra permissions are added. The tool_interface's argument_roles have recipient as recipient_and_destination, which is correctly used in the policy. \n\nNo identifier copying without explicit declaration, and the principal isn't used as a resource or destination. The literal scopes are correctly named. Everything seems to match the operator's intent. So the policy is approved.\n",
+              "reasoning_details": [
+                {
+                  "format": "unknown",
+                  "index": 0,
+                  "text": "Okay, let's take a look at this candidate policy. The user wants me to review it based on the trusted operator record. First, I need to check if the allow grant matches the operator's intent. The operator said to permit the send_message action on doc-08 to either owner-08 or partner-08. The allow section in the policy has destinations and recipients set to both those emails, which seems correct.\n\nNext, the data_rules part. The operator mentioned that data labeled confidential should only go to owner-08. The data_rule in the policy has allowed_destinations as owner-08, which aligns with that. The label is \"confidential\" as specified. So that's good.\n\nApproval rules are empty, which matches the operator's note that no approval is required. Delegation settings have child_may_expand_authority as false and max_depth 0, which matches the operator's statement about no delegation expansion and depth zero. \n\nI need to check if there are any over-grants or under-grants. The allow destinations include both owner and partner, which is correct. The data_rule restricts confidential data to owner only. No extra permissions are added. The tool_interface's argument_roles have recipient as recipient_and_destination, which is correctly used in the policy. \n\nNo identifier copying without explicit declaration, and the principal isn't used as a resource or destination. The literal scopes are correctly named. Everything seems to match the operator's intent. So the policy is approved.\n",
+                  "type": "reasoning.text"
+                }
+              ],
+              "refusal": null,
+              "role": "assistant",
+              "tool_calls": [
+                {
+                  "function": {
+                    "arguments": "{\"approved\": true, \"feedback\": \"Policy aligns with operator intent: allow sends to both owner/partner, data_rules restricts confidential to owner only, no approvals required, and delegation is correctly constrained.\"}",
+                    "name": "review_policy"
+                  },
+                  "id": "call_QHEZ2gv2f6SBVUsc4hPm4DSH",
+                  "index": 0,
+                  "type": "function"
+                }
+              ]
+            },
+            "native_finish_reason": "stop"
+          }
+        ],
+        "created": 1789315625,
+        "id": "gen-1789315625-pEeht66AAFIF7ZD0jirj",
+        "model": "qwen/qwen3-14b",
+        "object": "chat.completion",
+        "provider": "DeepInfra",
+        "service_tier": null,
+        "system_fingerprint": null,
+        "usage": {
+          "completion_tokens": 369,
+          "completion_tokens_details": {
+            "audio_tokens": 0,
+            "image_tokens": 0,
+            "reasoning_tokens": 375
+          },
+          "cost": 0.00018756,
+          "cost_details": {
+            "upstream_inference_completions_cost": 8.856e-05,
+            "upstream_inference_cost": 0.00018756,
+            "upstream_inference_prompt_cost": 9.9e-05
+          },
+          "is_byok": false,
+          "prompt_tokens": 825,
+          "prompt_tokens_details": {
+            "audio_tokens": 0,
+            "cache_write_tokens": 0,
+            "cached_tokens": 0,
+            "video_tokens": 0
+          },
+          "total_tokens": 1194
+        }
+      },
+      "review": {
+        "approved": true,
+        "feedback": "Policy aligns with operator intent: allow sends to both owner/partner, data_rules restricts confidential to owner only, no approvals required, and delegation is correctly constrained."
+      },
+      "role": "critic",
+      "round": 1
+    }
+  ]
+}

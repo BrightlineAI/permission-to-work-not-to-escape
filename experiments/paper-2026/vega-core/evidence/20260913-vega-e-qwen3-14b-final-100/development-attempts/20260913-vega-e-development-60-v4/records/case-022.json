@@ -1,0 +1,119 @@
+{
+  "error": null,
+  "policy": {
+    "allow": [
+      {
+        "actions": [
+          "send"
+        ],
+        "destinations": [
+          "owner-02@example.test"
+        ],
+        "recipients": [
+          "owner-02@example.test"
+        ],
+        "resources": [
+          "trip-02"
+        ],
+        "tool": "send_email"
+      }
+    ],
+    "approval_rules": {},
+    "data_rules": {},
+    "delegation": {
+      "child_may_expand_authority": false,
+      "max_depth": 0
+    },
+    "job_id": "job-case-022",
+    "policy_id": "e-policy-case-022",
+    "principal": "mail-agent",
+    "schema_version": 1
+  },
+  "policy_sha256": "550ae636719f14d61725b1c9043eadae2ec2167c79db5b50415967e43cd6a6c2",
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "tool_calls",
+        "index": 0,
+        "logprobs": null,
+        "message": {
+          "content": null,
+          "reasoning": "Okay, let's tackle this. The user wants me to convert the operator's intent into a policy body using the provided tool. The key points from the intent are:\n\n- Permit the send_email tool only for the \"send\" action on resource \"trip-02\" with recipient and destination \"owner-02@example.test\".\n- No approval or data-flow rules are needed.\n- Delegation depth is zero, and children can't expand authority.\n\nFirst, the \"allow\" section. The tool is send_email, action is send, resource is trip-02. The recipient and destination are both owner-02@example.test. The tool_interface's argument_roles mention that \"recipient\" is recipient_and_destination, so that's why both recipients and destinations include that value.\n\nFor data_rules, the intent says no data-flow rule, so data_rules should be an empty object {}.\n\nApproval_rules also need to be empty {} since there's no approval required.\n\nDelegation: max_depth is 0 and child_may_expand_authority is false.\n\nI need to make sure all the parameters are correctly filled, using exact strings. Check that the required fields are present. The allow array must have at least one entry with all required fields: tool, actions, resources, recipients, destinations. The destinations array here is [owner-02@example.test], same as recipients. \n\nDouble-check that no extra fields are added. The tool name is exactly send_email, actions are [\"send\"], resources [\"trip-02\"], recipients and destinations each have [\"owner-02@example.test\"]. \n\nEverything seems in order. Now structure the JSON accordingly.\n",
+          "reasoning_details": [
+            {
+              "format": "unknown",
+              "index": 0,
+              "text": "Okay, let's tackle this. The user wants me to convert the operator's intent into a policy body using the provided tool. The key points from the intent are:\n\n- Permit the send_email tool only for the \"send\" action on resource \"trip-02\" with recipient and destination \"owner-02@example.test\".\n- No approval or data-flow rules are needed.\n- Delegation depth is zero, and children can't expand authority.\n\nFirst, the \"allow\" section. The tool is send_email, action is send, resource is trip-02. The recipient and destination are both owner-02@example.test. The tool_interface's argument_roles mention that \"recipient\" is recipient_and_destination, so that's why both recipients and destinations include that value.\n\nFor data_rules, the intent says no data-flow rule, so data_rules should be an empty object {}.\n\nApproval_rules also need to be empty {} since there's no approval required.\n\nDelegation: max_depth is 0 and child_may_expand_authority is false.\n\nI need to make sure all the parameters are correctly filled, using exact strings. Check that the required fields are present. The allow array must have at least one entry with all required fields: tool, actions, resources, recipients, destinations. The destinations array here is [owner-02@example.test], same as recipients. \n\nDouble-check that no extra fields are added. The tool name is exactly send_email, actions are [\"send\"], resources [\"trip-02\"], recipients and destinations each have [\"owner-02@example.test\"]. \n\nEverything seems in order. Now structure the JSON accordingly.\n",
+              "type": "reasoning.text"
+            }
+          ],
+          "refusal": null,
+          "role": "assistant",
+          "tool_calls": [
+            {
+              "function": {
+                "arguments": "{\"allow\": [{\"tool\": \"send_email\", \"actions\": [\"send\"], \"resources\": [\"trip-02\"], \"recipients\": [\"owner-02@example.test\"], \"destinations\": [\"owner-02@example.test\"]}], \"data_rules\": {}, \"approval_rules\": {}, \"delegation\": {\"max_depth\": 0, \"child_may_expand_authority\": false}}",
+                "name": "emit_policy"
+              },
+              "id": "call_uQljDfuR07upgp6u47AS7i34",
+              "index": 0,
+              "type": "function"
+            }
+          ]
+        },
+        "native_finish_reason": "stop"
+      }
+    ],
+    "created": 1789289705,
+    "id": "gen-1789289705-pCHuuCoaHyYUdYz9DmJj",
+    "model": "qwen/qwen3-14b",
+    "object": "chat.completion",
+    "provider": "DeepInfra",
+    "service_tier": null,
+    "system_fingerprint": null,
+    "usage": {
+      "completion_tokens": 432,
+      "completion_tokens_details": {
+        "audio_tokens": 0,
+        "image_tokens": 0,
+        "reasoning_tokens": 390
+      },
+      "cost": 0.00020784,
+      "cost_details": {
+        "upstream_inference_completions_cost": 0.00010368,
+        "upstream_inference_cost": 0.00020784,
+        "upstream_inference_prompt_cost": 0.00010416
+      },
+      "is_byok": false,
+      "prompt_tokens": 868,
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cache_write_tokens": 0,
+        "cached_tokens": 0,
+        "video_tokens": 0
+      },
+      "total_tokens": 1300
+    }
+  },
+  "seconds": 9.083725290023722,
+  "task": {
+    "case_id": "case-022",
+    "job_id": "job-case-022",
+    "operator_intent": "Permit tool send_email only for action send on resource trip-02 with recipient and destination owner-02@example.test. No approval or data-flow rule is required. Delegation depth is zero and a child may not expand authority.",
+    "policy_id": "e-policy-case-022",
+    "principal": "mail-agent",
+    "schema_version": 1,
+    "tool_interface": {
+      "allowed_actions": [
+        "send"
+      ],
+      "argument_roles": {
+        "body": "content",
+        "recipient": "recipient_and_destination",
+        "subject": "content"
+      },
+      "name": "send_email"
+    }
+  },
+  "transport_failures": []
+}

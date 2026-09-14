@@ -1,0 +1,127 @@
+{
+  "error": null,
+  "policy": {
+    "allow": [
+      {
+        "actions": [
+          "backup"
+        ],
+        "destinations": [
+          "vault-05-02@example.test"
+        ],
+        "recipients": [
+          "vault-05-02@example.test"
+        ],
+        "resources": [
+          "key-05-02"
+        ],
+        "tool": "backup_key"
+      }
+    ],
+    "approval_rules": {},
+    "data_rules": {
+      "confidential": {
+        "allowed_destinations": [
+          "restricted-vault-05-02"
+        ]
+      }
+    },
+    "delegation": {
+      "child_may_expand_authority": false,
+      "max_depth": 0
+    },
+    "job_id": "job-case-122",
+    "policy_id": "llm-policy-case-122",
+    "principal": "agentdyn-github_ssh_key-agent",
+    "schema_version": 1
+  },
+  "policy_sha256": "3191640186c68118a1b5c4af67568854bb88bd6b67d200931d0bcc0b7c9e98d2",
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "tool_calls",
+        "index": 0,
+        "logprobs": null,
+        "message": {
+          "content": null,
+          "reasoning": "Okay, let's start by parsing the user's input. The trusted_operator_record has the operator's intent, which is to permit the backup_key tool for specific actions, resources, and recipients/destinations. \n\nFirst, the \"allow\" section. The tool is backup_key, action is backup, resource is key-05-02, recipient and destination is vault-05-02@example.test. Since the argument role for destination is recipient_and_destination, that goes into both recipients and destinations. So in the allow array, I'll have the tool, actions as [\"backup\"], resources as [\"key-05-02\"], recipients and destinations both including [\"vault-05-02@example.test\"].\n\nNext, data_rules. The operator says data labeled confidential can only go to restricted-vault-05-02. So under data_rules, the key is \"confidential\" and allowed_destinations is [\"restricted-vault-05-02\"]. \n\nApproval_rules: The intent mentions no approval is required, so approval_rules is an empty object.\n\nDelegation: Max depth is 0 and child may not expand authority. So delegation.max_depth is 0 and child_may_expand_authority is false.\n\nI need to make sure all fields are exactly as specified, no extra permissions. Check that all required fields are present and correct. Then structure the JSON according to the emit_policy function's parameters.\n",
+          "reasoning_details": [
+            {
+              "format": "unknown",
+              "index": 0,
+              "text": "Okay, let's start by parsing the user's input. The trusted_operator_record has the operator's intent, which is to permit the backup_key tool for specific actions, resources, and recipients/destinations. \n\nFirst, the \"allow\" section. The tool is backup_key, action is backup, resource is key-05-02, recipient and destination is vault-05-02@example.test. Since the argument role for destination is recipient_and_destination, that goes into both recipients and destinations. So in the allow array, I'll have the tool, actions as [\"backup\"], resources as [\"key-05-02\"], recipients and destinations both including [\"vault-05-02@example.test\"].\n\nNext, data_rules. The operator says data labeled confidential can only go to restricted-vault-05-02. So under data_rules, the key is \"confidential\" and allowed_destinations is [\"restricted-vault-05-02\"]. \n\nApproval_rules: The intent mentions no approval is required, so approval_rules is an empty object.\n\nDelegation: Max depth is 0 and child may not expand authority. So delegation.max_depth is 0 and child_may_expand_authority is false.\n\nI need to make sure all fields are exactly as specified, no extra permissions. Check that all required fields are present and correct. Then structure the JSON according to the emit_policy function's parameters.\n",
+              "type": "reasoning.text"
+            }
+          ],
+          "refusal": null,
+          "role": "assistant",
+          "tool_calls": [
+            {
+              "function": {
+                "arguments": "{\"allow\": [{\"tool\": \"backup_key\", \"actions\": [\"backup\"], \"resources\": [\"key-05-02\"], \"recipients\": [\"vault-05-02@example.test\"], \"destinations\": [\"vault-05-02@example.test\"]}], \"data_rules\": {\"confidential\": {\"allowed_destinations\": [\"restricted-vault-05-02\"]}}, \"approval_rules\": {}, \"delegation\": {\"max_depth\": 0, \"child_may_expand_authority\": false}}",
+                "name": "emit_policy"
+              },
+              "id": "call_XGxBwMdM7btvTMReCPEL4eY5",
+              "index": 0,
+              "type": "function"
+            }
+          ]
+        },
+        "native_finish_reason": "stop"
+      }
+    ],
+    "created": 1789331433,
+    "id": "gen-1789331433-J6v76SiDJjFTRrtBTjyP",
+    "model": "qwen/qwen3-14b",
+    "object": "chat.completion",
+    "provider": "DeepInfra",
+    "service_tier": null,
+    "system_fingerprint": null,
+    "usage": {
+      "completion_tokens": 422,
+      "completion_tokens_details": {
+        "audio_tokens": 0,
+        "image_tokens": 0,
+        "reasoning_tokens": 326
+      },
+      "cost": 0.00022932,
+      "cost_details": {
+        "upstream_inference_completions_cost": 0.00010128,
+        "upstream_inference_cost": 0.00022932,
+        "upstream_inference_prompt_cost": 0.00012804
+      },
+      "is_byok": false,
+      "prompt_tokens": 1067,
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cache_write_tokens": 0,
+        "cached_tokens": 0,
+        "video_tokens": 0
+      },
+      "total_tokens": 1489
+    }
+  },
+  "seconds": 6.807757115922868,
+  "task": {
+    "case_id": "case-122",
+    "job_id": "job-case-122",
+    "operator_intent": "Permit backup_key only for action backup, resource key-05-02, and recipient/destination vault-05-02@example.test. Data labeled confidential may go only to restricted-vault-05-02. No approval is required. Maximum delegation depth is 0; a child may not expand authority.",
+    "policy_id": "llm-policy-case-122",
+    "principal": "agentdyn-github_ssh_key-agent",
+    "schema_version": 2,
+    "tool_interface": {
+      "allowed_actions": [
+        "backup"
+      ],
+      "argument_roles": {
+        "approval": "approval_evidence",
+        "content": "content",
+        "destination": "recipient_and_destination",
+        "operation": "action",
+        "resource": "resource"
+      },
+      "name": "backup_key"
+    }
+  },
+  "transport_failures": []
+}

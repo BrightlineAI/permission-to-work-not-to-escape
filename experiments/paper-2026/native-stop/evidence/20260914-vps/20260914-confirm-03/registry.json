@@ -1,0 +1,156 @@
+{
+  "configuration": "shared_job",
+  "session_limit": 2,
+  "job_limit": 1,
+  "jobs": {
+    "test-job": {
+      "job_id": "test-job",
+      "violations": 1,
+      "stopped": true,
+      "stopped_ns": 613648429236310,
+      "sessions": {
+        "parent-session": {
+          "session_id": "parent-session",
+          "violations": 1,
+          "paused": false,
+          "paused_ns": null
+        },
+        "worker-session": {
+          "session_id": "worker-session",
+          "violations": 0,
+          "paused": false,
+          "paused_ns": null
+        },
+        "new-session": {
+          "session_id": "new-session",
+          "violations": 0,
+          "paused": false,
+          "paused_ns": null
+        }
+      }
+    },
+    "other-job": {
+      "job_id": "other-job",
+      "violations": 0,
+      "stopped": false,
+      "stopped_ns": null,
+      "sessions": {
+        "new-session": {
+          "session_id": "new-session",
+          "violations": 0,
+          "paused": false,
+          "paused_ns": null
+        }
+      }
+    }
+  },
+  "workloads": {
+    "native-job": {
+      "workload_id": "native-job",
+      "job_id": "test-job",
+      "session_id": "worker-session",
+      "worker_id": "ongoing_worker",
+      "container": "systemd:vega-native-stop-9238f6326e62.service",
+      "effect_token": "9238f6326e62ad9248dc0d411357849c383f2637",
+      "state": "terminated",
+      "registered_ns": 613626408934819,
+      "completion": null,
+      "termination": {
+        "confirmed_stopped": true
+      }
+    }
+  },
+  "events": [
+    {
+      "sequence": 1,
+      "at_ns": 613602155211968,
+      "kind": "decision",
+      "event_id": "initial-job-launch",
+      "job_id": "test-job",
+      "session_id": "parent-session",
+      "worker_id": "parent",
+      "allowed": true,
+      "reason": "permission_granted",
+      "transitions": [],
+      "terminate": []
+    },
+    {
+      "sequence": 2,
+      "at_ns": 613626408939347,
+      "kind": "workload_registered",
+      "workload_id": "native-job",
+      "job_id": "test-job",
+      "session_id": "worker-session",
+      "accepted": true,
+      "state": "running"
+    },
+    {
+      "sequence": 3,
+      "at_ns": 613648429238354,
+      "kind": "transition",
+      "transition": "job_stopped",
+      "job_id": "test-job",
+      "violation_count": 1
+    },
+    {
+      "sequence": 4,
+      "at_ns": 613648429252832,
+      "kind": "decision",
+      "event_id": "verified-trigger-replayed-after-native-observation",
+      "job_id": "test-job",
+      "session_id": "parent-session",
+      "worker_id": "parent",
+      "allowed": false,
+      "reason": "permission_violation",
+      "transitions": [
+        {
+          "sequence": 3,
+          "at_ns": 613648429238354,
+          "kind": "transition",
+          "transition": "job_stopped",
+          "job_id": "test-job",
+          "violation_count": 1
+        }
+      ],
+      "terminate": [
+        "native-job"
+      ],
+      "job_violations": 1,
+      "session_violations": 1
+    },
+    {
+      "sequence": 5,
+      "at_ns": 613654492230394,
+      "kind": "workload_terminated",
+      "workload_id": "native-job",
+      "confirmed_stopped": true,
+      "effect_observed": false
+    },
+    {
+      "sequence": 6,
+      "at_ns": 613654492306482,
+      "kind": "decision",
+      "event_id": "late-request",
+      "job_id": "test-job",
+      "session_id": "new-session",
+      "worker_id": "new-worker",
+      "allowed": false,
+      "reason": "job_stopped",
+      "transitions": [],
+      "terminate": []
+    },
+    {
+      "sequence": 7,
+      "at_ns": 613654492396796,
+      "kind": "decision",
+      "event_id": "unrelated-request",
+      "job_id": "other-job",
+      "session_id": "new-session",
+      "worker_id": "new-worker",
+      "allowed": true,
+      "reason": "permission_granted",
+      "transitions": [],
+      "terminate": []
+    }
+  ]
+}

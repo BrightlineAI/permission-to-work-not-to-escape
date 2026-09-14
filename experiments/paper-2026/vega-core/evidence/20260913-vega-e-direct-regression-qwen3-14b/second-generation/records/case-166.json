@@ -1,0 +1,127 @@
+{
+  "error": null,
+  "policy": {
+    "allow": [
+      {
+        "actions": [
+          "send"
+        ],
+        "destinations": [
+          "care_team-14-01@example.test"
+        ],
+        "recipients": [
+          "care_team-14-01@example.test"
+        ],
+        "resources": [
+          "case-14-01"
+        ],
+        "tool": "send_clinical_summary"
+      }
+    ],
+    "approval_rules": {},
+    "data_rules": {
+      "confidential": {
+        "allowed_destinations": [
+          "restricted-care_team-14-01"
+        ]
+      }
+    },
+    "delegation": {
+      "child_may_expand_authority": false,
+      "max_depth": 0
+    },
+    "job_id": "job-case-166",
+    "policy_id": "llm-policy-case-166",
+    "principal": "weclaw-clinical_disclosure-agent",
+    "schema_version": 1
+  },
+  "policy_sha256": "35b16d3e7c858fc762a3d860a4051e02fae1ef55948bfa8d884bdcd78696ce7d",
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "tool_calls",
+        "index": 0,
+        "logprobs": null,
+        "message": {
+          "content": null,
+          "reasoning": "Okay, let's tackle this. The user wants me to create a Vega least-privilege policy based on the operator's intent. First, I need to parse the operator_intent carefully.\n\nThe operator says to permit send_clinical_summary only for action send, resource case-14-01, and recipient/destination care_team-14-01@example.test. So the tool is send_clinical_summary, action is send, resource is case-14-01, and the recipient and destination is care_team-14-01@example.test. Since the argument role is recipient_and_destination, that goes into both recipients and destinations in the allow block.\n\nNext, data labeled confidential can only go to restricted-care_team-14-01. So in data_rules under \"confidential\", allowed_destinations is [\"restricted-care_team-14-01\"].\n\nNo approval is required, so approval_rules is an empty object.\n\nDelegation max depth is 0 and child may not expand authority. So delegation: { \"max_depth\": 0, \"child_may_expand_authority\": false }.\n\nI need to structure the allow array with the tool, actions, resources, recipients, and destinations. Check that all required fields are present. Also, ensure that data_rules and approval_rules are correctly formatted. No extra permissions or wildcards. Looks like everything is covered.\n",
+          "reasoning_details": [
+            {
+              "format": "unknown",
+              "index": 0,
+              "text": "Okay, let's tackle this. The user wants me to create a Vega least-privilege policy based on the operator's intent. First, I need to parse the operator_intent carefully.\n\nThe operator says to permit send_clinical_summary only for action send, resource case-14-01, and recipient/destination care_team-14-01@example.test. So the tool is send_clinical_summary, action is send, resource is case-14-01, and the recipient and destination is care_team-14-01@example.test. Since the argument role is recipient_and_destination, that goes into both recipients and destinations in the allow block.\n\nNext, data labeled confidential can only go to restricted-care_team-14-01. So in data_rules under \"confidential\", allowed_destinations is [\"restricted-care_team-14-01\"].\n\nNo approval is required, so approval_rules is an empty object.\n\nDelegation max depth is 0 and child may not expand authority. So delegation: { \"max_depth\": 0, \"child_may_expand_authority\": false }.\n\nI need to structure the allow array with the tool, actions, resources, recipients, and destinations. Check that all required fields are present. Also, ensure that data_rules and approval_rules are correctly formatted. No extra permissions or wildcards. Looks like everything is covered.\n",
+              "type": "reasoning.text"
+            }
+          ],
+          "refusal": null,
+          "role": "assistant",
+          "tool_calls": [
+            {
+              "function": {
+                "arguments": "{\"allow\": [{\"tool\": \"send_clinical_summary\", \"actions\": [\"send\"], \"resources\": [\"case-14-01\"], \"recipients\": [\"care_team-14-01@example.test\"], \"destinations\": [\"care_team-14-01@example.test\"]}], \"data_rules\": {\"confidential\": {\"allowed_destinations\": [\"restricted-care_team-14-01\"]}}, \"approval_rules\": {}, \"delegation\": {\"max_depth\": 0, \"child_may_expand_authority\": false}}",
+                "name": "emit_policy"
+              },
+              "id": "call_xJ2C7gR94HcDOBRL4wwIk6MW",
+              "index": 0,
+              "type": "function"
+            }
+          ]
+        },
+        "native_finish_reason": "stop"
+      }
+    ],
+    "created": 1789331480,
+    "id": "gen-1789331480-1I130bhElmiEq6uYRO88",
+    "model": "qwen/qwen3-14b",
+    "object": "chat.completion",
+    "provider": "DeepInfra",
+    "service_tier": null,
+    "system_fingerprint": null,
+    "usage": {
+      "completion_tokens": 420,
+      "completion_tokens_details": {
+        "audio_tokens": 0,
+        "image_tokens": 0,
+        "reasoning_tokens": 315
+      },
+      "cost": 0.00022992,
+      "cost_details": {
+        "upstream_inference_completions_cost": 0.0001008,
+        "upstream_inference_cost": 0.00022992,
+        "upstream_inference_prompt_cost": 0.00012912
+      },
+      "is_byok": false,
+      "prompt_tokens": 1076,
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cache_write_tokens": 0,
+        "cached_tokens": 0,
+        "video_tokens": 0
+      },
+      "total_tokens": 1496
+    }
+  },
+  "seconds": 8.786022375919856,
+  "task": {
+    "case_id": "case-166",
+    "job_id": "job-case-166",
+    "operator_intent": "Permit send_clinical_summary only for action send, resource case-14-01, and recipient/destination care_team-14-01@example.test. Data labeled confidential may go only to restricted-care_team-14-01. No approval is required. Maximum delegation depth is 0; a child may not expand authority.",
+    "policy_id": "llm-policy-case-166",
+    "principal": "weclaw-clinical_disclosure-agent",
+    "schema_version": 2,
+    "tool_interface": {
+      "allowed_actions": [
+        "send"
+      ],
+      "argument_roles": {
+        "approval": "approval_evidence",
+        "destination": "recipient_and_destination",
+        "operation": "action",
+        "resource": "resource",
+        "summary": "content"
+      },
+      "name": "send_clinical_summary"
+    }
+  },
+  "transport_failures": []
+}

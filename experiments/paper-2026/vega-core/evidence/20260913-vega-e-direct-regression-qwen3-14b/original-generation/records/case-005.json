@@ -1,0 +1,117 @@
+{
+  "error": null,
+  "policy": {
+    "allow": [
+      {
+        "actions": [
+          "upload_release"
+        ],
+        "destinations": [
+          "release-05.tar.gz"
+        ],
+        "recipients": [],
+        "resources": [
+          "org/assigned-05"
+        ],
+        "tool": "github_mutation"
+      }
+    ],
+    "approval_rules": {},
+    "data_rules": {},
+    "delegation": {
+      "child_may_expand_authority": false,
+      "max_depth": 0
+    },
+    "job_id": "job-case-005",
+    "policy_id": "e-policy-case-005",
+    "principal": "repo-agent",
+    "schema_version": 1
+  },
+  "policy_sha256": "0884d34412178bcbc4ad722dc2660b277874edafbb5377429473fbe19851fa58",
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "tool_calls",
+        "index": 0,
+        "logprobs": null,
+        "message": {
+          "content": null,
+          "reasoning": "Okay, let's tackle this. The user wants me to create a Vega least-privilege policy based on the trusted operator record provided. Let me start by parsing the operator's intent carefully.\n\nThe operator says: Permit tool github_mutation only for action upload_release on resource org/assigned-05 and destination release-05.tar.gz. No approval or data-flow rule is required. Delegation depth is zero and a child may not expand authority.\n\nFirst, the 'allow' section. The tool is github_mutation, action is upload_release, resource is org/assigned-05, destination is release-05.tar.gz. The principal is repo-agent, but the allow entry's principal isn't specified here; wait, the principal is part of the policy's context, maybe not in the allow? Wait, looking back at the tool interface's instructions: the principal is an identity, not a tool, recipient, or destination. So the allow entries don't include the principal; the principal is separate. So in the allow array, each entry has tool, actions, resources, recipients, destinations. \n\nWait, the operator's intent says \"Permit tool github_mutation only for action upload_release on resource org/assigned-05 and destination release-05.tar.gz.\" So the action is upload_release, resource is org/assigned-05, destination is release-05.tar.gz. The tool is github_mutation. The recipients aren't mentioned here. Wait, the tool_interface's argument_roles have \"repository\" as a resource and \"target\" as destination. But the operator's intent mentions destination as release-05.tar.gz, which is the target. So in the allow entry, the tool is github_mutation, actions is [\"upload_release\"], resources is [\"org/assigned-05\"], destinations is [\"release-05.tar.gz\"]. What about recipients? The operator didn't mention any recipients, so recipients array would be empty? Wait, but the tool_interface's argument_roles don't have a recipient role. The operator's intent doesn't mention recipients, so recipients are not included. So the allow entry would have tool: github_mutation, actions: [\"upload_release\"], resources: [\"org/assigned-05\"], recipients: [], destinations: [\"release-05.tar.gz\"].\n\nNext, data_rules. The operator says no data-flow rule is required, so data_rules is {}.\n\nApproval_rules: also no approval required, so approval_rules is {}.\n\nDelegation: max_depth is 0, child_may_expand_authority is false. So delegation: { \"max_depth\": 0, \"child_may_expand_authority\": false }.\n\nNow, check if all required fields are included. The allow array must have at least one entry. The tool, actions, resources, recipients, destinations are all required in each allow entry. In this case, recipients is an empty array, which is allowed. \n\nWait, the tool_interface's argument_roles have \"repository\" as a resource and \"target\" as a destination. The operator's intent specifies the resource as org/assigned-05 and destination as release-05.tar.gz. So that's correct. \n\nSo putting it all together, the allow array has one object with the specified parameters. Data_rules and approval_rules are empty. Delegation as specified. \n\nI need to make sure that I didn't miss any fields. The operator didn't mention any recipients, so recipients are empty. The destination is explicitly given. No data labels mentioned, so data_rules is empty. No approval required, so approval_rules is empty. Delegation parameters are set as per the operator's statement. \n\nI think that's all. Now, construct the JSON accordingly.\n",
+          "reasoning_details": [
+            {
+              "format": "unknown",
+              "index": 0,
+              "text": "Okay, let's tackle this. The user wants me to create a Vega least-privilege policy based on the trusted operator record provided. Let me start by parsing the operator's intent carefully.\n\nThe operator says: Permit tool github_mutation only for action upload_release on resource org/assigned-05 and destination release-05.tar.gz. No approval or data-flow rule is required. Delegation depth is zero and a child may not expand authority.\n\nFirst, the 'allow' section. The tool is github_mutation, action is upload_release, resource is org/assigned-05, destination is release-05.tar.gz. The principal is repo-agent, but the allow entry's principal isn't specified here; wait, the principal is part of the policy's context, maybe not in the allow? Wait, looking back at the tool interface's instructions: the principal is an identity, not a tool, recipient, or destination. So the allow entries don't include the principal; the principal is separate. So in the allow array, each entry has tool, actions, resources, recipients, destinations. \n\nWait, the operator's intent says \"Permit tool github_mutation only for action upload_release on resource org/assigned-05 and destination release-05.tar.gz.\" So the action is upload_release, resource is org/assigned-05, destination is release-05.tar.gz. The tool is github_mutation. The recipients aren't mentioned here. Wait, the tool_interface's argument_roles have \"repository\" as a resource and \"target\" as destination. But the operator's intent mentions destination as release-05.tar.gz, which is the target. So in the allow entry, the tool is github_mutation, actions is [\"upload_release\"], resources is [\"org/assigned-05\"], destinations is [\"release-05.tar.gz\"]. What about recipients? The operator didn't mention any recipients, so recipients array would be empty? Wait, but the tool_interface's argument_roles don't have a recipient role. The operator's intent doesn't mention recipients, so recipients are not included. So the allow entry would have tool: github_mutation, actions: [\"upload_release\"], resources: [\"org/assigned-05\"], recipients: [], destinations: [\"release-05.tar.gz\"].\n\nNext, data_rules. The operator says no data-flow rule is required, so data_rules is {}.\n\nApproval_rules: also no approval required, so approval_rules is {}.\n\nDelegation: max_depth is 0, child_may_expand_authority is false. So delegation: { \"max_depth\": 0, \"child_may_expand_authority\": false }.\n\nNow, check if all required fields are included. The allow array must have at least one entry. The tool, actions, resources, recipients, destinations are all required in each allow entry. In this case, recipients is an empty array, which is allowed. \n\nWait, the tool_interface's argument_roles have \"repository\" as a resource and \"target\" as a destination. The operator's intent specifies the resource as org/assigned-05 and destination as release-05.tar.gz. So that's correct. \n\nSo putting it all together, the allow array has one object with the specified parameters. Data_rules and approval_rules are empty. Delegation as specified. \n\nI need to make sure that I didn't miss any fields. The operator didn't mention any recipients, so recipients are empty. The destination is explicitly given. No data labels mentioned, so data_rules is empty. No approval required, so approval_rules is empty. Delegation parameters are set as per the operator's statement. \n\nI think that's all. Now, construct the JSON accordingly.\n",
+              "type": "reasoning.text"
+            }
+          ],
+          "refusal": null,
+          "role": "assistant",
+          "tool_calls": [
+            {
+              "function": {
+                "arguments": "{\"allow\": [{\"tool\": \"github_mutation\", \"actions\": [\"upload_release\"], \"resources\": [\"org/assigned-05\"], \"recipients\": [], \"destinations\": [\"release-05.tar.gz\"]}], \"data_rules\": {}, \"approval_rules\": {}, \"delegation\": {\"max_depth\": 0, \"child_may_expand_authority\": false}}",
+                "name": "emit_policy"
+              },
+              "id": "call_5OSktJOhGsyWJ6TnWRcE7pmf",
+              "index": 0,
+              "type": "function"
+            }
+          ]
+        },
+        "native_finish_reason": "stop"
+      }
+    ],
+    "created": 1789331418,
+    "id": "gen-1789331418-HiV9GhTobXL3VdLUHJQo",
+    "model": "qwen/qwen3-14b",
+    "object": "chat.completion",
+    "provider": "DeepInfra",
+    "service_tier": null,
+    "system_fingerprint": null,
+    "usage": {
+      "completion_tokens": 862,
+      "completion_tokens_details": {
+        "audio_tokens": 0,
+        "image_tokens": 0,
+        "reasoning_tokens": 868
+      },
+      "cost": 0.00033036,
+      "cost_details": {
+        "upstream_inference_completions_cost": 0.00020688,
+        "upstream_inference_cost": 0.00033036,
+        "upstream_inference_prompt_cost": 0.00012348
+      },
+      "is_byok": false,
+      "prompt_tokens": 1029,
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cache_write_tokens": 0,
+        "cached_tokens": 0,
+        "video_tokens": 0
+      },
+      "total_tokens": 1891
+    }
+  },
+  "seconds": 13.774791728937998,
+  "task": {
+    "case_id": "case-005",
+    "job_id": "job-case-005",
+    "operator_intent": "Permit tool github_mutation only for action upload_release on resource org/assigned-05 and destination release-05.tar.gz. No approval or data-flow rule is required. Delegation depth is zero and a child may not expand authority.",
+    "policy_id": "e-policy-case-005",
+    "principal": "repo-agent",
+    "schema_version": 1,
+    "tool_interface": {
+      "allowed_actions": [
+        "upload_release"
+      ],
+      "argument_roles": {
+        "operation": "action",
+        "repository": "resource",
+        "target": "destination"
+      },
+      "name": "github_mutation"
+    }
+  },
+  "transport_failures": []
+}

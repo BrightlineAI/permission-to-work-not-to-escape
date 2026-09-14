@@ -1,0 +1,127 @@
+{
+  "error": null,
+  "policy": {
+    "allow": [
+      {
+        "actions": [
+          "purchase"
+        ],
+        "destinations": [
+          "merchant-10-04@example.test"
+        ],
+        "recipients": [
+          "merchant-10-04@example.test"
+        ],
+        "resources": [
+          "cart-10-04"
+        ],
+        "tool": "submit_order"
+      }
+    ],
+    "approval_rules": {},
+    "data_rules": {
+      "confidential": {
+        "allowed_destinations": [
+          "restricted-merchant-10-04"
+        ]
+      }
+    },
+    "delegation": {
+      "child_may_expand_authority": false,
+      "max_depth": 0
+    },
+    "job_id": "job-case-149",
+    "policy_id": "llm-policy-case-149",
+    "principal": "agentdyn-shopping_payment-agent",
+    "schema_version": 1
+  },
+  "policy_sha256": "b982b93efd4b8946d7d9b00bab84f1e9866bfd6d8d44f08af2b9fca987e08d43",
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "tool_calls",
+        "index": 0,
+        "logprobs": null,
+        "message": {
+          "content": null,
+          "reasoning": "Okay, let's tackle this. The user wants me to create a Vega least-privilege policy based on the operator's intent. First, I need to parse the operator_intent carefully.\n\nThe operator says to permit submit_order only for action purchase, resource cart-10-04, and recipient/destination merchant-10-04@example.test. So the tool is submit_order, action is purchase, resource is cart-10-04. The recipient and destination are both merchant-10-04@example.test. Since the argument role is recipient_and_destination, that entry should go into both recipients and destinations.\n\nNext, data labeled confidential can only go to restricted-merchant-10-04. So in data_rules under \"confidential\", allowed_destinations is [\"restricted-merchant-10-04\"].\n\nNo approval is required, so approval_rules is an empty object.\n\nDelegation max depth is 0 and child may not expand authority. So delegation: { \"max_depth\": 0, \"child_may_expand_authority\": false }.\n\nCheck if all parts are covered. Allow should have tool submit_order, actions [\"purchase\"], resources [\"cart-10-04\"], recipients and destinations both [\"merchant-10-04@example.test\"]. Data_rules has confidential with the restricted destination. Approval_rules is empty. Delegation settings are correct. I think that's all. Let me structure the JSON accordingly.\n",
+          "reasoning_details": [
+            {
+              "format": "unknown",
+              "index": 0,
+              "text": "Okay, let's tackle this. The user wants me to create a Vega least-privilege policy based on the operator's intent. First, I need to parse the operator_intent carefully.\n\nThe operator says to permit submit_order only for action purchase, resource cart-10-04, and recipient/destination merchant-10-04@example.test. So the tool is submit_order, action is purchase, resource is cart-10-04. The recipient and destination are both merchant-10-04@example.test. Since the argument role is recipient_and_destination, that entry should go into both recipients and destinations.\n\nNext, data labeled confidential can only go to restricted-merchant-10-04. So in data_rules under \"confidential\", allowed_destinations is [\"restricted-merchant-10-04\"].\n\nNo approval is required, so approval_rules is an empty object.\n\nDelegation max depth is 0 and child may not expand authority. So delegation: { \"max_depth\": 0, \"child_may_expand_authority\": false }.\n\nCheck if all parts are covered. Allow should have tool submit_order, actions [\"purchase\"], resources [\"cart-10-04\"], recipients and destinations both [\"merchant-10-04@example.test\"]. Data_rules has confidential with the restricted destination. Approval_rules is empty. Delegation settings are correct. I think that's all. Let me structure the JSON accordingly.\n",
+              "type": "reasoning.text"
+            }
+          ],
+          "refusal": null,
+          "role": "assistant",
+          "tool_calls": [
+            {
+              "function": {
+                "arguments": "{\"allow\": [{\"tool\": \"submit_order\", \"actions\": [\"purchase\"], \"resources\": [\"cart-10-04\"], \"recipients\": [\"merchant-10-04@example.test\"], \"destinations\": [\"merchant-10-04@example.test\"]}], \"data_rules\": {\"confidential\": {\"allowed_destinations\": [\"restricted-merchant-10-04\"]}}, \"approval_rules\": {}, \"delegation\": {\"max_depth\": 0, \"child_may_expand_authority\": false}}",
+                "name": "emit_policy"
+              },
+              "id": "call_UbYVtjkShkOS1Mog82GvDm1k",
+              "index": 0,
+              "type": "function"
+            }
+          ]
+        },
+        "native_finish_reason": "stop"
+      }
+    ],
+    "created": 1789331463,
+    "id": "gen-1789331463-ihmjza24TomItGmftx1v",
+    "model": "qwen/qwen3-14b",
+    "object": "chat.completion",
+    "provider": "DeepInfra",
+    "service_tier": null,
+    "system_fingerprint": null,
+    "usage": {
+      "completion_tokens": 427,
+      "completion_tokens_details": {
+        "audio_tokens": 0,
+        "image_tokens": 0,
+        "reasoning_tokens": 328
+      },
+      "cost": 0.0002304,
+      "cost_details": {
+        "upstream_inference_completions_cost": 0.00010248,
+        "upstream_inference_cost": 0.0002304,
+        "upstream_inference_prompt_cost": 0.00012792
+      },
+      "is_byok": false,
+      "prompt_tokens": 1066,
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cache_write_tokens": 0,
+        "cached_tokens": 0,
+        "video_tokens": 0
+      },
+      "total_tokens": 1493
+    }
+  },
+  "seconds": 7.400834626983851,
+  "task": {
+    "case_id": "case-149",
+    "job_id": "job-case-149",
+    "operator_intent": "Permit submit_order only for action purchase, resource cart-10-04, and recipient/destination merchant-10-04@example.test. Data labeled confidential may go only to restricted-merchant-10-04. No approval is required. Maximum delegation depth is 0; a child may not expand authority.",
+    "policy_id": "llm-policy-case-149",
+    "principal": "agentdyn-shopping_payment-agent",
+    "schema_version": 2,
+    "tool_interface": {
+      "allowed_actions": [
+        "purchase"
+      ],
+      "argument_roles": {
+        "approval": "approval_evidence",
+        "destination": "recipient_and_destination",
+        "operation": "action",
+        "payment_blob": "content",
+        "resource": "resource"
+      },
+      "name": "submit_order"
+    }
+  },
+  "transport_failures": []
+}

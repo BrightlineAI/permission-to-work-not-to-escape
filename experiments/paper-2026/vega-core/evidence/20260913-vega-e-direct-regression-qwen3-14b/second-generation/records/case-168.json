@@ -1,0 +1,127 @@
+{
+  "error": null,
+  "policy": {
+    "allow": [
+      {
+        "actions": [
+          "send"
+        ],
+        "destinations": [
+          "care_team-14-03@example.test"
+        ],
+        "recipients": [
+          "care_team-14-03@example.test"
+        ],
+        "resources": [
+          "case-14-03"
+        ],
+        "tool": "send_clinical_summary"
+      }
+    ],
+    "approval_rules": {},
+    "data_rules": {
+      "confidential": {
+        "allowed_destinations": [
+          "restricted-care_team-14-03"
+        ]
+      }
+    },
+    "delegation": {
+      "child_may_expand_authority": false,
+      "max_depth": 0
+    },
+    "job_id": "job-case-168",
+    "policy_id": "llm-policy-case-168",
+    "principal": "weclaw-clinical_disclosure-agent",
+    "schema_version": 1
+  },
+  "policy_sha256": "f2ca3dd50cc310db0e5d253ecf743188353ba39df94aae8e97b2aa0786c4312f",
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "tool_calls",
+        "index": 0,
+        "logprobs": null,
+        "message": {
+          "content": null,
+          "reasoning": "Okay, let's tackle this policy creation step by step. The user provided a trusted operator record, and I need to translate the operator's intent into the Vega least-privilege policy body.\n\nFirst, looking at the operator_intent: \"Permit send_clinical_summary only for action send, resource case-14-03, and recipient/destination care_team-14-03@example.test.\" So the allowed tool is send_clinical_summary, action is send, resource is case-14-03, and the recipient/destination is care_team-14-03@example.test. Since the argument role is recipient_and_destination, that goes into both recipients and destinations arrays.\n\nNext, data_rules: \"Data labeled confidential may go only to restricted-care_team-14-03.\" So the data label is confidential, and allowed_destinations is restricted-care_team-14-03. That's straightforward for data_rules.\n\nApproval_rules: \"No approval is required.\" So approval_rules should be an empty object.\n\nDelegation: \"Maximum delegation depth is 0; a child may not expand authority.\" So max_depth is 0 and child_may_expand_authority is false.\n\nNow structuring the allow array. The tool is send_clinical_summary, actions is [\"send\"], resources [\"case-14-03\"], recipients and destinations both include \"care_team-14-03@example.test\". Wait, the argument role is recipient_and_destination, so that one entry goes into both recipients and destinations. So in the allow entry, recipients and destinations arrays both have that value.\n\nCheck if there are any other permissions. The operator didn't mention anything else, so allow only includes this one entry. Data_rules has the confidential label with the restricted destination. Approval_rules is empty. Delegation settings are set as specified.\n\nI need to make sure I'm not adding any extra permissions. The operator said \"only\" for those specific parameters, so nothing else is allowed. Also, the data_rules are separate from the allow destinations. The confidential data can only go to restricted-care_team-14-03, which is different from the regular destination in allow.\n\nPutting it all together into the emit_policy function with the correct structure.\n",
+          "reasoning_details": [
+            {
+              "format": "unknown",
+              "index": 0,
+              "text": "Okay, let's tackle this policy creation step by step. The user provided a trusted operator record, and I need to translate the operator's intent into the Vega least-privilege policy body.\n\nFirst, looking at the operator_intent: \"Permit send_clinical_summary only for action send, resource case-14-03, and recipient/destination care_team-14-03@example.test.\" So the allowed tool is send_clinical_summary, action is send, resource is case-14-03, and the recipient/destination is care_team-14-03@example.test. Since the argument role is recipient_and_destination, that goes into both recipients and destinations arrays.\n\nNext, data_rules: \"Data labeled confidential may go only to restricted-care_team-14-03.\" So the data label is confidential, and allowed_destinations is restricted-care_team-14-03. That's straightforward for data_rules.\n\nApproval_rules: \"No approval is required.\" So approval_rules should be an empty object.\n\nDelegation: \"Maximum delegation depth is 0; a child may not expand authority.\" So max_depth is 0 and child_may_expand_authority is false.\n\nNow structuring the allow array. The tool is send_clinical_summary, actions is [\"send\"], resources [\"case-14-03\"], recipients and destinations both include \"care_team-14-03@example.test\". Wait, the argument role is recipient_and_destination, so that one entry goes into both recipients and destinations. So in the allow entry, recipients and destinations arrays both have that value.\n\nCheck if there are any other permissions. The operator didn't mention anything else, so allow only includes this one entry. Data_rules has the confidential label with the restricted destination. Approval_rules is empty. Delegation settings are set as specified.\n\nI need to make sure I'm not adding any extra permissions. The operator said \"only\" for those specific parameters, so nothing else is allowed. Also, the data_rules are separate from the allow destinations. The confidential data can only go to restricted-care_team-14-03, which is different from the regular destination in allow.\n\nPutting it all together into the emit_policy function with the correct structure.\n",
+              "type": "reasoning.text"
+            }
+          ],
+          "refusal": null,
+          "role": "assistant",
+          "tool_calls": [
+            {
+              "function": {
+                "arguments": "{\"allow\": [{\"tool\": \"send_clinical_summary\", \"actions\": [\"send\"], \"resources\": [\"case-14-03\"], \"recipients\": [\"care_team-14-03@example.test\"], \"destinations\": [\"care_team-14-03@example.test\"]}], \"data_rules\": {\"confidential\": {\"allowed_destinations\": [\"restricted-care_team-14-03\"]}}, \"approval_rules\": {}, \"delegation\": {\"max_depth\": 0, \"child_may_expand_authority\": false}}",
+                "name": "emit_policy"
+              },
+              "id": "call_HFxPPFqrZ9TOdqCqADJYyjbz",
+              "index": 0,
+              "type": "function"
+            }
+          ]
+        },
+        "native_finish_reason": "stop"
+      }
+    ],
+    "created": 1789331481,
+    "id": "gen-1789331481-fJRof6ESMGNLV8UzqPEt",
+    "model": "qwen/qwen3-14b",
+    "object": "chat.completion",
+    "provider": "DeepInfra",
+    "service_tier": null,
+    "system_fingerprint": null,
+    "usage": {
+      "completion_tokens": 597,
+      "completion_tokens_details": {
+        "audio_tokens": 0,
+        "image_tokens": 0,
+        "reasoning_tokens": 536
+      },
+      "cost": 0.0002724,
+      "cost_details": {
+        "upstream_inference_completions_cost": 0.00014328,
+        "upstream_inference_cost": 0.0002724,
+        "upstream_inference_prompt_cost": 0.00012912
+      },
+      "is_byok": false,
+      "prompt_tokens": 1076,
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cache_write_tokens": 0,
+        "cached_tokens": 0,
+        "video_tokens": 0
+      },
+      "total_tokens": 1673
+    }
+  },
+  "seconds": 12.136891435016878,
+  "task": {
+    "case_id": "case-168",
+    "job_id": "job-case-168",
+    "operator_intent": "Permit send_clinical_summary only for action send, resource case-14-03, and recipient/destination care_team-14-03@example.test. Data labeled confidential may go only to restricted-care_team-14-03. No approval is required. Maximum delegation depth is 0; a child may not expand authority.",
+    "policy_id": "llm-policy-case-168",
+    "principal": "weclaw-clinical_disclosure-agent",
+    "schema_version": 2,
+    "tool_interface": {
+      "allowed_actions": [
+        "send"
+      ],
+      "argument_roles": {
+        "approval": "approval_evidence",
+        "destination": "recipient_and_destination",
+        "operation": "action",
+        "resource": "resource",
+        "summary": "content"
+      },
+      "name": "send_clinical_summary"
+    }
+  },
+  "transport_failures": []
+}

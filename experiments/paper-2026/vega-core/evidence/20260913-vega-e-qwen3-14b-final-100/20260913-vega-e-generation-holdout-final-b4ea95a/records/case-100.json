@@ -1,0 +1,91 @@
+{
+  "error": "SchemaError('approval_rules must name an allowed tool and contain issuer/bind fields')",
+  "policy": null,
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "tool_calls",
+        "index": 0,
+        "logprobs": null,
+        "message": {
+          "content": null,
+          "reasoning": "Okay, let's tackle this. The user wants me to convert the operator's intent into a policy body using the provided function. First, I need to parse the operator_intent carefully.\n\nThe intent says: Permit finalize_booking action create on resource BK-20 at destination hotel-20. Requires approval by corporate-approver bound to resource and amount. Delegation depth one, child can't expand. No data-flow rule.\n\nStarting with the 'allow' section. The tool is finalize_booking, action is create. Resource is BK-20, destination is hotel-20. Recipients aren't mentioned, so maybe an empty array? Wait, the required fields for allow include recipients. But the intent doesn't mention any recipients. Hmm, but the function parameters require recipients and destinations. Wait, the tool_interface's argument_roles have 'booking' as resource, 'hotel' as destination, 'price' as amount. The user specified destination hotel-20, so that's in destinations. Recipients aren't mentioned, so maybe leave it as an empty array? But the required fields for allow include recipients. Wait, looking back at the function definition: the allow object's required fields are tool, actions, resources, recipients, destinations. So even if the intent doesn't mention recipients, I have to include recipients as an empty array? Or is it allowed to be missing? Wait, the function parameters specify that the allow items must have those fields. So if the intent doesn't mention recipients, I need to put an empty array there. But the user's intent doesn't mention any recipients, so recipients would be empty.\n\nNext, approval_rules. The intent says requires approval by corporate-approver bound to resource and amount. So approval_rules should have required_issuer as corporate-approver, and bind_fields as resource and amount. The bind_fields are [\"resource\", \"amount\"].\n\nData_rules: the intent says no data-flow rule is required, so data_rules must be exactly {}.\n\nDelegation: max_depth is 1, child_may_expand_authority is false.\n\nNow, checking the tool_interface. The allowed_actions is [\"create\"], which matches the action in the intent. The argument_roles: resource is \"booking\", which in the intent is BK-20. Destination is \"hotel\", which is hotel-20. The amount is \"price\", but the intent doesn't mention a specific amount, just that the approval is bound to resource and amount. So in the approval's bind_fields, we have resource (booking) and amount (price). But the actual values might not be specified here, just the fields.\n\nPutting it all together:\n\nallow: [\n  {\n    tool: \"finalize_booking\",\n    actions: [\"create\"],\n    resources: [\"BK-20\"],\n    recipients: [],\n    destinations: [\"hotel-20\"]\n  }\n]\n\napproval_rules: {\n  \"corporate-approver\": {\n    required_issuer: \"corporate-approver\",\n    bind_fields: [\"resource\", \"amount\"]\n  }\n}\n\nWait, the approval_rules structure is an object where each key is the approval type? Or is it a single entry? The function's approval_rules is an object where each property is an approval rule. But the intent says \"requires approval issued by corporate-approver bound to resource and amount.\" So maybe the approval_rules is { \"corporate-approver\": { required_issuer: \"corporate-approver\", bind_fields: [\"resource\", \"amount\"] } }? Wait, looking at the function's parameters: approval_rules is an object, and each property is an object with required_issuer and bind_fields. So if the approval is required from corporate-approver, then the key would be the approval type, but the intent doesn't specify a type, just the issuer. Wait, maybe the key is the name of the approval, but the user says \"requires approval issued by corporate-approver\", so perhaps the approval rule is under a key that's the name of the approval, but the example isn't clear. However, the function's approval_rules structure is: additionalProperties: { required_issuer, bind_fields }, so the keys are arbitrary, but the user's intent says \"approval issued by corporate-approver\", so maybe the key is \"corporate-approver\" and the value is the rule. Alternatively, maybe the key is the name of the approval type, but the user didn't specify that. Wait, the user's intent says \"requires approval issued by corporate-approver\", so the required_issuer is \"corporate-approver\", and bind_fields are resource and amount. The approval_rules structure is an object where each entry is an approval rule. So perhaps the key is the name of the approval, but the user didn't specify a name, just the issuer. However, the function's parameters for approval_rules require each entry to have required_issuer and bind_fields. So perhaps the key is arbitrary, but the user's intent doesn't specify a name for the approval, so maybe the key is the required_issuer's value, which is \"corporate-approver\". So the approval_rules would be { \"corporate-approver\": { required_issuer: \"corporate-approver\", bind_fields: [\"resource\", \"amount\"] } }.\n\nBut I'm not sure. The function's approval_rules is an object where each key is an approval type, and the value is the rule. However, the user's intent doesn't mention an approval type, just that the approval is issued by corporate-approver. So maybe the key is \"corporate-approver\" and the value is the rule. Alternatively, maybe the key is something else. But the problem says to use exact strings from the intent. The intent says \"approval issued by corporate-approver\", so the required_issuer is \"corporate-approver\", and the bind_fields are resource and amount. The approval_rules should have exactly that. Since the user didn't specify a name for the approval rule, but the function requires the approval_rules to be an object with properties, perhaps the key is the name of the approval, but the intent doesn't specify that. However, the function's parameters for approval_rules have additionalProperties: { required_issuer, bind_fields }, which means that the keys can be any string, but the values must have required_issuer and bind_fields. Since the user's intent doesn't specify a name for the approval, but the required_issuer is \"corporate-approver\", perhaps the key is \"corporate-approver\" and the value is the rule. That seems logical.\n\nSo approval_rules is { \"corporate-approver\": { required_issuer: \"corporate-approver\", bind_fields: [\"resource\", \"amount\"] } }.\n\nData_rules is exactly {} as per the user's instruction.\n\nDelegation has max_depth 1 and child_may_expand_authority false.\n\nNow, checking the required fields for the emit_policy function: allow, data_rules, approval_rules, delegation. All are present.\n\nSo the final JSON should be:\n\n{\n  \"allow\": [\n    {\n      \"tool\": \"finalize_booking\",\n      \"actions\": [\"create\"],\n      \"resources\": [\"BK-20\"],\n      \"recipients\": [],\n      \"destinations\": [\"hotel-20\"]\n    }\n  ],\n  \"data_rules\": {},\n  \"approval_rules\": {\n    \"corporate-approver\": {\n      \"required_issuer\": \"corporate-approver\",\n      \"bind_fields\": [\"resource\", \"amount\"]\n    }\n  },\n  \"delegation\": {\n    \"max_depth\": 1,\n    \"child_may_expand_authority\": false\n  }\n}\n\nI think that's correct. Let me double-check:\n\n- The allow entry has all required fields. Recipients are empty as per the intent.\n- Approval rules are set with the required_issuer and bind_fields.\n- Data_rules is empty.\n- Delegation parameters are set as per the intent.\n",
+          "reasoning_details": [
+            {
+              "format": "unknown",
+              "index": 0,
+              "text": "Okay, let's tackle this. The user wants me to convert the operator's intent into a policy body using the provided function. First, I need to parse the operator_intent carefully.\n\nThe intent says: Permit finalize_booking action create on resource BK-20 at destination hotel-20. Requires approval by corporate-approver bound to resource and amount. Delegation depth one, child can't expand. No data-flow rule.\n\nStarting with the 'allow' section. The tool is finalize_booking, action is create. Resource is BK-20, destination is hotel-20. Recipients aren't mentioned, so maybe an empty array? Wait, the required fields for allow include recipients. But the intent doesn't mention any recipients. Hmm, but the function parameters require recipients and destinations. Wait, the tool_interface's argument_roles have 'booking' as resource, 'hotel' as destination, 'price' as amount. The user specified destination hotel-20, so that's in destinations. Recipients aren't mentioned, so maybe leave it as an empty array? But the required fields for allow include recipients. Wait, looking back at the function definition: the allow object's required fields are tool, actions, resources, recipients, destinations. So even if the intent doesn't mention recipients, I have to include recipients as an empty array? Or is it allowed to be missing? Wait, the function parameters specify that the allow items must have those fields. So if the intent doesn't mention recipients, I need to put an empty array there. But the user's intent doesn't mention any recipients, so recipients would be empty.\n\nNext, approval_rules. The intent says requires approval by corporate-approver bound to resource and amount. So approval_rules should have required_issuer as corporate-approver, and bind_fields as resource and amount. The bind_fields are [\"resource\", \"amount\"].\n\nData_rules: the intent says no data-flow rule is required, so data_rules must be exactly {}.\n\nDelegation: max_depth is 1, child_may_expand_authority is false.\n\nNow, checking the tool_interface. The allowed_actions is [\"create\"], which matches the action in the intent. The argument_roles: resource is \"booking\", which in the intent is BK-20. Destination is \"hotel\", which is hotel-20. The amount is \"price\", but the intent doesn't mention a specific amount, just that the approval is bound to resource and amount. So in the approval's bind_fields, we have resource (booking) and amount (price). But the actual values might not be specified here, just the fields.\n\nPutting it all together:\n\nallow: [\n  {\n    tool: \"finalize_booking\",\n    actions: [\"create\"],\n    resources: [\"BK-20\"],\n    recipients: [],\n    destinations: [\"hotel-20\"]\n  }\n]\n\napproval_rules: {\n  \"corporate-approver\": {\n    required_issuer: \"corporate-approver\",\n    bind_fields: [\"resource\", \"amount\"]\n  }\n}\n\nWait, the approval_rules structure is an object where each key is the approval type? Or is it a single entry? The function's approval_rules is an object where each property is an approval rule. But the intent says \"requires approval issued by corporate-approver bound to resource and amount.\" So maybe the approval_rules is { \"corporate-approver\": { required_issuer: \"corporate-approver\", bind_fields: [\"resource\", \"amount\"] } }? Wait, looking at the function's parameters: approval_rules is an object, and each property is an object with required_issuer and bind_fields. So if the approval is required from corporate-approver, then the key would be the approval type, but the intent doesn't specify a type, just the issuer. Wait, maybe the key is the name of the approval, but the user says \"requires approval issued by corporate-approver\", so perhaps the approval rule is under a key that's the name of the approval, but the example isn't clear. However, the function's approval_rules structure is: additionalProperties: { required_issuer, bind_fields }, so the keys are arbitrary, but the user's intent says \"approval issued by corporate-approver\", so maybe the key is \"corporate-approver\" and the value is the rule. Alternatively, maybe the key is the name of the approval type, but the user didn't specify that. Wait, the user's intent says \"requires approval issued by corporate-approver\", so the required_issuer is \"corporate-approver\", and bind_fields are resource and amount. The approval_rules structure is an object where each entry is an approval rule. So perhaps the key is the name of the approval, but the user didn't specify a name, just the issuer. However, the function's parameters for approval_rules require each entry to have required_issuer and bind_fields. So perhaps the key is arbitrary, but the user's intent doesn't specify a name for the approval, so maybe the key is the required_issuer's value, which is \"corporate-approver\". So the approval_rules would be { \"corporate-approver\": { required_issuer: \"corporate-approver\", bind_fields: [\"resource\", \"amount\"] } }.\n\nBut I'm not sure. The function's approval_rules is an object where each key is an approval type, and the value is the rule. However, the user's intent doesn't mention an approval type, just that the approval is issued by corporate-approver. So maybe the key is \"corporate-approver\" and the value is the rule. Alternatively, maybe the key is something else. But the problem says to use exact strings from the intent. The intent says \"approval issued by corporate-approver\", so the required_issuer is \"corporate-approver\", and the bind_fields are resource and amount. The approval_rules should have exactly that. Since the user didn't specify a name for the approval rule, but the function requires the approval_rules to be an object with properties, perhaps the key is the name of the approval, but the intent doesn't specify that. However, the function's parameters for approval_rules have additionalProperties: { required_issuer, bind_fields }, which means that the keys can be any string, but the values must have required_issuer and bind_fields. Since the user's intent doesn't specify a name for the approval, but the required_issuer is \"corporate-approver\", perhaps the key is \"corporate-approver\" and the value is the rule. That seems logical.\n\nSo approval_rules is { \"corporate-approver\": { required_issuer: \"corporate-approver\", bind_fields: [\"resource\", \"amount\"] } }.\n\nData_rules is exactly {} as per the user's instruction.\n\nDelegation has max_depth 1 and child_may_expand_authority false.\n\nNow, checking the required fields for the emit_policy function: allow, data_rules, approval_rules, delegation. All are present.\n\nSo the final JSON should be:\n\n{\n  \"allow\": [\n    {\n      \"tool\": \"finalize_booking\",\n      \"actions\": [\"create\"],\n      \"resources\": [\"BK-20\"],\n      \"recipients\": [],\n      \"destinations\": [\"hotel-20\"]\n    }\n  ],\n  \"data_rules\": {},\n  \"approval_rules\": {\n    \"corporate-approver\": {\n      \"required_issuer\": \"corporate-approver\",\n      \"bind_fields\": [\"resource\", \"amount\"]\n    }\n  },\n  \"delegation\": {\n    \"max_depth\": 1,\n    \"child_may_expand_authority\": false\n  }\n}\n\nI think that's correct. Let me double-check:\n\n- The allow entry has all required fields. Recipients are empty as per the intent.\n- Approval rules are set with the required_issuer and bind_fields.\n- Data_rules is empty.\n- Delegation parameters are set as per the intent.\n",
+              "type": "reasoning.text"
+            }
+          ],
+          "refusal": null,
+          "role": "assistant",
+          "tool_calls": [
+            {
+              "function": {
+                "arguments": "{\"allow\": [{\"tool\": \"finalize_booking\", \"actions\": [\"create\"], \"resources\": [\"BK-20\"], \"recipients\": [], \"destinations\": [\"hotel-20\"]}], \"data_rules\": {}, \"approval_rules\": {\"corporate-approver\": {\"required_issuer\": \"corporate-approver\", \"bind_fields\": [\"resource\", \"amount\"]}}, \"delegation\": {\"max_depth\": 1, \"child_may_expand_authority\": false}}",
+                "name": "emit_policy"
+              },
+              "id": "call_rBNTHbbhAU6w9mSdQnKDLVSQ",
+              "index": 0,
+              "type": "function"
+            }
+          ]
+        },
+        "native_finish_reason": "stop"
+      }
+    ],
+    "created": 1789290088,
+    "id": "gen-1789290088-jsO048UkjUfshvhTAIGb",
+    "model": "qwen/qwen3-14b",
+    "object": "chat.completion",
+    "provider": "DeepInfra",
+    "service_tier": null,
+    "system_fingerprint": null,
+    "usage": {
+      "completion_tokens": 1774,
+      "completion_tokens_details": {
+        "audio_tokens": 0,
+        "image_tokens": 0,
+        "reasoning_tokens": 1841
+      },
+      "cost": 0.00053136,
+      "cost_details": {
+        "upstream_inference_completions_cost": 0.00042576,
+        "upstream_inference_cost": 0.00053136,
+        "upstream_inference_prompt_cost": 0.0001056
+      },
+      "is_byok": false,
+      "prompt_tokens": 880,
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cache_write_tokens": 0,
+        "cached_tokens": 0,
+        "video_tokens": 0
+      },
+      "total_tokens": 2654
+    }
+  },
+  "seconds": 22.70100242900662,
+  "task": {
+    "case_id": "case-100",
+    "job_id": "job-case-100",
+    "operator_intent": "Permit finalize_booking action create on resource BK-20 at destination hotel-20. It requires approval issued by corporate-approver bound to resource and amount. Permit delegation depth one, and a child may not expand authority. No data-flow rule is required.",
+    "policy_id": "e-policy-case-100",
+    "principal": "travel-agent",
+    "schema_version": 1,
+    "tool_interface": {
+      "allowed_actions": [
+        "create"
+      ],
+      "argument_roles": {
+        "approval": "approval_evidence",
+        "booking": "resource",
+        "hotel": "destination",
+        "price": "amount"
+      },
+      "name": "finalize_booking"
+    }
+  },
+  "transport_failures": []
+}

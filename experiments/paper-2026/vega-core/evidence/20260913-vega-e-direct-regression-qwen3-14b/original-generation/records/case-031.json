@@ -1,0 +1,119 @@
+{
+  "error": null,
+  "policy": {
+    "allow": [
+      {
+        "actions": [
+          "send"
+        ],
+        "destinations": [
+          "owner-11@example.test"
+        ],
+        "recipients": [
+          "owner-11@example.test"
+        ],
+        "resources": [
+          "trip-11"
+        ],
+        "tool": "send_email"
+      }
+    ],
+    "approval_rules": {},
+    "data_rules": {},
+    "delegation": {
+      "child_may_expand_authority": false,
+      "max_depth": 0
+    },
+    "job_id": "job-case-031",
+    "policy_id": "e-policy-case-031",
+    "principal": "mail-agent",
+    "schema_version": 1
+  },
+  "policy_sha256": "f70f5226fef21903a0e8535b52c008eb9e24cda19f3a33be46a7317f32369171",
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "tool_calls",
+        "index": 0,
+        "logprobs": null,
+        "message": {
+          "content": null,
+          "reasoning": "Okay, let's tackle this. The user wants me to create a Vega least-privilege policy based on the operator's intent. Let me start by carefully reading the trusted operator record provided.\n\nThe operator's intent says: Permit tool send_email only for action send on resource trip-11 with recipient and destination owner-11@example.test. No approval or data-flow rule is required. Delegation depth is zero and a child may not expand authority.\n\nFirst, I need to break down each part. The allowed tool is send_email, action is send, resource is trip-11. The recipient and destination are both owner-11@example.test. Since the argument role for recipient is recipient_and_destination, that means the same identifier goes into both recipients and destinations in the allow block.\n\nThe data_rules are not needed here because the operator said no data-flow rules. So data_rules should be an empty object. Similarly, approval_rules are empty since no approval is required.\n\nFor the delegation part, max_depth is 0 and child_may_expand_authority is false. I need to make sure those are set exactly as stated.\n\nNow, structuring the allow array. Each entry must have tool, actions, resources, recipients, destinations. The tool is send_email, actions is [\"send\"], resources is [\"trip-11\"], recipients and destinations both include [\"owner-11@example.test\"]. \n\nWait, the argument with role recipient_and_destination is owner-11@example.test, so that goes into both recipients and destinations. So in the allow entry, recipients and destinations arrays both have that value.\n\nNo other resources, recipients, or destinations are mentioned, so nothing else is allowed. The principal is mail-agent, but that's part of the policy's principal field, which isn't part of the allow structure. \n\nDouble-checking that I'm not adding any extra permissions. The operator didn't mention anything else, so the allow block is strictly what's specified. Data rules and approval rules are empty as per the intent. Delegation settings are set to zero depth and child cannot expand. \n\nI think that's all. Now I'll format this into the JSON structure required by the emit_policy function.\n",
+          "reasoning_details": [
+            {
+              "format": "unknown",
+              "index": 0,
+              "text": "Okay, let's tackle this. The user wants me to create a Vega least-privilege policy based on the operator's intent. Let me start by carefully reading the trusted operator record provided.\n\nThe operator's intent says: Permit tool send_email only for action send on resource trip-11 with recipient and destination owner-11@example.test. No approval or data-flow rule is required. Delegation depth is zero and a child may not expand authority.\n\nFirst, I need to break down each part. The allowed tool is send_email, action is send, resource is trip-11. The recipient and destination are both owner-11@example.test. Since the argument role for recipient is recipient_and_destination, that means the same identifier goes into both recipients and destinations in the allow block.\n\nThe data_rules are not needed here because the operator said no data-flow rules. So data_rules should be an empty object. Similarly, approval_rules are empty since no approval is required.\n\nFor the delegation part, max_depth is 0 and child_may_expand_authority is false. I need to make sure those are set exactly as stated.\n\nNow, structuring the allow array. Each entry must have tool, actions, resources, recipients, destinations. The tool is send_email, actions is [\"send\"], resources is [\"trip-11\"], recipients and destinations both include [\"owner-11@example.test\"]. \n\nWait, the argument with role recipient_and_destination is owner-11@example.test, so that goes into both recipients and destinations. So in the allow entry, recipients and destinations arrays both have that value.\n\nNo other resources, recipients, or destinations are mentioned, so nothing else is allowed. The principal is mail-agent, but that's part of the policy's principal field, which isn't part of the allow structure. \n\nDouble-checking that I'm not adding any extra permissions. The operator didn't mention anything else, so the allow block is strictly what's specified. Data rules and approval rules are empty as per the intent. Delegation settings are set to zero depth and child cannot expand. \n\nI think that's all. Now I'll format this into the JSON structure required by the emit_policy function.\n",
+              "type": "reasoning.text"
+            }
+          ],
+          "refusal": null,
+          "role": "assistant",
+          "tool_calls": [
+            {
+              "function": {
+                "arguments": "{\"allow\": [{\"tool\": \"send_email\", \"actions\": [\"send\"], \"resources\": [\"trip-11\"], \"recipients\": [\"owner-11@example.test\"], \"destinations\": [\"owner-11@example.test\"]}], \"data_rules\": {}, \"approval_rules\": {}, \"delegation\": {\"max_depth\": 0, \"child_may_expand_authority\": false}}",
+                "name": "emit_policy"
+              },
+              "id": "call_7sGnY4hRMLXssjaD5i7q9KHc",
+              "index": 0,
+              "type": "function"
+            }
+          ]
+        },
+        "native_finish_reason": "stop"
+      }
+    ],
+    "created": 1789331450,
+    "id": "gen-1789331450-AgdrqplYVlPQLCqwp8z1",
+    "model": "qwen/qwen3-14b",
+    "object": "chat.completion",
+    "provider": "DeepInfra",
+    "service_tier": null,
+    "system_fingerprint": null,
+    "usage": {
+      "completion_tokens": 547,
+      "completion_tokens_details": {
+        "audio_tokens": 0,
+        "image_tokens": 0,
+        "reasoning_tokens": 544
+      },
+      "cost": 0.00025452,
+      "cost_details": {
+        "upstream_inference_completions_cost": 0.00013128,
+        "upstream_inference_cost": 0.00025452,
+        "upstream_inference_prompt_cost": 0.00012324
+      },
+      "is_byok": false,
+      "prompt_tokens": 1027,
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cache_write_tokens": 0,
+        "cached_tokens": 0,
+        "video_tokens": 0
+      },
+      "total_tokens": 1574
+    }
+  },
+  "seconds": 12.126715611899272,
+  "task": {
+    "case_id": "case-031",
+    "job_id": "job-case-031",
+    "operator_intent": "Permit tool send_email only for action send on resource trip-11 with recipient and destination owner-11@example.test. No approval or data-flow rule is required. Delegation depth is zero and a child may not expand authority.",
+    "policy_id": "e-policy-case-031",
+    "principal": "mail-agent",
+    "schema_version": 1,
+    "tool_interface": {
+      "allowed_actions": [
+        "send"
+      ],
+      "argument_roles": {
+        "body": "content",
+        "recipient": "recipient_and_destination",
+        "subject": "content"
+      },
+      "name": "send_email"
+    }
+  },
+  "transport_failures": []
+}

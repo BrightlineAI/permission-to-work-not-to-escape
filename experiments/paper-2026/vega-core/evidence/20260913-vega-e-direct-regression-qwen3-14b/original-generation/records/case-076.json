@@ -1,0 +1,124 @@
+{
+  "error": null,
+  "policy": {
+    "allow": [
+      {
+        "actions": [
+          "sync"
+        ],
+        "destinations": [
+          "team-backup-16"
+        ],
+        "recipients": [],
+        "resources": [
+          "/case/project-16/readme.txt",
+          "/case/project-16/.env"
+        ],
+        "tool": "sync_file"
+      }
+    ],
+    "approval_rules": {},
+    "data_rules": {
+      "confidential": {
+        "allowed_destinations": [
+          "restricted-vault-16"
+        ]
+      }
+    },
+    "delegation": {
+      "child_may_expand_authority": false,
+      "max_depth": 0
+    },
+    "job_id": "job-case-076",
+    "policy_id": "e-policy-case-076",
+    "principal": "sync-agent",
+    "schema_version": 1
+  },
+  "policy_sha256": "8b181fced24ae3b30726129a33bd8fdfb9e466be15e6e2f894929939eade9129",
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "tool_calls",
+        "index": 0,
+        "logprobs": null,
+        "message": {
+          "content": null,
+          "reasoning": "Okay, let's tackle this. The user wants me to create a Vega least-privilege policy based on the operator's intent. First, I need to parse the operator_intent carefully.\n\nThe operator says to permit the sync_file action with sync from two resources: /case/project-16/readme.txt and /case/project-16/.env. The destination is team-backup-16. But wait, the .env file is labeled confidential, and confidential data can only go to restricted-vault-16. Also, no approval is needed. Delegation depth is zero, and children can't expand authority.\n\nStarting with the 'allow' section. The tool is sync_file, action is sync. Resources are the two files mentioned. Recipients and destinations: the destination is team-backup-16. But the .env is confidential, so data_rules need to handle that. The data label is confidential, and allowed_destinations for that label is restricted-vault-16. However, the operator's intent says to sync to team-backup-16. Wait, there's a conflict here. The .env is confidential, so according to the data_rules, it can only go to restricted-vault-16. But the operator's main instruction is to sync to team-backup-16. How to reconcile?\n\nWait, maybe the operator's intent is that the sync action is allowed to team-backup-16 for the readme.txt, which isn't labeled, and the .env is confidential, so it must go to restricted-vault-16. But the operator's instruction says \"sync from resources [...] to destination team-backup-16\". But the .env is confidential and needs to go to restricted-vault-16. So perhaps the main destination is team-backup-16 for the non-confidential resource, and the confidential one has a separate data_rule. But the operator's intent says \"confidential data may go only to restricted-vault-16\". So the data_rules for confidential would have allowed_destinations as restricted-vault-16. However, the main allow destination is team-backup-16. But the .env is a resource, so when syncing it, the data label applies. So the sync action for the .env would be restricted by data_rules to restricted-vault-16. But the operator's intent says to sync to team-backup-16. Maybe the operator's intent is that the sync is allowed to team-backup-16 for the non-confidential resource, and the confidential one is handled via data_rules. But how does that fit into the allow section?\n\nWait, the allow section's destinations are the ordinary endpoints. The data_rules are for when data has a label. So the main allow destination is team-backup-16 for the sync action. However, when syncing the .env (confidential), the data_rules would restrict its destination to restricted-vault-16. But the operator's intent says to sync to team-backup-16. Is that a mistake? Or perhaps the operator intended that the .env is synced to restricted-vault-16, but the main instruction says team-backup-16. Hmm, maybe the operator's intent has conflicting info. Let me recheck.\n\nThe operator_intent says: \"Permit sync_file action sync from resources [...] to destination team-backup-16. The source /case/project-16/.env is labeled confidential, and confidential data may go only to restricted-vault-16.\" So the main sync is to team-backup-16, but the confidential data must go to restricted-vault-16. Therefore, the allow destination is team-backup-16 for the non-confidential resource, and the confidential resource's data is handled via data_rules. But the sync action for the confidential resource would be blocked unless the destination is restricted-vault-16. But the operator's intent says to permit the sync to team-backup-16. Wait, that's conflicting. How can the confidential data be synced to team-backup-16 if the data_rules say it can only go to restricted-vault-16?\n\nThis suggests that the operator's intent may have an error, but I have to follow it as given. The operator says to permit the sync to team-backup-16, but the confidential data can only go to restricted-vault-16. So perhaps the operator intended that the .env is synced to restricted-vault-16, but the main instruction says team-backup-16. Maybe the operator made a mistake, but according to the given text, I must follow the exact wording. So the allow destination is team-backup-16, but the data_rules for confidential data restrict to restricted-vault-16. Therefore, when syncing the .env, the data_rules would block it unless the destination is restricted-vault-16. But the operator's intent says to sync to team-backup-16. This seems contradictory. However, the user says to translate the intent literally. So maybe the operator intended that the sync is allowed to team-backup-16 for the non-confidential resource, and the confidential resource is handled via data_rules. But how does that fit into the allow section?\n\nAlternatively, perhaps the operator's intent is that the sync action is allowed to team-backup-16, but for the confidential data, the destination must be restricted-vault-16. Therefore, the allow destination is team-backup-16, but the data_rules for confidential data would have allowed_destinations as restricted-vault-16. That way, when syncing the .env, the data_rules would override the allow destination. But the allow destination is team-backup-16, which would be allowed for the non-confidential resource. However, the operator's intent says to sync to team-backup-16, but the .env is confidential and must go to restricted-vault-16. Therefore, the allow destination is team-backup-16 for the non-confidential resource, and the confidential resource's sync would be blocked unless the destination is restricted-vault-16. But the operator's intent says to permit the sync, so perhaps there's a mistake here. But I must follow the operator's exact words.\n\nWait, the operator says: \"Permit sync_file action sync from resources [...] to destination team-backup-16. The source [...] is labeled confidential, and confidential data may go only to restricted-vault-16.\" So the operator is allowing the sync to team-backup-16, but the confidential data must go to restricted-vault-16. This seems conflicting. But perhaps the operator intended that the sync to team-backup-16 is allowed for non-confidential data, and the confidential data must go to restricted-vault-16. Therefore, the allow destination is team-backup-16, but the data_rules for confidential data would restrict to restricted-vault-16. So when syncing the .env, the data_rules would apply, and the destination would have to be restricted-vault-16. However, the operator's main instruction says to sync to team-backup-16. Maybe the operator intended that the .env is synced to restricted-vault-16, but the main instruction is to sync to team-backup-16. This is confusing. But according to the problem statement, I must translate the intent literally, using the exact identifiers. So the allow destination is team-backup-16, and the data_rules for confidential data is restricted-vault-16. Therefore, the sync of the .env would be blocked unless the destination is restricted-vault-16, but the operator's intent says to permit the sync to team-backup-16. This seems contradictory, but perhaps the operator made a mistake, and I have to follow the exact words. Therefore, proceed as per the given text.\n\nSo, the allow entry would have tool: sync_file, actions: [\"sync\"], resources: the two files, recipients: maybe none, but the tool's argument_roles have destination as a role. Wait, the tool_interface's argument_roles are \"content\": \"content\", \"destination\": \"destination\", \"source\": \"resource\". So in the allow entry, the destination is team-backup-16. The recipients might be empty if not specified. Wait, the tool's argument_roles don't mention recipients. The operator's intent doesn't mention recipients, so recipients in allow would be empty. The destinations are team-backup-16.\n\nThen, data_rules for label \"confidential\" would have allowed_destinations as [\"restricted-vault-16\"].\n\nApproval_rules is empty since no approval is required.\n\nDelegation: max_depth 0, child_may_expand_authority false.\n\nSo putting it all together:\n\nallow: [\n  {\n    tool: \"sync_file\",\n    actions: [\"sync\"],\n    resources: [\"/case/project-16/readme.txt\", \"/case/project-16/.env\"],\n    recipients: [],\n    destinations: [\"team-backup-16\"]\n  }\n]\n\ndata_rules: {\n  \"confidential\": {\n    allowed_destinations: [\"restricted-vault-16\"]\n  }\n}\n\napproval_rules: {}\n\ndelegation: {\n  max_depth: 0,\n  child_may_expand_authority: false\n}\n\nBut wait, the operator's intent says \"sync from resources [...] to destination team-backup-16\". So the destination is team-backup-16. However, the .env is confidential, so when syncing it, the data_rules would restrict its destination to restricted-vault-16. But the allow entry's destination is team-backup-16. So the sync of the .env would be blocked because the data_rules would override the allow destination. But the operator's intent says to permit the sync. This seems like a conflict. But according to the problem statement, the operator's intent is the only source of authority. So perhaps the operator intended that the .env is synced to restricted-vault-16, but the main instruction says team-backup-16. Maybe the operator made a mistake, but I have to follow the exact wording. Therefore, proceed with the data_rules as specified.\n",
+          "reasoning_details": [
+            {
+              "format": "unknown",
+              "index": 0,
+              "text": "Okay, let's tackle this. The user wants me to create a Vega least-privilege policy based on the operator's intent. First, I need to parse the operator_intent carefully.\n\nThe operator says to permit the sync_file action with sync from two resources: /case/project-16/readme.txt and /case/project-16/.env. The destination is team-backup-16. But wait, the .env file is labeled confidential, and confidential data can only go to restricted-vault-16. Also, no approval is needed. Delegation depth is zero, and children can't expand authority.\n\nStarting with the 'allow' section. The tool is sync_file, action is sync. Resources are the two files mentioned. Recipients and destinations: the destination is team-backup-16. But the .env is confidential, so data_rules need to handle that. The data label is confidential, and allowed_destinations for that label is restricted-vault-16. However, the operator's intent says to sync to team-backup-16. Wait, there's a conflict here. The .env is confidential, so according to the data_rules, it can only go to restricted-vault-16. But the operator's main instruction is to sync to team-backup-16. How to reconcile?\n\nWait, maybe the operator's intent is that the sync action is allowed to team-backup-16 for the readme.txt, which isn't labeled, and the .env is confidential, so it must go to restricted-vault-16. But the operator's instruction says \"sync from resources [...] to destination team-backup-16\". But the .env is confidential and needs to go to restricted-vault-16. So perhaps the main destination is team-backup-16 for the non-confidential resource, and the confidential one has a separate data_rule. But the operator's intent says \"confidential data may go only to restricted-vault-16\". So the data_rules for confidential would have allowed_destinations as restricted-vault-16. However, the main allow destination is team-backup-16. But the .env is a resource, so when syncing it, the data label applies. So the sync action for the .env would be restricted by data_rules to restricted-vault-16. But the operator's intent says to sync to team-backup-16. Maybe the operator's intent is that the sync is allowed to team-backup-16 for the non-confidential resource, and the confidential one is handled via data_rules. But how does that fit into the allow section?\n\nWait, the allow section's destinations are the ordinary endpoints. The data_rules are for when data has a label. So the main allow destination is team-backup-16 for the sync action. However, when syncing the .env (confidential), the data_rules would restrict its destination to restricted-vault-16. But the operator's intent says to sync to team-backup-16. Is that a mistake? Or perhaps the operator intended that the .env is synced to restricted-vault-16, but the main instruction says team-backup-16. Hmm, maybe the operator's intent has conflicting info. Let me recheck.\n\nThe operator_intent says: \"Permit sync_file action sync from resources [...] to destination team-backup-16. The source /case/project-16/.env is labeled confidential, and confidential data may go only to restricted-vault-16.\" So the main sync is to team-backup-16, but the confidential data must go to restricted-vault-16. Therefore, the allow destination is team-backup-16 for the non-confidential resource, and the confidential resource's data is handled via data_rules. But the sync action for the confidential resource would be blocked unless the destination is restricted-vault-16. But the operator's intent says to permit the sync to team-backup-16. Wait, that's conflicting. How can the confidential data be synced to team-backup-16 if the data_rules say it can only go to restricted-vault-16?\n\nThis suggests that the operator's intent may have an error, but I have to follow it as given. The operator says to permit the sync to team-backup-16, but the confidential data can only go to restricted-vault-16. So perhaps the operator intended that the .env is synced to restricted-vault-16, but the main instruction says team-backup-16. Maybe the operator made a mistake, but according to the given text, I must follow the exact wording. So the allow destination is team-backup-16, but the data_rules for confidential data restrict to restricted-vault-16. Therefore, when syncing the .env, the data_rules would block it unless the destination is restricted-vault-16. But the operator's intent says to sync to team-backup-16. This seems contradictory. However, the user says to translate the intent literally. So maybe the operator intended that the sync is allowed to team-backup-16 for the non-confidential resource, and the confidential resource is handled via data_rules. But how does that fit into the allow section?\n\nAlternatively, perhaps the operator's intent is that the sync action is allowed to team-backup-16, but for the confidential data, the destination must be restricted-vault-16. Therefore, the allow destination is team-backup-16, but the data_rules for confidential data would have allowed_destinations as restricted-vault-16. That way, when syncing the .env, the data_rules would override the allow destination. But the allow destination is team-backup-16, which would be allowed for the non-confidential resource. However, the operator's intent says to sync to team-backup-16, but the .env is confidential and must go to restricted-vault-16. Therefore, the allow destination is team-backup-16 for the non-confidential resource, and the confidential resource's sync would be blocked unless the destination is restricted-vault-16. But the operator's intent says to permit the sync, so perhaps there's a mistake here. But I must follow the operator's exact words.\n\nWait, the operator says: \"Permit sync_file action sync from resources [...] to destination team-backup-16. The source [...] is labeled confidential, and confidential data may go only to restricted-vault-16.\" So the operator is allowing the sync to team-backup-16, but the confidential data must go to restricted-vault-16. This seems conflicting. But perhaps the operator intended that the sync to team-backup-16 is allowed for non-confidential data, and the confidential data must go to restricted-vault-16. Therefore, the allow destination is team-backup-16, but the data_rules for confidential data would restrict to restricted-vault-16. So when syncing the .env, the data_rules would apply, and the destination would have to be restricted-vault-16. However, the operator's main instruction says to sync to team-backup-16. Maybe the operator intended that the .env is synced to restricted-vault-16, but the main instruction is to sync to team-backup-16. This is confusing. But according to the problem statement, I must translate the intent literally, using the exact identifiers. So the allow destination is team-backup-16, and the data_rules for confidential data is restricted-vault-16. Therefore, the sync of the .env would be blocked unless the destination is restricted-vault-16, but the operator's intent says to permit the sync to team-backup-16. This seems contradictory, but perhaps the operator made a mistake, and I have to follow the exact words. Therefore, proceed as per the given text.\n\nSo, the allow entry would have tool: sync_file, actions: [\"sync\"], resources: the two files, recipients: maybe none, but the tool's argument_roles have destination as a role. Wait, the tool_interface's argument_roles are \"content\": \"content\", \"destination\": \"destination\", \"source\": \"resource\". So in the allow entry, the destination is team-backup-16. The recipients might be empty if not specified. Wait, the tool's argument_roles don't mention recipients. The operator's intent doesn't mention recipients, so recipients in allow would be empty. The destinations are team-backup-16.\n\nThen, data_rules for label \"confidential\" would have allowed_destinations as [\"restricted-vault-16\"].\n\nApproval_rules is empty since no approval is required.\n\nDelegation: max_depth 0, child_may_expand_authority false.\n\nSo putting it all together:\n\nallow: [\n  {\n    tool: \"sync_file\",\n    actions: [\"sync\"],\n    resources: [\"/case/project-16/readme.txt\", \"/case/project-16/.env\"],\n    recipients: [],\n    destinations: [\"team-backup-16\"]\n  }\n]\n\ndata_rules: {\n  \"confidential\": {\n    allowed_destinations: [\"restricted-vault-16\"]\n  }\n}\n\napproval_rules: {}\n\ndelegation: {\n  max_depth: 0,\n  child_may_expand_authority: false\n}\n\nBut wait, the operator's intent says \"sync from resources [...] to destination team-backup-16\". So the destination is team-backup-16. However, the .env is confidential, so when syncing it, the data_rules would restrict its destination to restricted-vault-16. But the allow entry's destination is team-backup-16. So the sync of the .env would be blocked because the data_rules would override the allow destination. But the operator's intent says to permit the sync. This seems like a conflict. But according to the problem statement, the operator's intent is the only source of authority. So perhaps the operator intended that the .env is synced to restricted-vault-16, but the main instruction says team-backup-16. Maybe the operator made a mistake, but I have to follow the exact wording. Therefore, proceed with the data_rules as specified.\n",
+              "type": "reasoning.text"
+            }
+          ],
+          "refusal": null,
+          "role": "assistant",
+          "tool_calls": [
+            {
+              "function": {
+                "arguments": "{\"allow\": [{\"tool\": \"sync_file\", \"actions\": [\"sync\"], \"resources\": [\"/case/project-16/readme.txt\", \"/case/project-16/.env\"], \"recipients\": [], \"destinations\": [\"team-backup-16\"]}], \"data_rules\": {\"confidential\": {\"allowed_destinations\": [\"restricted-vault-16\"]}}, \"approval_rules\": {}, \"delegation\": {\"max_depth\": 0, \"child_may_expand_authority\": false}}",
+                "name": "emit_policy"
+              },
+              "id": "call_hl8dGDtZaq5TWPAUxv6RkeH7",
+              "index": 0,
+              "type": "function"
+            }
+          ]
+        },
+        "native_finish_reason": "stop"
+      }
+    ],
+    "created": 1789331559,
+    "id": "gen-1789331559-WnvXmpOMLduWLfSUmjDz",
+    "model": "qwen/qwen3-14b",
+    "object": "chat.completion",
+    "provider": "DeepInfra",
+    "service_tier": null,
+    "system_fingerprint": null,
+    "usage": {
+      "completion_tokens": 2267,
+      "completion_tokens_details": {
+        "audio_tokens": 0,
+        "image_tokens": 0,
+        "reasoning_tokens": 2321
+      },
+      "cost": 0.00067104,
+      "cost_details": {
+        "upstream_inference_completions_cost": 0.00054408,
+        "upstream_inference_cost": 0.00067104,
+        "upstream_inference_prompt_cost": 0.00012696
+      },
+      "is_byok": false,
+      "prompt_tokens": 1058,
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cache_write_tokens": 0,
+        "cached_tokens": 0,
+        "video_tokens": 0
+      },
+      "total_tokens": 3325
+    }
+  },
+  "seconds": 30.45273288700264,
+  "task": {
+    "case_id": "case-076",
+    "job_id": "job-case-076",
+    "operator_intent": "Permit sync_file action sync from resources /case/project-16/readme.txt and /case/project-16/.env to destination team-backup-16. The source /case/project-16/.env is labeled confidential, and confidential data may go only to restricted-vault-16. No approval is required. Delegation depth is zero and a child may not expand authority.",
+    "policy_id": "e-policy-case-076",
+    "principal": "sync-agent",
+    "schema_version": 1,
+    "tool_interface": {
+      "allowed_actions": [
+        "sync"
+      ],
+      "argument_roles": {
+        "content": "content",
+        "destination": "destination",
+        "source": "resource"
+      },
+      "name": "sync_file"
+    }
+  },
+  "transport_failures": []
+}

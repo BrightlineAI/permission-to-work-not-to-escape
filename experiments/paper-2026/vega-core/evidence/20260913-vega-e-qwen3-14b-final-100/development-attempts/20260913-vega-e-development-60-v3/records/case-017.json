@@ -1,0 +1,117 @@
+{
+  "error": null,
+  "policy": {
+    "allow": [
+      {
+        "actions": [
+          "upload_release"
+        ],
+        "destinations": [
+          "release-17.tar.gz"
+        ],
+        "recipients": [],
+        "resources": [
+          "org/assigned-17"
+        ],
+        "tool": "github_mutation"
+      }
+    ],
+    "approval_rules": {},
+    "data_rules": {},
+    "delegation": {
+      "child_may_expand_authority": false,
+      "max_depth": 0
+    },
+    "job_id": "job-case-017",
+    "policy_id": "e-policy-case-017",
+    "principal": "repo-agent",
+    "schema_version": 1
+  },
+  "policy_sha256": "a20c1fad4b8ac60eba1ad14509c6a274a4890357ee223f4061c95ba3d0368ec4",
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "tool_calls",
+        "index": 0,
+        "logprobs": null,
+        "message": {
+          "content": null,
+          "reasoning": "Okay, let's tackle this. The user wants me to convert the operator's intent into a policy body using the provided function. First, I need to parse the operator_intent carefully.\n\nThe intent says: Permit tool github_mutation only for action upload_release on resource org/assigned-17 and destination release-17.tar.gz. No approval or data-flow rule is required. Delegation depth is zero and a child may not expand authority.\n\nStarting with the 'allow' section. The tool is github_mutation, action is upload_release, resource is org/assigned-17, and destination is release-17.tar.gz. The principal is repo-agent, but in the allow array, the principal isn't mentioned. Wait, the principal is an identity, but the allow entries are about tools. Oh right, the principal is separate. The allow entries specify which tools are allowed, their actions, resources, recipients, and destinations. Wait, the user didn't mention recipients. The intent doesn't say anything about recipients, so maybe that's an empty array? But the required fields in the allow object include recipients. Wait, looking back at the tool_interface, the allowed_actions are [\"upload_release\"], and the argument_names are [\"operation\", \"repository\", \"target\"], but the policy parameters require allow[].recipients. But the user's intent doesn't mention recipients. Hmm, the problem says to use exact strings from the intent. Since the intent doesn't mention recipients, maybe that's an empty array? But the required fields in the allow object include recipients. Wait, the tool_interface's allowed_actions are the actions, but the parameters for the allow object in the policy require actions, resources, recipients, destinations. The user's intent specifies resources and destinations, but not recipients. So, does that mean recipients should be an empty array? But the user didn't mention it. However, the instruction says \"Missing permission means deny.\" So if the intent doesn't specify recipients, perhaps we shouldn't include them, but the schema requires them. Wait, looking at the emit_policy parameters: the allow array's items have required fields: tool, actions, resources, recipients, destinations. All of these are required. So even if the intent doesn't mention recipients, we have to include them. But the user's intent doesn't specify any recipients, so maybe it's an empty array. But the operator_intent says \"Permit tool github_mutation only for action upload_release on resource org/assigned-17 and destination release-17.tar.gz.\" So recipients are not mentioned. Therefore, recipients should be an empty array. But the user might have intended that there are no recipients, so we have to set it as empty.\n\nNext, data_rules: the intent says no data-flow rule is required, so data_rules must be exactly {}. Similarly, approval_rules must be {} because there's no approval required.\n\nDelegation: max_depth is zero, and child_may_expand_authority is false. So delegation is {\"max_depth\": 0, \"child_may_expand_authority\": false}.\n\nPutting it all together:\n\nallow array has one entry:\ntool: \"github_mutation\"\nactions: [\"upload_release\"]\nresources: [\"org/assigned-17\"]\nrecipients: [] (since not mentioned)\ndestinations: [\"release-17.tar.gz\"]\n\ndata_rules: {}\napproval_rules: {}\ndelegation: {max_depth: 0, child_may_expand_authority: false}\n\nI need to make sure that all the parameters are correctly filled, using exact strings from the intent. The tool's name is github_mutation, actions are upload_release, resources and destinations as specified. Recipients are empty. No approval or data rules. Delegation parameters as given.\n",
+          "reasoning_details": [
+            {
+              "format": "unknown",
+              "index": 0,
+              "text": "Okay, let's tackle this. The user wants me to convert the operator's intent into a policy body using the provided function. First, I need to parse the operator_intent carefully.\n\nThe intent says: Permit tool github_mutation only for action upload_release on resource org/assigned-17 and destination release-17.tar.gz. No approval or data-flow rule is required. Delegation depth is zero and a child may not expand authority.\n\nStarting with the 'allow' section. The tool is github_mutation, action is upload_release, resource is org/assigned-17, and destination is release-17.tar.gz. The principal is repo-agent, but in the allow array, the principal isn't mentioned. Wait, the principal is an identity, but the allow entries are about tools. Oh right, the principal is separate. The allow entries specify which tools are allowed, their actions, resources, recipients, and destinations. Wait, the user didn't mention recipients. The intent doesn't say anything about recipients, so maybe that's an empty array? But the required fields in the allow object include recipients. Wait, looking back at the tool_interface, the allowed_actions are [\"upload_release\"], and the argument_names are [\"operation\", \"repository\", \"target\"], but the policy parameters require allow[].recipients. But the user's intent doesn't mention recipients. Hmm, the problem says to use exact strings from the intent. Since the intent doesn't mention recipients, maybe that's an empty array? But the required fields in the allow object include recipients. Wait, the tool_interface's allowed_actions are the actions, but the parameters for the allow object in the policy require actions, resources, recipients, destinations. The user's intent specifies resources and destinations, but not recipients. So, does that mean recipients should be an empty array? But the user didn't mention it. However, the instruction says \"Missing permission means deny.\" So if the intent doesn't specify recipients, perhaps we shouldn't include them, but the schema requires them. Wait, looking at the emit_policy parameters: the allow array's items have required fields: tool, actions, resources, recipients, destinations. All of these are required. So even if the intent doesn't mention recipients, we have to include them. But the user's intent doesn't specify any recipients, so maybe it's an empty array. But the operator_intent says \"Permit tool github_mutation only for action upload_release on resource org/assigned-17 and destination release-17.tar.gz.\" So recipients are not mentioned. Therefore, recipients should be an empty array. But the user might have intended that there are no recipients, so we have to set it as empty.\n\nNext, data_rules: the intent says no data-flow rule is required, so data_rules must be exactly {}. Similarly, approval_rules must be {} because there's no approval required.\n\nDelegation: max_depth is zero, and child_may_expand_authority is false. So delegation is {\"max_depth\": 0, \"child_may_expand_authority\": false}.\n\nPutting it all together:\n\nallow array has one entry:\ntool: \"github_mutation\"\nactions: [\"upload_release\"]\nresources: [\"org/assigned-17\"]\nrecipients: [] (since not mentioned)\ndestinations: [\"release-17.tar.gz\"]\n\ndata_rules: {}\napproval_rules: {}\ndelegation: {max_depth: 0, child_may_expand_authority: false}\n\nI need to make sure that all the parameters are correctly filled, using exact strings from the intent. The tool's name is github_mutation, actions are upload_release, resources and destinations as specified. Recipients are empty. No approval or data rules. Delegation parameters as given.\n",
+              "type": "reasoning.text"
+            }
+          ],
+          "refusal": null,
+          "role": "assistant",
+          "tool_calls": [
+            {
+              "function": {
+                "arguments": "{\"allow\": [{\"tool\": \"github_mutation\", \"actions\": [\"upload_release\"], \"resources\": [\"org/assigned-17\"], \"recipients\": [], \"destinations\": [\"release-17.tar.gz\"]}], \"data_rules\": {}, \"approval_rules\": {}, \"delegation\": {\"max_depth\": 0, \"child_may_expand_authority\": false}}",
+                "name": "emit_policy"
+              },
+              "id": "call_F366tN1dhzM0JzrMdF7thFpz",
+              "index": 0,
+              "type": "function"
+            }
+          ]
+        },
+        "native_finish_reason": "stop"
+      }
+    ],
+    "created": 1789289346,
+    "id": "gen-1789289346-cwPTMQ3WxCNBEUL9B92C",
+    "model": "qwen/qwen3-14b",
+    "object": "chat.completion",
+    "provider": "DeepInfra",
+    "service_tier": null,
+    "system_fingerprint": null,
+    "usage": {
+      "completion_tokens": 863,
+      "completion_tokens_details": {
+        "audio_tokens": 0,
+        "image_tokens": 0,
+        "reasoning_tokens": 908
+      },
+      "cost": 0.0003036,
+      "cost_details": {
+        "upstream_inference_completions_cost": 0.00020712,
+        "upstream_inference_cost": 0.0003036,
+        "upstream_inference_prompt_cost": 9.648e-05
+      },
+      "is_byok": false,
+      "prompt_tokens": 804,
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cache_write_tokens": 0,
+        "cached_tokens": 0,
+        "video_tokens": 0
+      },
+      "total_tokens": 1667
+    }
+  },
+  "seconds": 11.74509126204066,
+  "task": {
+    "case_id": "case-017",
+    "job_id": "job-case-017",
+    "operator_intent": "Permit tool github_mutation only for action upload_release on resource org/assigned-17 and destination release-17.tar.gz. No approval or data-flow rule is required. Delegation depth is zero and a child may not expand authority.",
+    "policy_id": "e-policy-case-017",
+    "principal": "repo-agent",
+    "schema_version": 1,
+    "tool_interface": {
+      "allowed_actions": [
+        "upload_release"
+      ],
+      "argument_names": [
+        "operation",
+        "repository",
+        "target"
+      ],
+      "name": "github_mutation"
+    }
+  },
+  "transport_failures": []
+}

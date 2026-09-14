@@ -1,0 +1,126 @@
+{
+  "error": null,
+  "policy": {
+    "allow": [
+      {
+        "actions": [
+          "send"
+        ],
+        "destinations": [
+          "owner-10@example.test",
+          "partner-10@example.test"
+        ],
+        "recipients": [
+          "owner-10@example.test",
+          "partner-10@example.test"
+        ],
+        "resources": [
+          "doc-10"
+        ],
+        "tool": "send_message"
+      }
+    ],
+    "approval_rules": {},
+    "data_rules": {
+      "confidential": {
+        "allowed_destinations": [
+          "owner-10@example.test"
+        ]
+      }
+    },
+    "delegation": {
+      "child_may_expand_authority": false,
+      "max_depth": 0
+    },
+    "job_id": "job-case-050",
+    "policy_id": "e-policy-case-050",
+    "principal": "message-agent",
+    "schema_version": 1
+  },
+  "policy_sha256": "981539a55efddabc9744d2231be0aca4c62b363cf2a1ebabdea87d3027601a17",
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "tool_calls",
+        "index": 0,
+        "logprobs": null,
+        "message": {
+          "content": null,
+          "reasoning": "Okay, let's tackle this. The user wants me to convert the operator's intent into a policy body using the provided function. First, I need to parse the operator_intent carefully.\n\nThe intent says: Permit send_message action send on resource doc-10 to either owner-10@example.test or partner-10@example.test. So the action is \"send\" under the send_message tool. The resource is doc-10. The recipients are owner-10 and partner-10. But there's a data rule: confidential data can only go to owner-10. Also, no approval is needed, so approval_rules should be empty. Delegation depth is zero, and child can't expand authority.\n\nLooking at the function parameters, the allow array needs entries with tool, actions, resources, recipients, destinations. The tool is \"send_message\", action is [\"send\"], resource is [\"doc-10\"], recipients are [\"owner-10@example.test\", \"partner-10@example.test\"], and destinations? Wait, the tool_interface's argument_names include \"recipient\", but the function parameters for allow have \"recipients\" as an array. So the recipients are the ones specified. The destinations might be the same as recipients here? Or maybe destinations are separate. Wait, the user's intent says \"send to either...\", so recipients are those two. The data rule says confidential data may go only to owner-10, so in data_rules, under the confidential key, allowed_destinations is [\"owner-10@example.test\"].\n\nApproval_rules must be {} because no approval is required. Delegation has max_depth 0 and child_may_expand_authority false.\n\nSo putting it all together: allow has one entry with tool send_message, actions [\"send\"], resources [\"doc-10\"], recipients as the two emails, destinations maybe same as recipients? Wait, the function parameters for allow include destinations as an array. But the user's intent doesn't mention destinations, only recipients. Maybe destinations are the same as recipients here. Or maybe destinations are separate, but the intent doesn't specify them. Wait, the tool_interface's arguments are message and recipient, so maybe the destination is the recipient. But the function's allow entry requires destinations. However, the user's intent doesn't mention destinations, only recipients. Hmm, maybe the destinations are the same as recipients. Or perhaps the destinations are not specified, but the function requires it. Wait, the function's allow entry requires \"destinations\" as an array. But the user's intent doesn't mention destinations. Wait, the operator_intent says \"send on resource doc-10 to either owner-10... or partner-10...\", so the recipients are those two. But the destinations field in the allow entry is separate. Maybe the destinations are the same as the recipients here. But the user didn't explicitly mention destinations, so perhaps it's an error. Wait, the tool_interface's allowed_actions is [\"send\"], and the arguments are message and recipient. So when sending, the recipient is the destination. So maybe the destinations in the allow entry are the same as the recipients. Therefore, the allow entry's destinations would be [\"owner-10@example.test\", \"partner-10@example.test\"].\n\nBut the data rule says that data labeled confidential can only go to owner-10. So data_rules would have an entry for \"confidential\" with allowed_destinations as [\"owner-10@example.test\"].\n\nApproval_rules is exactly {} as per the intent. Delegation has max_depth 0 and child_may_expand_authority false.\n\nSo the final policy should have:\n\nallow: [\n  {\n    tool: \"send_message\",\n    actions: [\"send\"],\n    resources: [\"doc-10\"],\n    recipients: [\"owner-10@example.test\", \"partner-10@example.test\"],\n    destinations: [\"owner-10@example.test\", \"partner-10@example.test\"]\n  }\n],\ndata_rules: {\n  \"confidential\": {\n    allowed_destinations: [\"owner-10@example.test\"]\n  }\n},\napproval_rules: {},\ndelegation: {\n  max_depth: 0,\n  child_may_expand_authority: false\n}\n\nWait, but the function's allow requires all five fields: tool, actions, resources, recipients, destinations. So the destinations must be present. Since the user's intent says \"send to either...\", I think the destinations are the same as recipients here. So I'll include them as such.\n",
+          "reasoning_details": [
+            {
+              "format": "unknown",
+              "index": 0,
+              "text": "Okay, let's tackle this. The user wants me to convert the operator's intent into a policy body using the provided function. First, I need to parse the operator_intent carefully.\n\nThe intent says: Permit send_message action send on resource doc-10 to either owner-10@example.test or partner-10@example.test. So the action is \"send\" under the send_message tool. The resource is doc-10. The recipients are owner-10 and partner-10. But there's a data rule: confidential data can only go to owner-10. Also, no approval is needed, so approval_rules should be empty. Delegation depth is zero, and child can't expand authority.\n\nLooking at the function parameters, the allow array needs entries with tool, actions, resources, recipients, destinations. The tool is \"send_message\", action is [\"send\"], resource is [\"doc-10\"], recipients are [\"owner-10@example.test\", \"partner-10@example.test\"], and destinations? Wait, the tool_interface's argument_names include \"recipient\", but the function parameters for allow have \"recipients\" as an array. So the recipients are the ones specified. The destinations might be the same as recipients here? Or maybe destinations are separate. Wait, the user's intent says \"send to either...\", so recipients are those two. The data rule says confidential data may go only to owner-10, so in data_rules, under the confidential key, allowed_destinations is [\"owner-10@example.test\"].\n\nApproval_rules must be {} because no approval is required. Delegation has max_depth 0 and child_may_expand_authority false.\n\nSo putting it all together: allow has one entry with tool send_message, actions [\"send\"], resources [\"doc-10\"], recipients as the two emails, destinations maybe same as recipients? Wait, the function parameters for allow include destinations as an array. But the user's intent doesn't mention destinations, only recipients. Maybe destinations are the same as recipients here. Or maybe destinations are separate, but the intent doesn't specify them. Wait, the tool_interface's arguments are message and recipient, so maybe the destination is the recipient. But the function's allow entry requires destinations. However, the user's intent doesn't mention destinations, only recipients. Hmm, maybe the destinations are the same as recipients. Or perhaps the destinations are not specified, but the function requires it. Wait, the function's allow entry requires \"destinations\" as an array. But the user's intent doesn't mention destinations. Wait, the operator_intent says \"send on resource doc-10 to either owner-10... or partner-10...\", so the recipients are those two. But the destinations field in the allow entry is separate. Maybe the destinations are the same as the recipients here. But the user didn't explicitly mention destinations, so perhaps it's an error. Wait, the tool_interface's allowed_actions is [\"send\"], and the arguments are message and recipient. So when sending, the recipient is the destination. So maybe the destinations in the allow entry are the same as the recipients. Therefore, the allow entry's destinations would be [\"owner-10@example.test\", \"partner-10@example.test\"].\n\nBut the data rule says that data labeled confidential can only go to owner-10. So data_rules would have an entry for \"confidential\" with allowed_destinations as [\"owner-10@example.test\"].\n\nApproval_rules is exactly {} as per the intent. Delegation has max_depth 0 and child_may_expand_authority false.\n\nSo the final policy should have:\n\nallow: [\n  {\n    tool: \"send_message\",\n    actions: [\"send\"],\n    resources: [\"doc-10\"],\n    recipients: [\"owner-10@example.test\", \"partner-10@example.test\"],\n    destinations: [\"owner-10@example.test\", \"partner-10@example.test\"]\n  }\n],\ndata_rules: {\n  \"confidential\": {\n    allowed_destinations: [\"owner-10@example.test\"]\n  }\n},\napproval_rules: {},\ndelegation: {\n  max_depth: 0,\n  child_may_expand_authority: false\n}\n\nWait, but the function's allow requires all five fields: tool, actions, resources, recipients, destinations. So the destinations must be present. Since the user's intent says \"send to either...\", I think the destinations are the same as recipients here. So I'll include them as such.\n",
+              "type": "reasoning.text"
+            }
+          ],
+          "refusal": null,
+          "role": "assistant",
+          "tool_calls": [
+            {
+              "function": {
+                "arguments": "{\"allow\": [{\"tool\": \"send_message\", \"actions\": [\"send\"], \"resources\": [\"doc-10\"], \"recipients\": [\"owner-10@example.test\", \"partner-10@example.test\"], \"destinations\": [\"owner-10@example.test\", \"partner-10@example.test\"]}], \"data_rules\": {\"confidential\": {\"allowed_destinations\": [\"owner-10@example.test\"]}}, \"approval_rules\": {}, \"delegation\": {\"max_depth\": 0, \"child_may_expand_authority\": false}}",
+                "name": "emit_policy"
+              },
+              "id": "call_Zvk8et1eRwoGEk18yNe6oGAN",
+              "index": 0,
+              "type": "function"
+            }
+          ]
+        },
+        "native_finish_reason": "stop"
+      }
+    ],
+    "created": 1789289378,
+    "id": "gen-1789289378-MPD4qW2EKVjVW1F5G75q",
+    "model": "qwen/qwen3-14b",
+    "object": "chat.completion",
+    "provider": "DeepInfra",
+    "service_tier": null,
+    "system_fingerprint": null,
+    "usage": {
+      "completion_tokens": 1057,
+      "completion_tokens_details": {
+        "audio_tokens": 0,
+        "image_tokens": 0,
+        "reasoning_tokens": 1054
+      },
+      "cost": 0.00035076,
+      "cost_details": {
+        "upstream_inference_completions_cost": 0.00025368,
+        "upstream_inference_cost": 0.00035076,
+        "upstream_inference_prompt_cost": 9.708e-05
+      },
+      "is_byok": false,
+      "prompt_tokens": 809,
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cache_write_tokens": 0,
+        "cached_tokens": 0,
+        "video_tokens": 0
+      },
+      "total_tokens": 1866
+    }
+  },
+  "seconds": 21.43040943099186,
+  "task": {
+    "case_id": "case-050",
+    "job_id": "job-case-050",
+    "operator_intent": "Permit send_message action send on resource doc-10 to either owner-10@example.test or partner-10@example.test. Data labeled confidential may go only to owner-10@example.test. No approval is required. Delegation depth is zero and a child may not expand authority.",
+    "policy_id": "e-policy-case-050",
+    "principal": "message-agent",
+    "schema_version": 1,
+    "tool_interface": {
+      "allowed_actions": [
+        "send"
+      ],
+      "argument_names": [
+        "message",
+        "recipient"
+      ],
+      "name": "send_message"
+    }
+  },
+  "transport_failures": []
+}

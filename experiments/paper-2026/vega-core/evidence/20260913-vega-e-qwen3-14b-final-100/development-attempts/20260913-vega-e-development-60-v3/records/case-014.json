@@ -1,0 +1,117 @@
+{
+  "error": null,
+  "policy": {
+    "allow": [
+      {
+        "actions": [
+          "upload_release"
+        ],
+        "destinations": [
+          "release-14.tar.gz"
+        ],
+        "recipients": [],
+        "resources": [
+          "org/assigned-14"
+        ],
+        "tool": "github_mutation"
+      }
+    ],
+    "approval_rules": {},
+    "data_rules": {},
+    "delegation": {
+      "child_may_expand_authority": false,
+      "max_depth": 0
+    },
+    "job_id": "job-case-014",
+    "policy_id": "e-policy-case-014",
+    "principal": "repo-agent",
+    "schema_version": 1
+  },
+  "policy_sha256": "0e34092c1ecacd340d83a77261c938b0ae49c93582db90943ff9a066da24819f",
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "tool_calls",
+        "index": 0,
+        "logprobs": null,
+        "message": {
+          "content": null,
+          "reasoning": "Okay, let's break down the user's request. They want a policy based on the operator's intent. The key points from the intent are:\n\n- Permit the github_mutation tool only for the upload_release action on the resource org/assigned-14, with destination release-14.tar.gz.\n- No approval or data-flow rules are needed.\n- Delegation depth is zero, and children can't expand authority.\n\nFirst, the 'allow' section. The tool is github_mutation, action is upload_release, resource is org/assigned-14, recipient isn't mentioned, but the destination is release-14.tar.gz. Wait, the tool_interface's argument_names include operation, repository, target. But the user's intent specifies the resource as org/assigned-14 and destination as release-14.tar.gz. The resource here probably maps to the repository argument. The destination might be the target. But the tool_interface's allowed_actions include upload_release, which aligns with the action specified. So the allow entry should have tool: github_mutation, actions: [\"upload_release\"], resources: [\"org/assigned-14\"], recipients: (not mentioned, so maybe empty array?), destinations: [\"release-14.tar.gz\"]. Wait, the user says \"destination release-14.tar.gz\" so that's the destination field.\n\nNext, data_rules: the intent says no data-flow rule is required, so data_rules must be an empty object {}.\n\nApproval_rules: same here, no approval rule, so approval_rules is {}.\n\nDelegation: max_depth is 0, child_may_expand_authority is false. So delegation object has those values.\n\nCheck if all required fields are present. The allow array must have at least one entry. The required fields in each allow entry are tool, actions, resources, recipients, destinations. The user didn't mention recipients, so that's an empty array. So the allow entry would be:\n\n{\n  \"tool\": \"github_mutation\",\n  \"actions\": [\"upload_release\"],\n  \"resources\": [\"org/assigned-14\"],\n  \"recipients\": [],\n  \"destinations\": [\"release-14.tar.gz\"]\n}\n\nThen data_rules is {}, approval_rules is {}, and delegation with max_depth 0 and child_may_expand_authority false.\n\nI need to make sure that all parameters are correctly structured according to the emit_policy function's schema. Also, ensure that no extra fields are added. The principal is repo-agent, but the policy structure doesn't include principal, so maybe that's handled elsewhere. The function parameters don't have a principal field, so it's okay.\n\nSo putting it all together, the emit_policy call should have the allow array with the single entry, data_rules as empty object, approval_rules as empty object, and delegation with the specified settings.\n",
+          "reasoning_details": [
+            {
+              "format": "unknown",
+              "index": 0,
+              "text": "Okay, let's break down the user's request. They want a policy based on the operator's intent. The key points from the intent are:\n\n- Permit the github_mutation tool only for the upload_release action on the resource org/assigned-14, with destination release-14.tar.gz.\n- No approval or data-flow rules are needed.\n- Delegation depth is zero, and children can't expand authority.\n\nFirst, the 'allow' section. The tool is github_mutation, action is upload_release, resource is org/assigned-14, recipient isn't mentioned, but the destination is release-14.tar.gz. Wait, the tool_interface's argument_names include operation, repository, target. But the user's intent specifies the resource as org/assigned-14 and destination as release-14.tar.gz. The resource here probably maps to the repository argument. The destination might be the target. But the tool_interface's allowed_actions include upload_release, which aligns with the action specified. So the allow entry should have tool: github_mutation, actions: [\"upload_release\"], resources: [\"org/assigned-14\"], recipients: (not mentioned, so maybe empty array?), destinations: [\"release-14.tar.gz\"]. Wait, the user says \"destination release-14.tar.gz\" so that's the destination field.\n\nNext, data_rules: the intent says no data-flow rule is required, so data_rules must be an empty object {}.\n\nApproval_rules: same here, no approval rule, so approval_rules is {}.\n\nDelegation: max_depth is 0, child_may_expand_authority is false. So delegation object has those values.\n\nCheck if all required fields are present. The allow array must have at least one entry. The required fields in each allow entry are tool, actions, resources, recipients, destinations. The user didn't mention recipients, so that's an empty array. So the allow entry would be:\n\n{\n  \"tool\": \"github_mutation\",\n  \"actions\": [\"upload_release\"],\n  \"resources\": [\"org/assigned-14\"],\n  \"recipients\": [],\n  \"destinations\": [\"release-14.tar.gz\"]\n}\n\nThen data_rules is {}, approval_rules is {}, and delegation with max_depth 0 and child_may_expand_authority false.\n\nI need to make sure that all parameters are correctly structured according to the emit_policy function's schema. Also, ensure that no extra fields are added. The principal is repo-agent, but the policy structure doesn't include principal, so maybe that's handled elsewhere. The function parameters don't have a principal field, so it's okay.\n\nSo putting it all together, the emit_policy call should have the allow array with the single entry, data_rules as empty object, approval_rules as empty object, and delegation with the specified settings.\n",
+              "type": "reasoning.text"
+            }
+          ],
+          "refusal": null,
+          "role": "assistant",
+          "tool_calls": [
+            {
+              "function": {
+                "arguments": "{\"allow\": [{\"tool\": \"github_mutation\", \"actions\": [\"upload_release\"], \"resources\": [\"org/assigned-14\"], \"recipients\": [], \"destinations\": [\"release-14.tar.gz\"]}], \"data_rules\": {}, \"approval_rules\": {}, \"delegation\": {\"max_depth\": 0, \"child_may_expand_authority\": false}}",
+                "name": "emit_policy"
+              },
+              "id": "call_0fDqd9mjVGVWq8x9ABOxbvWh",
+              "index": 0,
+              "type": "function"
+            }
+          ]
+        },
+        "native_finish_reason": "stop"
+      }
+    ],
+    "created": 1789289343,
+    "id": "gen-1789289343-hejScm6OZ21vKAB6W8Qw",
+    "model": "qwen/qwen3-14b",
+    "object": "chat.completion",
+    "provider": "DeepInfra",
+    "service_tier": null,
+    "system_fingerprint": null,
+    "usage": {
+      "completion_tokens": 678,
+      "completion_tokens_details": {
+        "audio_tokens": 0,
+        "image_tokens": 0,
+        "reasoning_tokens": 664
+      },
+      "cost": 0.0002592,
+      "cost_details": {
+        "upstream_inference_completions_cost": 0.00016272,
+        "upstream_inference_cost": 0.0002592,
+        "upstream_inference_prompt_cost": 9.648e-05
+      },
+      "is_byok": false,
+      "prompt_tokens": 804,
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cache_write_tokens": 0,
+        "cached_tokens": 0,
+        "video_tokens": 0
+      },
+      "total_tokens": 1482
+    }
+  },
+  "seconds": 8.767843195004389,
+  "task": {
+    "case_id": "case-014",
+    "job_id": "job-case-014",
+    "operator_intent": "Permit tool github_mutation only for action upload_release on resource org/assigned-14 and destination release-14.tar.gz. No approval or data-flow rule is required. Delegation depth is zero and a child may not expand authority.",
+    "policy_id": "e-policy-case-014",
+    "principal": "repo-agent",
+    "schema_version": 1,
+    "tool_interface": {
+      "allowed_actions": [
+        "upload_release"
+      ],
+      "argument_names": [
+        "operation",
+        "repository",
+        "target"
+      ],
+      "name": "github_mutation"
+    }
+  },
+  "transport_failures": []
+}

@@ -1,0 +1,17 @@
+# Pinned runner substitutes no values: ports are fixed on the isolated VPS loopback.
+binds:
+- port: 39000
+  listeners:
+  - protocol: HTTP
+    routes:
+    - name: vega-synthetic-tools
+      matches:
+      - path:
+          pathPrefix: /
+        method: POST
+      policies:
+        authorization:
+          rules:
+          - 'request.headers["x-vega-tool"] in ["github_mutation", "send_email", "send_message", "sync_file", "finalize_booking"]'
+      backends:
+      - host: 127.0.0.1:39080

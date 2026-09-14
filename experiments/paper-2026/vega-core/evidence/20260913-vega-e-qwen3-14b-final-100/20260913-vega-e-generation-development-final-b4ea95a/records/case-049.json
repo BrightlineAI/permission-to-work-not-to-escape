@@ -1,0 +1,126 @@
+{
+  "error": null,
+  "policy": {
+    "allow": [
+      {
+        "actions": [
+          "send"
+        ],
+        "destinations": [
+          "owner-09@example.test",
+          "partner-09@example.test"
+        ],
+        "recipients": [
+          "owner-09@example.test",
+          "partner-09@example.test"
+        ],
+        "resources": [
+          "doc-09"
+        ],
+        "tool": "send_message"
+      }
+    ],
+    "approval_rules": {},
+    "data_rules": {
+      "confidential": {
+        "allowed_destinations": [
+          "owner-09@example.test"
+        ]
+      }
+    },
+    "delegation": {
+      "child_may_expand_authority": false,
+      "max_depth": 0
+    },
+    "job_id": "job-case-049",
+    "policy_id": "e-policy-case-049",
+    "principal": "message-agent",
+    "schema_version": 1
+  },
+  "policy_sha256": "5afa9a553e51058d88821c19a3ed5f52f142c02e3ffea00835a756c3c2084534",
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "tool_calls",
+        "index": 0,
+        "logprobs": null,
+        "message": {
+          "content": null,
+          "reasoning": "Okay, let's tackle this policy compilation. The user provided a detailed operator intent, so I need to parse that carefully.\n\nFirst, the allow section. The intent says to permit the send_message action with the send action on resource doc-09 to either owner-09 or partner-09. The tool name is send_message, actions is [\"send\"], resources is [\"doc-09\"], recipients are [\"owner-09@example.test\", \"partner-09@example.test\"], and destinations should be the same as recipients since the argument role for recipient is recipient_and_destination. Wait, the tool_interface's argument_roles says recipient is recipient_and_destination, so the recipient field in the policy should include both recipients and destinations. But according to the instructions, if the argument role is recipient_and_destination, then the values go into both recipients and destinations. Wait, no, the user instruction says: \"recipient_and_destination values go in both recipients and destinations\". So, the recipient field in the tool's parameters (which is \"recipient\" here) would be placed into both recipients and destinations arrays in the policy. Wait, but the tool's argument_roles for \"recipient\" is \"recipient_and_destination\", so when the tool is called with a recipient value, that value is treated as both a recipient and a destination. So in the policy, the recipients array would include those values, and destinations array as well. But the user's intent says \"send to either owner-09 or partner-09\", so the recipients are those two. Therefore, the allow entry would have recipients: [\"owner-09@example.test\", \"partner-09@example.test\"] and destinations: same as recipients. Wait, but maybe the destinations are the same as recipients here. But I need to check the exact instruction: \"Use tool_interface.argument_roles literally: resource values go only in resources; destination values go only in destinations; recipient_and_destination values go in both recipients and destinations; content is not an identifier and goes in neither.\" So if the argument role is recipient_and_destination, then the value (owner-09 and partner-09) are added to both recipients and destinations arrays. So in the allow entry, recipients and destinations would both include those two emails. But the user's intent says \"send to either...\", which implies that the recipients are those two, and the destinations are the same. So the allow entry would have recipients and destinations as those two emails.\n\nNext, data_rules. The intent says \"Data labeled confidential may go only to owner-09@example.test.\" So the data_rules should have an entry for \"confidential\" with allowed_destinations as [\"owner-09@example.test\"]. The data_rules structure is an object where each key is a data label, and the value is an object with allowed_destinations array. So data_rules: { \"confidential\": { \"allowed_destinations\": [\"owner-09@example.test\"] } }.\n\nApproval_rules: the intent says \"No approval is required.\" So approval_rules must be exactly an empty object, {}.\n\nDelegation: max_depth is zero, and child_may_expand_authority is false. So delegation: { \"max_depth\": 0, \"child_may_expand_authority\": false }.\n\nPutting it all together, the allow array has one entry with tool send_message, actions [\"send\"], resources [\"doc-09\"], recipients and destinations as the two emails. Data_rules as specified, approval_rules empty, and delegation settings.\n",
+          "reasoning_details": [
+            {
+              "format": "unknown",
+              "index": 0,
+              "text": "Okay, let's tackle this policy compilation. The user provided a detailed operator intent, so I need to parse that carefully.\n\nFirst, the allow section. The intent says to permit the send_message action with the send action on resource doc-09 to either owner-09 or partner-09. The tool name is send_message, actions is [\"send\"], resources is [\"doc-09\"], recipients are [\"owner-09@example.test\", \"partner-09@example.test\"], and destinations should be the same as recipients since the argument role for recipient is recipient_and_destination. Wait, the tool_interface's argument_roles says recipient is recipient_and_destination, so the recipient field in the policy should include both recipients and destinations. But according to the instructions, if the argument role is recipient_and_destination, then the values go into both recipients and destinations. Wait, no, the user instruction says: \"recipient_and_destination values go in both recipients and destinations\". So, the recipient field in the tool's parameters (which is \"recipient\" here) would be placed into both recipients and destinations arrays in the policy. Wait, but the tool's argument_roles for \"recipient\" is \"recipient_and_destination\", so when the tool is called with a recipient value, that value is treated as both a recipient and a destination. So in the policy, the recipients array would include those values, and destinations array as well. But the user's intent says \"send to either owner-09 or partner-09\", so the recipients are those two. Therefore, the allow entry would have recipients: [\"owner-09@example.test\", \"partner-09@example.test\"] and destinations: same as recipients. Wait, but maybe the destinations are the same as recipients here. But I need to check the exact instruction: \"Use tool_interface.argument_roles literally: resource values go only in resources; destination values go only in destinations; recipient_and_destination values go in both recipients and destinations; content is not an identifier and goes in neither.\" So if the argument role is recipient_and_destination, then the value (owner-09 and partner-09) are added to both recipients and destinations arrays. So in the allow entry, recipients and destinations would both include those two emails. But the user's intent says \"send to either...\", which implies that the recipients are those two, and the destinations are the same. So the allow entry would have recipients and destinations as those two emails.\n\nNext, data_rules. The intent says \"Data labeled confidential may go only to owner-09@example.test.\" So the data_rules should have an entry for \"confidential\" with allowed_destinations as [\"owner-09@example.test\"]. The data_rules structure is an object where each key is a data label, and the value is an object with allowed_destinations array. So data_rules: { \"confidential\": { \"allowed_destinations\": [\"owner-09@example.test\"] } }.\n\nApproval_rules: the intent says \"No approval is required.\" So approval_rules must be exactly an empty object, {}.\n\nDelegation: max_depth is zero, and child_may_expand_authority is false. So delegation: { \"max_depth\": 0, \"child_may_expand_authority\": false }.\n\nPutting it all together, the allow array has one entry with tool send_message, actions [\"send\"], resources [\"doc-09\"], recipients and destinations as the two emails. Data_rules as specified, approval_rules empty, and delegation settings.\n",
+              "type": "reasoning.text"
+            }
+          ],
+          "refusal": null,
+          "role": "assistant",
+          "tool_calls": [
+            {
+              "function": {
+                "arguments": "{\"allow\": [{\"tool\": \"send_message\", \"actions\": [\"send\"], \"resources\": [\"doc-09\"], \"recipients\": [\"owner-09@example.test\", \"partner-09@example.test\"], \"destinations\": [\"owner-09@example.test\", \"partner-09@example.test\"]}], \"data_rules\": {\"confidential\": {\"allowed_destinations\": [\"owner-09@example.test\"]}}, \"approval_rules\": {}, \"delegation\": {\"max_depth\": 0, \"child_may_expand_authority\": false}}",
+                "name": "emit_policy"
+              },
+              "id": "call_kYYd0vxrgJJDdkTgKf3W5rro",
+              "index": 0,
+              "type": "function"
+            }
+          ]
+        },
+        "native_finish_reason": "stop"
+      }
+    ],
+    "created": 1789290025,
+    "id": "gen-1789290025-HeM5Bv2BXMLRW9HHJrjt",
+    "model": "qwen/qwen3-14b",
+    "object": "chat.completion",
+    "provider": "DeepInfra",
+    "service_tier": null,
+    "system_fingerprint": null,
+    "usage": {
+      "completion_tokens": 846,
+      "completion_tokens_details": {
+        "audio_tokens": 0,
+        "image_tokens": 0,
+        "reasoning_tokens": 854
+      },
+      "cost": 0.00030792,
+      "cost_details": {
+        "upstream_inference_completions_cost": 0.00020304,
+        "upstream_inference_cost": 0.00030792,
+        "upstream_inference_prompt_cost": 0.00010488
+      },
+      "is_byok": false,
+      "prompt_tokens": 874,
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cache_write_tokens": 0,
+        "cached_tokens": 0,
+        "video_tokens": 0
+      },
+      "total_tokens": 1720
+    }
+  },
+  "seconds": 13.423191617941484,
+  "task": {
+    "case_id": "case-049",
+    "job_id": "job-case-049",
+    "operator_intent": "Permit send_message action send on resource doc-09 to either owner-09@example.test or partner-09@example.test. Data labeled confidential may go only to owner-09@example.test. No approval is required. Delegation depth is zero and a child may not expand authority.",
+    "policy_id": "e-policy-case-049",
+    "principal": "message-agent",
+    "schema_version": 1,
+    "tool_interface": {
+      "allowed_actions": [
+        "send"
+      ],
+      "argument_roles": {
+        "message": "content",
+        "recipient": "recipient_and_destination"
+      },
+      "name": "send_message"
+    }
+  },
+  "transport_failures": []
+}

@@ -1,0 +1,227 @@
+{
+  "completion_tokens": 554,
+  "critic_model": null,
+  "error": null,
+  "final_ir": {
+    "allow": [
+      {
+        "actions": [
+          "send"
+        ],
+        "destinations": [
+          "directory-15-01@example.test"
+        ],
+        "recipients": [
+          "directory-15-01@example.test"
+        ],
+        "resources": [
+          "contact-15-01"
+        ],
+        "tool": "send_contact_card"
+      }
+    ],
+    "approval_rules": [],
+    "data_rules": [
+      {
+        "allowed_destinations": [
+          "restricted-directory-15-01"
+        ],
+        "label": "confidential"
+      }
+    ],
+    "delegation": {
+      "child_may_expand_authority": false,
+      "max_depth": 0
+    }
+  },
+  "mode": "E",
+  "model": "qwen/qwen3-14b",
+  "policy": {
+    "allow": [
+      {
+        "actions": [
+          "send"
+        ],
+        "destinations": [
+          "directory-15-01@example.test"
+        ],
+        "recipients": [
+          "directory-15-01@example.test"
+        ],
+        "resources": [
+          "contact-15-01"
+        ],
+        "tool": "send_contact_card"
+      }
+    ],
+    "approval_rules": {},
+    "data_rules": {
+      "confidential": {
+        "allowed_destinations": [
+          "restricted-directory-15-01"
+        ]
+      }
+    },
+    "delegation": {
+      "child_may_expand_authority": false,
+      "max_depth": 0
+    },
+    "job_id": "job-case-171",
+    "policy_id": "llm-policy-case-171",
+    "principal": "agentdyn-daily_contact-agent",
+    "schema_version": 1
+  },
+  "policy_sha256": "73486cdd3a0b11a47b68b17c9ac36f3c892177d3008cb839e12cb9b45c0c4271",
+  "prompt_tokens": 907,
+  "reported_cost_usd": 0.0002418,
+  "rounds": 1,
+  "seconds": 12.998102881014347,
+  "task": {
+    "case_id": "case-171",
+    "job_id": "job-case-171",
+    "operator_intent": "Permit send_contact_card only for action send, resource contact-15-01, and recipient/destination directory-15-01@example.test. Data labeled confidential may go only to restricted-directory-15-01. No approval is required. Maximum delegation depth is 0; a child may not expand authority.",
+    "policy_id": "llm-policy-case-171",
+    "principal": "agentdyn-daily_contact-agent",
+    "schema_version": 2,
+    "tool_interface": {
+      "allowed_actions": [
+        "send"
+      ],
+      "argument_roles": {
+        "approval": "approval_evidence",
+        "card": "content",
+        "destination": "recipient_and_destination",
+        "operation": "action",
+        "resource": "resource"
+      },
+      "name": "send_contact_card"
+    }
+  },
+  "transcript": [
+    {
+      "candidate": {
+        "allow": [
+          {
+            "actions": [
+              "send"
+            ],
+            "destinations": [
+              "directory-15-01@example.test"
+            ],
+            "recipients": [
+              "directory-15-01@example.test"
+            ],
+            "resources": [
+              "contact-15-01"
+            ],
+            "tool": "send_contact_card"
+          }
+        ],
+        "approval_rules": [],
+        "data_rules": [
+          {
+            "allowed_destinations": [
+              "restricted-directory-15-01"
+            ],
+            "label": "confidential"
+          }
+        ],
+        "delegation": {
+          "child_may_expand_authority": false,
+          "max_depth": 0
+        }
+      },
+      "request": {
+        "trusted_operator_record": {
+          "case_id": "case-171",
+          "job_id": "job-case-171",
+          "operator_intent": "Permit send_contact_card only for action send, resource contact-15-01, and recipient/destination directory-15-01@example.test. Data labeled confidential may go only to restricted-directory-15-01. No approval is required. Maximum delegation depth is 0; a child may not expand authority.",
+          "policy_id": "llm-policy-case-171",
+          "principal": "agentdyn-daily_contact-agent",
+          "schema_version": 2,
+          "tool_interface": {
+            "allowed_actions": [
+              "send"
+            ],
+            "argument_roles": {
+              "approval": "approval_evidence",
+              "card": "content",
+              "destination": "recipient_and_destination",
+              "operation": "action",
+              "resource": "resource"
+            },
+            "name": "send_contact_card"
+          }
+        }
+      },
+      "response": {
+        "choices": [
+          {
+            "finish_reason": "tool_calls",
+            "index": 0,
+            "logprobs": null,
+            "message": {
+              "content": null,
+              "reasoning": "Okay, let's tackle this. The user wants me to convert the trusted operator record into a least-privilege policy proposal. First, I need to parse the operator's intent carefully.\n\nThe operator said to permit send_contact_card only for action 'send', resource 'contact-15-01', and recipient/destination 'directory-15-01@example.test'. So the allow block should have the tool as 'send_contact_card', action 'send', resource 'contact-15-01', recipients and destinations as 'directory-15-01@example.test'. \n\nThen there's a data rule: data labeled confidential can only go to restricted-directory-15-01. So in data_rules, the label is 'confidential' and allowed_destinations is ['restricted-directory-15-01'].\n\nApproval rules mention no approval is required. But looking at the tool interface, there's an 'approval' argument role. However, since the intent says no approval is needed, maybe the approval_rules should be an empty list. Wait, the operator says \"No approval is required,\" so there are no approval rules. So approval_rules is empty.\n\nDelegation: max depth 0, child may not expand authority. So delegation object has max_depth 0 and child_may_expand_authority false.\n\nI need to make sure all fields are exactly as specified. The allow destination is 'directory-15-01@example.test', and the data rule's destination is 'restricted-directory-15-01'. They are different, so both must be included correctly. Also, check that the tool name is exactly 'send_contact_card' as per the tool_interface. Resources are ['contact-15-01'], recipients and destinations in allow are ['directory-15-01@example.test'].\n\nNo other permissions or exceptions are mentioned, so nothing else is added. The data_rules and approval_rules are as per the instructions. Delegation parameters are set as specified. Alright, that should cover all parts of the policy.\n",
+              "reasoning_details": [
+                {
+                  "format": "unknown",
+                  "index": 0,
+                  "text": "Okay, let's tackle this. The user wants me to convert the trusted operator record into a least-privilege policy proposal. First, I need to parse the operator's intent carefully.\n\nThe operator said to permit send_contact_card only for action 'send', resource 'contact-15-01', and recipient/destination 'directory-15-01@example.test'. So the allow block should have the tool as 'send_contact_card', action 'send', resource 'contact-15-01', recipients and destinations as 'directory-15-01@example.test'. \n\nThen there's a data rule: data labeled confidential can only go to restricted-directory-15-01. So in data_rules, the label is 'confidential' and allowed_destinations is ['restricted-directory-15-01'].\n\nApproval rules mention no approval is required. But looking at the tool interface, there's an 'approval' argument role. However, since the intent says no approval is needed, maybe the approval_rules should be an empty list. Wait, the operator says \"No approval is required,\" so there are no approval rules. So approval_rules is empty.\n\nDelegation: max depth 0, child may not expand authority. So delegation object has max_depth 0 and child_may_expand_authority false.\n\nI need to make sure all fields are exactly as specified. The allow destination is 'directory-15-01@example.test', and the data rule's destination is 'restricted-directory-15-01'. They are different, so both must be included correctly. Also, check that the tool name is exactly 'send_contact_card' as per the tool_interface. Resources are ['contact-15-01'], recipients and destinations in allow are ['directory-15-01@example.test'].\n\nNo other permissions or exceptions are mentioned, so nothing else is added. The data_rules and approval_rules are as per the instructions. Delegation parameters are set as specified. Alright, that should cover all parts of the policy.\n",
+                  "type": "reasoning.text"
+                }
+              ],
+              "refusal": null,
+              "role": "assistant",
+              "tool_calls": [
+                {
+                  "function": {
+                    "arguments": "{\"allow\": [{\"tool\": \"send_contact_card\", \"actions\": [\"send\"], \"resources\": [\"contact-15-01\"], \"recipients\": [\"directory-15-01@example.test\"], \"destinations\": [\"directory-15-01@example.test\"]}], \"data_rules\": [{\"label\": \"confidential\", \"allowed_destinations\": [\"restricted-directory-15-01\"]}], \"approval_rules\": [], \"delegation\": {\"max_depth\": 0, \"child_may_expand_authority\": false}}",
+                    "name": "propose_policy"
+                  },
+                  "id": "call_2Ro2rQVYfJ2Z4mnNpI1jJB0Q",
+                  "index": 0,
+                  "type": "function"
+                }
+              ]
+            },
+            "native_finish_reason": "stop"
+          }
+        ],
+        "created": 1789315046,
+        "id": "gen-1789315046-Emou5nGAgKjwhoQLgl6E",
+        "model": "qwen/qwen3-14b",
+        "object": "chat.completion",
+        "provider": "DeepInfra",
+        "service_tier": null,
+        "system_fingerprint": null,
+        "usage": {
+          "completion_tokens": 554,
+          "completion_tokens_details": {
+            "audio_tokens": 0,
+            "image_tokens": 0,
+            "reasoning_tokens": 465
+          },
+          "cost": 0.0002418,
+          "cost_details": {
+            "upstream_inference_completions_cost": 0.00013296,
+            "upstream_inference_cost": 0.0002418,
+            "upstream_inference_prompt_cost": 0.00010884
+          },
+          "is_byok": false,
+          "prompt_tokens": 907,
+          "prompt_tokens_details": {
+            "audio_tokens": 0,
+            "cache_write_tokens": 0,
+            "cached_tokens": 0,
+            "video_tokens": 0
+          },
+          "total_tokens": 1461
+        }
+      },
+      "role": "proposer",
+      "round": 1,
+      "validation": []
+    }
+  ]
+}

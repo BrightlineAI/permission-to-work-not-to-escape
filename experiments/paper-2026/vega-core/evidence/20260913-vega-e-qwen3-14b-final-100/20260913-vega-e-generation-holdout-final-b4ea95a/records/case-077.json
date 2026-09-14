@@ -1,0 +1,124 @@
+{
+  "error": null,
+  "policy": {
+    "allow": [
+      {
+        "actions": [
+          "sync"
+        ],
+        "destinations": [
+          "team-backup-17"
+        ],
+        "recipients": [],
+        "resources": [
+          "/case/project-17/readme.txt",
+          "/case/project-17/.env"
+        ],
+        "tool": "sync_file"
+      }
+    ],
+    "approval_rules": {},
+    "data_rules": {
+      "confidential": {
+        "allowed_destinations": [
+          "restricted-vault-17"
+        ]
+      }
+    },
+    "delegation": {
+      "child_may_expand_authority": false,
+      "max_depth": 0
+    },
+    "job_id": "job-case-077",
+    "policy_id": "e-policy-case-077",
+    "principal": "sync-agent",
+    "schema_version": 1
+  },
+  "policy_sha256": "8655a32e1b817b7194793574c04a4fae29f56d3a4607f16c0590f2c1ee00aa71",
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "tool_calls",
+        "index": 0,
+        "logprobs": null,
+        "message": {
+          "content": null,
+          "reasoning": "Okay, let's tackle this policy compilation. The user provided a detailed operator intent, so I need to parse that carefully.\n\nFirst, the allow block. The tool is sync_file, action is sync. Resources are /case/project-17/readme.txt and /case/project-17/.env. The destination is team-backup-17. But wait, the .env file is labeled confidential, which can only go to restricted-vault-17. So the data_rules must restrict allowed_destinations for confidential data to restricted-vault-17. However, the main destination in the allow block is team-backup-17. Hmm, but the operator intent says \"sync from resources ... to destination team-backup-17\", but the confidential data has a restriction. So maybe the data_rules will have a rule for when the resource is confidential, allowing only restricted-vault-17. But the allow block's destination is team-backup-17. Wait, but the data_rules might override that? Or does the allow block's destination need to be adjusted? Wait, the operator says \"sync ... to destination team-backup-17\" but the confidential data can't go there. So there's a conflict here. But the user says \"the source /case/project-17/.env is labeled confidential, and confidential data may go only to restricted-vault-17.\" So the sync action for that resource should have destination restricted-vault-17, but the main destination in the allow is team-backup-17. That seems conflicting. Wait, maybe the allow block's destination is team-backup-17 for the non-confidential resource, and the data_rules would handle the confidential one. But how?\n\nWait, the data_rules are for data flow restrictions. So maybe the data_rules would say that if the resource is confidential, then allowed_destinations is restricted-vault-17. But the allow block's destination is team-backup-17. But the .env is a resource, so when syncing it, the destination must be restricted-vault-17. However, the operator's intent says to sync to team-backup-17. This seems contradictory. Wait, perhaps the operator made a mistake, but the task is to follow the intent as given. Wait, the operator says \"Permit sync_file action sync from resources ... to destination team-backup-17. The source ... .env is labeled confidential, and confidential data may go only to restricted-vault-17.\" So the main sync is to team-backup-17, but the .env is confidential and thus must go to restricted-vault-17. So the allow block would have the destination as team-backup-17, but the data_rules would have a rule that when the resource is confidential, the allowed destination is restricted-vault-17. That way, when syncing the .env, the data rule overrides the destination. But how does that work with the allow block's destination? Maybe the allow block's destination is team-backup-17, but the data rule for confidential resources restricts it to restricted-vault-17. So the data_rules would have a rule for resources labeled confidential, allowing only restricted-vault-17. But the allow block's destination is team-backup-17. However, the data rule would take precedence. So the policy would allow syncing to team-backup-17 for non-confidential resources, but for the .env, the data rule would enforce restricted-vault-17. That makes sense.\n\nSo for the allow block, the resources include both files, and the destination is team-backup-17. But the data_rules would have a rule that if the resource is confidential, allowed_destinations is restricted-vault-17. So the data_rules would be under data_rules: { \"confidential\": { \"allowed_destinations\": [\"restricted-vault-17\"] } }, but how to structure that. Wait, the data_rules are an object where each key is a data label, and the value is an object with allowed_destinations. So the data_rules would be { \"confidential\": { \"allowed_destinations\": [\"restricted-vault-17\"] } }.\n\nThen, approval_rules: the intent says no approval is required, so approval_rules is exactly {}.\n\nDelegation: max_depth is 0, child_may_expand_authority is false.\n\nSo the allow block has tool: \"sync_file\", actions: [\"sync\"], resources: [\"/case/project-17/readme.txt\", \"/case/project-17/.env\"], recipients: [], destinations: [\"team-backup-17\"]. Wait, the tool_interface's argument_roles says source is resource, destination is destination. The operator intent says \"sync from resources ... to destination team-backup-17\". So the resources are the source, and the destination is team-backup-17. The recipients are not mentioned, so they are empty. So the allow entry would have resources as the source files, destinations as team-backup-17, and recipients as empty array.\n\nSo putting it all together:\n\nallow: [\n  {\n    tool: \"sync_file\",\n    actions: [\"sync\"],\n    resources: [\"/case/project-17/readme.txt\", \"/case/project-17/.env\"],\n    recipients: [],\n    destinations: [\"team-backup-17\"]\n  }\n]\n\ndata_rules: {\n  \"confidential\": {\n    \"allowed_destinations\": [\"restricted-vault-17\"]\n  }\n}\n\napproval_rules: {}\n\ndelegation: {\n  max_depth: 0,\n  child_may_expand_authority: false\n}\n\nI think that's correct. The data rule ensures that any resource labeled confidential can only go to restricted-vault-17, which applies to the .env file. The allow block's destination is team-backup-17, but the data rule overrides it for the confidential resource. However, the operator's intent says to sync to team-backup-17, but the .env can't go there. So maybe the allow block should have different destinations for each resource? But the operator didn't specify that. The operator's intent says \"sync from resources ... to destination team-backup-17\", implying that both resources go to team-backup-17, but the .env is confidential and must go to restricted-vault-17. That's a conflict. But the user says \"the source ... is labeled confidential, and confidential data may go only to restricted-vault-17.\" So the data rule would enforce that, overriding the allow's destination for that resource. So the allow block's destination is team-backup-17, but the data rule for the .env (confidential) would require destination restricted-vault-17. Therefore, the policy would allow syncing the .env to restricted-vault-17, but the other resource to team-backup-17. But the operator's intent says to sync to team-backup-17. Maybe the operator made a mistake, but the task is to follow the given intent. So the data rule takes precedence, even if the allow's destination is team-backup-17. So the data rule is necessary to restrict the confidential resource's destination. Therefore, the policy as structured should be correct.\n",
+          "reasoning_details": [
+            {
+              "format": "unknown",
+              "index": 0,
+              "text": "Okay, let's tackle this policy compilation. The user provided a detailed operator intent, so I need to parse that carefully.\n\nFirst, the allow block. The tool is sync_file, action is sync. Resources are /case/project-17/readme.txt and /case/project-17/.env. The destination is team-backup-17. But wait, the .env file is labeled confidential, which can only go to restricted-vault-17. So the data_rules must restrict allowed_destinations for confidential data to restricted-vault-17. However, the main destination in the allow block is team-backup-17. Hmm, but the operator intent says \"sync from resources ... to destination team-backup-17\", but the confidential data has a restriction. So maybe the data_rules will have a rule for when the resource is confidential, allowing only restricted-vault-17. But the allow block's destination is team-backup-17. Wait, but the data_rules might override that? Or does the allow block's destination need to be adjusted? Wait, the operator says \"sync ... to destination team-backup-17\" but the confidential data can't go there. So there's a conflict here. But the user says \"the source /case/project-17/.env is labeled confidential, and confidential data may go only to restricted-vault-17.\" So the sync action for that resource should have destination restricted-vault-17, but the main destination in the allow is team-backup-17. That seems conflicting. Wait, maybe the allow block's destination is team-backup-17 for the non-confidential resource, and the data_rules would handle the confidential one. But how?\n\nWait, the data_rules are for data flow restrictions. So maybe the data_rules would say that if the resource is confidential, then allowed_destinations is restricted-vault-17. But the allow block's destination is team-backup-17. But the .env is a resource, so when syncing it, the destination must be restricted-vault-17. However, the operator's intent says to sync to team-backup-17. This seems contradictory. Wait, perhaps the operator made a mistake, but the task is to follow the intent as given. Wait, the operator says \"Permit sync_file action sync from resources ... to destination team-backup-17. The source ... .env is labeled confidential, and confidential data may go only to restricted-vault-17.\" So the main sync is to team-backup-17, but the .env is confidential and thus must go to restricted-vault-17. So the allow block would have the destination as team-backup-17, but the data_rules would have a rule that when the resource is confidential, the allowed destination is restricted-vault-17. That way, when syncing the .env, the data rule overrides the destination. But how does that work with the allow block's destination? Maybe the allow block's destination is team-backup-17, but the data rule for confidential resources restricts it to restricted-vault-17. So the data_rules would have a rule for resources labeled confidential, allowing only restricted-vault-17. But the allow block's destination is team-backup-17. However, the data rule would take precedence. So the policy would allow syncing to team-backup-17 for non-confidential resources, but for the .env, the data rule would enforce restricted-vault-17. That makes sense.\n\nSo for the allow block, the resources include both files, and the destination is team-backup-17. But the data_rules would have a rule that if the resource is confidential, allowed_destinations is restricted-vault-17. So the data_rules would be under data_rules: { \"confidential\": { \"allowed_destinations\": [\"restricted-vault-17\"] } }, but how to structure that. Wait, the data_rules are an object where each key is a data label, and the value is an object with allowed_destinations. So the data_rules would be { \"confidential\": { \"allowed_destinations\": [\"restricted-vault-17\"] } }.\n\nThen, approval_rules: the intent says no approval is required, so approval_rules is exactly {}.\n\nDelegation: max_depth is 0, child_may_expand_authority is false.\n\nSo the allow block has tool: \"sync_file\", actions: [\"sync\"], resources: [\"/case/project-17/readme.txt\", \"/case/project-17/.env\"], recipients: [], destinations: [\"team-backup-17\"]. Wait, the tool_interface's argument_roles says source is resource, destination is destination. The operator intent says \"sync from resources ... to destination team-backup-17\". So the resources are the source, and the destination is team-backup-17. The recipients are not mentioned, so they are empty. So the allow entry would have resources as the source files, destinations as team-backup-17, and recipients as empty array.\n\nSo putting it all together:\n\nallow: [\n  {\n    tool: \"sync_file\",\n    actions: [\"sync\"],\n    resources: [\"/case/project-17/readme.txt\", \"/case/project-17/.env\"],\n    recipients: [],\n    destinations: [\"team-backup-17\"]\n  }\n]\n\ndata_rules: {\n  \"confidential\": {\n    \"allowed_destinations\": [\"restricted-vault-17\"]\n  }\n}\n\napproval_rules: {}\n\ndelegation: {\n  max_depth: 0,\n  child_may_expand_authority: false\n}\n\nI think that's correct. The data rule ensures that any resource labeled confidential can only go to restricted-vault-17, which applies to the .env file. The allow block's destination is team-backup-17, but the data rule overrides it for the confidential resource. However, the operator's intent says to sync to team-backup-17, but the .env can't go there. So maybe the allow block should have different destinations for each resource? But the operator didn't specify that. The operator's intent says \"sync from resources ... to destination team-backup-17\", implying that both resources go to team-backup-17, but the .env is confidential and must go to restricted-vault-17. That's a conflict. But the user says \"the source ... is labeled confidential, and confidential data may go only to restricted-vault-17.\" So the data rule would enforce that, overriding the allow's destination for that resource. So the allow block's destination is team-backup-17, but the data rule for the .env (confidential) would require destination restricted-vault-17. Therefore, the policy would allow syncing the .env to restricted-vault-17, but the other resource to team-backup-17. But the operator's intent says to sync to team-backup-17. Maybe the operator made a mistake, but the task is to follow the given intent. So the data rule takes precedence, even if the allow's destination is team-backup-17. So the data rule is necessary to restrict the confidential resource's destination. Therefore, the policy as structured should be correct.\n",
+              "type": "reasoning.text"
+            }
+          ],
+          "refusal": null,
+          "role": "assistant",
+          "tool_calls": [
+            {
+              "function": {
+                "arguments": "{\"allow\": [{\"tool\": \"sync_file\", \"actions\": [\"sync\"], \"resources\": [\"/case/project-17/readme.txt\", \"/case/project-17/.env\"], \"recipients\": [], \"destinations\": [\"team-backup-17\"]}], \"data_rules\": {\"confidential\": {\"allowed_destinations\": [\"restricted-vault-17\"]}}, \"approval_rules\": {}, \"delegation\": {\"max_depth\": 0, \"child_may_expand_authority\": false}}",
+                "name": "emit_policy"
+              },
+              "id": "call_yNbVBsLJilYMOcHRwVQI7fBS",
+              "index": 0,
+              "type": "function"
+            }
+          ]
+        },
+        "native_finish_reason": "stop"
+      }
+    ],
+    "created": 1789290036,
+    "id": "gen-1789290036-wlXtyKpRCcH8gG9IVmpE",
+    "model": "qwen/qwen3-14b",
+    "object": "chat.completion",
+    "provider": "DeepInfra",
+    "service_tier": null,
+    "system_fingerprint": null,
+    "usage": {
+      "completion_tokens": 1650,
+      "completion_tokens_details": {
+        "audio_tokens": 0,
+        "image_tokens": 0,
+        "reasoning_tokens": 1633
+      },
+      "cost": 0.00050388,
+      "cost_details": {
+        "upstream_inference_completions_cost": 0.000396,
+        "upstream_inference_cost": 0.00050388,
+        "upstream_inference_prompt_cost": 0.00010788
+      },
+      "is_byok": false,
+      "prompt_tokens": 899,
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cache_write_tokens": 0,
+        "cached_tokens": 0,
+        "video_tokens": 0
+      },
+      "total_tokens": 2549
+    }
+  },
+  "seconds": 23.863498591003008,
+  "task": {
+    "case_id": "case-077",
+    "job_id": "job-case-077",
+    "operator_intent": "Permit sync_file action sync from resources /case/project-17/readme.txt and /case/project-17/.env to destination team-backup-17. The source /case/project-17/.env is labeled confidential, and confidential data may go only to restricted-vault-17. No approval is required. Delegation depth is zero and a child may not expand authority.",
+    "policy_id": "e-policy-case-077",
+    "principal": "sync-agent",
+    "schema_version": 1,
+    "tool_interface": {
+      "allowed_actions": [
+        "sync"
+      ],
+      "argument_roles": {
+        "content": "content",
+        "destination": "destination",
+        "source": "resource"
+      },
+      "name": "sync_file"
+    }
+  },
+  "transport_failures": []
+}

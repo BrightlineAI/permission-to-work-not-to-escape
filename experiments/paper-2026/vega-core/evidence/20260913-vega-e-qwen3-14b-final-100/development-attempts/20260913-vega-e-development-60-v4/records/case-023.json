@@ -1,0 +1,119 @@
+{
+  "error": null,
+  "policy": {
+    "allow": [
+      {
+        "actions": [
+          "send"
+        ],
+        "destinations": [
+          "owner-03@example.test"
+        ],
+        "recipients": [
+          "owner-03@example.test"
+        ],
+        "resources": [
+          "trip-03"
+        ],
+        "tool": "send_email"
+      }
+    ],
+    "approval_rules": {},
+    "data_rules": {},
+    "delegation": {
+      "child_may_expand_authority": false,
+      "max_depth": 0
+    },
+    "job_id": "job-case-023",
+    "policy_id": "e-policy-case-023",
+    "principal": "mail-agent",
+    "schema_version": 1
+  },
+  "policy_sha256": "a923015d54d95974675d844709c5b9ea2eaaa1f2c199d49c9e7ee18d140f9149",
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "tool_calls",
+        "index": 0,
+        "logprobs": null,
+        "message": {
+          "content": null,
+          "reasoning": "Okay, let's break down the user's query step by step. The goal is to create a least-privilege policy based on the operator's intent. \n\nFirst, the operator wants to permit the tool 'send_email' only for the action 'send' on the resource 'trip-03' with recipient and destination 'owner-03@example.test'. So, the 'allow' section needs to include the tool name, the specific action, the resource, and both recipient and destination. The tool interface's allowed_actions is [\"send\"], which matches the action mentioned. The argument_roles indicate that 'recipient' is both recipient_and_destination, so that field should go into both recipients and destinations.\n\nNext, the user specified no approval or data-flow rules. That means approval_rules must be an empty object {}, and data_rules should also be an empty object {}. \n\nFor delegation, the depth is zero, and the child may not expand authority. So delegation.max_depth is 0 and child_may_expand_authority is false.\n\nI need to ensure that all parameters are correctly mapped without adding any extra fields. The principal is 'mail-agent', but in the policy, the principal isn't directly used here since the tool is allowed based on the given parameters. Also, check that resources, recipients, and destinations are correctly placed. No wildcards or placeholders are allowed, so exact strings from the intent must be used. \n\nPutting it all together, the allow array should have one entry with the tool, actions, resources, recipients, and destinations. Data_rules and approval_rules are empty. Delegation settings are set as specified. Let me verify each part against the tool's schema to make sure there are no errors.\n",
+          "reasoning_details": [
+            {
+              "format": "unknown",
+              "index": 0,
+              "text": "Okay, let's break down the user's query step by step. The goal is to create a least-privilege policy based on the operator's intent. \n\nFirst, the operator wants to permit the tool 'send_email' only for the action 'send' on the resource 'trip-03' with recipient and destination 'owner-03@example.test'. So, the 'allow' section needs to include the tool name, the specific action, the resource, and both recipient and destination. The tool interface's allowed_actions is [\"send\"], which matches the action mentioned. The argument_roles indicate that 'recipient' is both recipient_and_destination, so that field should go into both recipients and destinations.\n\nNext, the user specified no approval or data-flow rules. That means approval_rules must be an empty object {}, and data_rules should also be an empty object {}. \n\nFor delegation, the depth is zero, and the child may not expand authority. So delegation.max_depth is 0 and child_may_expand_authority is false.\n\nI need to ensure that all parameters are correctly mapped without adding any extra fields. The principal is 'mail-agent', but in the policy, the principal isn't directly used here since the tool is allowed based on the given parameters. Also, check that resources, recipients, and destinations are correctly placed. No wildcards or placeholders are allowed, so exact strings from the intent must be used. \n\nPutting it all together, the allow array should have one entry with the tool, actions, resources, recipients, and destinations. Data_rules and approval_rules are empty. Delegation settings are set as specified. Let me verify each part against the tool's schema to make sure there are no errors.\n",
+              "type": "reasoning.text"
+            }
+          ],
+          "refusal": null,
+          "role": "assistant",
+          "tool_calls": [
+            {
+              "function": {
+                "arguments": "{\"allow\": [{\"tool\": \"send_email\", \"actions\": [\"send\"], \"resources\": [\"trip-03\"], \"recipients\": [\"owner-03@example.test\"], \"destinations\": [\"owner-03@example.test\"]}], \"data_rules\": {}, \"approval_rules\": {}, \"delegation\": {\"max_depth\": 0, \"child_may_expand_authority\": false}}",
+                "name": "emit_policy"
+              },
+              "id": "call_2kaURUSF0MRzpKkWr2X70wQ2",
+              "index": 0,
+              "type": "function"
+            }
+          ]
+        },
+        "native_finish_reason": "stop"
+      }
+    ],
+    "created": 1789289705,
+    "id": "gen-1789289705-thgdUKw6eWP2PqKand9A",
+    "model": "qwen/qwen3-14b",
+    "object": "chat.completion",
+    "provider": "DeepInfra",
+    "service_tier": null,
+    "system_fingerprint": null,
+    "usage": {
+      "completion_tokens": 446,
+      "completion_tokens_details": {
+        "audio_tokens": 0,
+        "image_tokens": 0,
+        "reasoning_tokens": 421
+      },
+      "cost": 0.0002112,
+      "cost_details": {
+        "upstream_inference_completions_cost": 0.00010704,
+        "upstream_inference_cost": 0.0002112,
+        "upstream_inference_prompt_cost": 0.00010416
+      },
+      "is_byok": false,
+      "prompt_tokens": 868,
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cache_write_tokens": 0,
+        "cached_tokens": 0,
+        "video_tokens": 0
+      },
+      "total_tokens": 1314
+    }
+  },
+  "seconds": 9.642759843962267,
+  "task": {
+    "case_id": "case-023",
+    "job_id": "job-case-023",
+    "operator_intent": "Permit tool send_email only for action send on resource trip-03 with recipient and destination owner-03@example.test. No approval or data-flow rule is required. Delegation depth is zero and a child may not expand authority.",
+    "policy_id": "e-policy-case-023",
+    "principal": "mail-agent",
+    "schema_version": 1,
+    "tool_interface": {
+      "allowed_actions": [
+        "send"
+      ],
+      "argument_roles": {
+        "body": "content",
+        "recipient": "recipient_and_destination",
+        "subject": "content"
+      },
+      "name": "send_email"
+    }
+  },
+  "transport_failures": []
+}

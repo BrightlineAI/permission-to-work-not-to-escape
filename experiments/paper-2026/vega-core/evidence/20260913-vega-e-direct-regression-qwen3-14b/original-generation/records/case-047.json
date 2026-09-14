@@ -1,0 +1,126 @@
+{
+  "error": null,
+  "policy": {
+    "allow": [
+      {
+        "actions": [
+          "send"
+        ],
+        "destinations": [
+          "owner-07@example.test",
+          "partner-07@example.test"
+        ],
+        "recipients": [
+          "owner-07@example.test",
+          "partner-07@example.test"
+        ],
+        "resources": [
+          "doc-07"
+        ],
+        "tool": "send_message"
+      }
+    ],
+    "approval_rules": {},
+    "data_rules": {
+      "confidential": {
+        "allowed_destinations": [
+          "owner-07@example.test"
+        ]
+      }
+    },
+    "delegation": {
+      "child_may_expand_authority": false,
+      "max_depth": 0
+    },
+    "job_id": "job-case-047",
+    "policy_id": "e-policy-case-047",
+    "principal": "message-agent",
+    "schema_version": 1
+  },
+  "policy_sha256": "7bdf923bbeb3d1ac047181231574850c1c8739347d42688735d10cc0b089fcb0",
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "tool_calls",
+        "index": 0,
+        "logprobs": null,
+        "message": {
+          "content": null,
+          "reasoning": "Okay, let's start by parsing the user's input. The trusted operator record has specific instructions. The operator wants to permit the send_message action on resource doc-07 to either owner-07@example.test or partner-07@example.test. But data labeled confidential can only go to owner-07. No approval is needed, and delegation depth is zero with no expansion.\n\nFirst, the 'allow' section. The tool is send_message, action is send, resource is doc-07. Recipients are the two email addresses. Destinations should include both as well since the recipient role is recipient_and_destination. Wait, the argument_roles say recipient is recipient_and_destination. So the recipient field in the allow entry should include both, and destinations as well? Wait, the instruction says: \"Put resource identifiers only in resources, recipient identifiers only in recipients, and ordinary endpoints or targets only in destinations. An argument with role recipient_and_destination belongs in both lists.\" So if the recipient is both, then they go into both recipients and destinations. So for the allow entry, recipients would be [\"owner-07@example.test\", \"partner-07@example.test\"], and destinations same. But wait, the action is send, so maybe the destinations are the recipients? Hmm, maybe the destinations are the endpoints where the message is sent. But according to the tool_interface, the recipient argument is a recipient_and_destination. So the same entity is both recipient and destination. Therefore, in the allow entry, recipients and destinations both include those two emails.\n\nBut wait, the data labeled confidential can only go to owner-07. So in data_rules, under \"confidential\", allowed_destinations is [\"owner-07@example.test\"]. That's separate from the allow destinations. The data_rules are about where data can be sent, not the general destinations. So even though the allow destinations include partner-07, the data_rules restrict confidential data to only owner-07.\n\nApproval rules: the operator says no approval is required, so approval_rules is {}.\n\nDelegation: max_depth is 0, child_may_expand_authority is false.\n\nSo putting it all together:\n\nallow is an array with one entry. The tool is send_message, actions is [\"send\"], resources is [\"doc-07\"], recipients are the two emails, destinations same.\n\ndata_rules: {\"confidential\": {\"allowed_destinations\": [\"owner-07@example.test\"]}}.\n\napproval_rules: {}.\n\ndelegation: {\"max_depth\": 0, \"child_may_expand_authority\": false}.\n\nCheck if anything is missing. The operator didn't mention any other tools or actions. So the allow entry is correct. Data rules are correctly set. No approval needed. Delegation parameters are as specified. Looks good.\n",
+          "reasoning_details": [
+            {
+              "format": "unknown",
+              "index": 0,
+              "text": "Okay, let's start by parsing the user's input. The trusted operator record has specific instructions. The operator wants to permit the send_message action on resource doc-07 to either owner-07@example.test or partner-07@example.test. But data labeled confidential can only go to owner-07. No approval is needed, and delegation depth is zero with no expansion.\n\nFirst, the 'allow' section. The tool is send_message, action is send, resource is doc-07. Recipients are the two email addresses. Destinations should include both as well since the recipient role is recipient_and_destination. Wait, the argument_roles say recipient is recipient_and_destination. So the recipient field in the allow entry should include both, and destinations as well? Wait, the instruction says: \"Put resource identifiers only in resources, recipient identifiers only in recipients, and ordinary endpoints or targets only in destinations. An argument with role recipient_and_destination belongs in both lists.\" So if the recipient is both, then they go into both recipients and destinations. So for the allow entry, recipients would be [\"owner-07@example.test\", \"partner-07@example.test\"], and destinations same. But wait, the action is send, so maybe the destinations are the recipients? Hmm, maybe the destinations are the endpoints where the message is sent. But according to the tool_interface, the recipient argument is a recipient_and_destination. So the same entity is both recipient and destination. Therefore, in the allow entry, recipients and destinations both include those two emails.\n\nBut wait, the data labeled confidential can only go to owner-07. So in data_rules, under \"confidential\", allowed_destinations is [\"owner-07@example.test\"]. That's separate from the allow destinations. The data_rules are about where data can be sent, not the general destinations. So even though the allow destinations include partner-07, the data_rules restrict confidential data to only owner-07.\n\nApproval rules: the operator says no approval is required, so approval_rules is {}.\n\nDelegation: max_depth is 0, child_may_expand_authority is false.\n\nSo putting it all together:\n\nallow is an array with one entry. The tool is send_message, actions is [\"send\"], resources is [\"doc-07\"], recipients are the two emails, destinations same.\n\ndata_rules: {\"confidential\": {\"allowed_destinations\": [\"owner-07@example.test\"]}}.\n\napproval_rules: {}.\n\ndelegation: {\"max_depth\": 0, \"child_may_expand_authority\": false}.\n\nCheck if anything is missing. The operator didn't mention any other tools or actions. So the allow entry is correct. Data rules are correctly set. No approval needed. Delegation parameters are as specified. Looks good.\n",
+              "type": "reasoning.text"
+            }
+          ],
+          "refusal": null,
+          "role": "assistant",
+          "tool_calls": [
+            {
+              "function": {
+                "arguments": "{\"allow\": [{\"tool\": \"send_message\", \"actions\": [\"send\"], \"resources\": [\"doc-07\"], \"recipients\": [\"owner-07@example.test\", \"partner-07@example.test\"], \"destinations\": [\"owner-07@example.test\", \"partner-07@example.test\"]}], \"data_rules\": {\"confidential\": {\"allowed_destinations\": [\"owner-07@example.test\"]}}, \"approval_rules\": {}, \"delegation\": {\"max_depth\": 0, \"child_may_expand_authority\": false}}",
+                "name": "emit_policy"
+              },
+              "id": "call_XWie1EbYrakcS9pF2M8ZcVPD",
+              "index": 0,
+              "type": "function"
+            }
+          ]
+        },
+        "native_finish_reason": "stop"
+      }
+    ],
+    "created": 1789331470,
+    "id": "gen-1789331470-3KrTXitUKLuRuw2Pg8tJ",
+    "model": "qwen/qwen3-14b",
+    "object": "chat.completion",
+    "provider": "DeepInfra",
+    "service_tier": null,
+    "system_fingerprint": null,
+    "usage": {
+      "completion_tokens": 703,
+      "completion_tokens_details": {
+        "audio_tokens": 0,
+        "image_tokens": 0,
+        "reasoning_tokens": 682
+      },
+      "cost": 0.00029268,
+      "cost_details": {
+        "upstream_inference_completions_cost": 0.00016872,
+        "upstream_inference_cost": 0.00029268,
+        "upstream_inference_prompt_cost": 0.00012396
+      },
+      "is_byok": false,
+      "prompt_tokens": 1033,
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cache_write_tokens": 0,
+        "cached_tokens": 0,
+        "video_tokens": 0
+      },
+      "total_tokens": 1736
+    }
+  },
+  "seconds": 12.073734625941142,
+  "task": {
+    "case_id": "case-047",
+    "job_id": "job-case-047",
+    "operator_intent": "Permit send_message action send on resource doc-07 to either owner-07@example.test or partner-07@example.test. Data labeled confidential may go only to owner-07@example.test. No approval is required. Delegation depth is zero and a child may not expand authority.",
+    "policy_id": "e-policy-case-047",
+    "principal": "message-agent",
+    "schema_version": 1,
+    "tool_interface": {
+      "allowed_actions": [
+        "send"
+      ],
+      "argument_roles": {
+        "message": "content",
+        "recipient": "recipient_and_destination"
+      },
+      "name": "send_message"
+    }
+  },
+  "transport_failures": []
+}

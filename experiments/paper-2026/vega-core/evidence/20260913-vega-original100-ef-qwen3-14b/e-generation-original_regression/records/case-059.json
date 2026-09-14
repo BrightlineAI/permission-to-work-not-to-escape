@@ -1,0 +1,242 @@
+{
+  "completion_tokens": 966,
+  "critic_model": null,
+  "error": null,
+  "final_ir": {
+    "allow": [
+      {
+        "actions": [
+          "send"
+        ],
+        "destinations": [
+          "owner-19@example.test",
+          "partner-19@example.test"
+        ],
+        "recipients": [
+          "owner-19@example.test",
+          "partner-19@example.test"
+        ],
+        "resources": [
+          "doc-19"
+        ],
+        "tool": "send_message"
+      }
+    ],
+    "approval_rules": [],
+    "data_rules": [
+      {
+        "allowed_destinations": [
+          "owner-19@example.test"
+        ],
+        "label": "confidential"
+      }
+    ],
+    "delegation": {
+      "child_may_expand_authority": false,
+      "max_depth": 0
+    }
+  },
+  "mode": "E",
+  "model": "qwen/qwen3-14b",
+  "policy": {
+    "allow": [
+      {
+        "actions": [
+          "send"
+        ],
+        "destinations": [
+          "owner-19@example.test",
+          "partner-19@example.test"
+        ],
+        "recipients": [
+          "owner-19@example.test",
+          "partner-19@example.test"
+        ],
+        "resources": [
+          "doc-19"
+        ],
+        "tool": "send_message"
+      }
+    ],
+    "approval_rules": {},
+    "data_rules": {
+      "confidential": {
+        "allowed_destinations": [
+          "owner-19@example.test"
+        ]
+      }
+    },
+    "delegation": {
+      "child_may_expand_authority": false,
+      "max_depth": 0
+    },
+    "job_id": "job-case-059",
+    "policy_id": "e-policy-case-059",
+    "principal": "message-agent",
+    "schema_version": 1
+  },
+  "policy_sha256": "a77482d7af82c1f66e1dcd91b6adfb2d20286e0d8b7f42fb7c48c2eadf9900aa",
+  "prompt_tokens": 1048,
+  "reported_cost_usd": 0.0003576,
+  "rounds": 1,
+  "seconds": 44.86316605703905,
+  "task": {
+    "case_id": "case-059",
+    "job_id": "job-case-059",
+    "operator_intent": "Permit send_message action send on resource doc-19 to either owner-19@example.test or partner-19@example.test. Data labeled confidential may go only to owner-19@example.test. No approval is required. Delegation depth is zero and a child may not expand authority.",
+    "policy_id": "e-policy-case-059",
+    "principal": "message-agent",
+    "schema_version": 1,
+    "tool_interface": {
+      "allowed_actions": [
+        "send"
+      ],
+      "argument_roles": {
+        "message": "content",
+        "recipient": "recipient_and_destination"
+      },
+      "name": "send_message"
+    }
+  },
+  "transcript": [
+    {
+      "candidate": {
+        "allow": [
+          {
+            "actions": [
+              "send"
+            ],
+            "destinations": [
+              "owner-19@example.test",
+              "partner-19@example.test"
+            ],
+            "recipients": [
+              "owner-19@example.test",
+              "partner-19@example.test"
+            ],
+            "resources": [
+              "doc-19"
+            ],
+            "tool": "send_message"
+          }
+        ],
+        "approval_rules": [],
+        "data_rules": [
+          {
+            "allowed_destinations": [
+              "owner-19@example.test"
+            ],
+            "label": "confidential"
+          }
+        ],
+        "delegation": {
+          "child_may_expand_authority": false,
+          "max_depth": 0
+        }
+      },
+      "request": {
+        "deterministic_compiler_contract": {
+          "allow_grants_required": 1,
+          "identifier_list_sources": {
+            "destinations": [
+              "recipient"
+            ],
+            "recipients": [
+              "recipient"
+            ],
+            "resources": []
+          },
+          "literal_scope_may_be_declared_in_operator_intent": true,
+          "never_copy_an_identifier_to_another_role_without_an_explicit_declaration": true,
+          "ordinary_allow_and_labeled_data_rule_are_distinct_layers": true
+        },
+        "trusted_operator_record": {
+          "case_id": "case-059",
+          "job_id": "job-case-059",
+          "operator_intent": "Permit send_message action send on resource doc-19 to either owner-19@example.test or partner-19@example.test. Data labeled confidential may go only to owner-19@example.test. No approval is required. Delegation depth is zero and a child may not expand authority.",
+          "policy_id": "e-policy-case-059",
+          "principal": "message-agent",
+          "schema_version": 1,
+          "tool_interface": {
+            "allowed_actions": [
+              "send"
+            ],
+            "argument_roles": {
+              "message": "content",
+              "recipient": "recipient_and_destination"
+            },
+            "name": "send_message"
+          }
+        }
+      },
+      "response": {
+        "choices": [
+          {
+            "finish_reason": "tool_calls",
+            "index": 0,
+            "logprobs": null,
+            "message": {
+              "content": null,
+              "reasoning": "Okay, let's tackle this. The user wants me to convert the trusted operator record into a least-privilege policy proposal. First, I need to parse the operator_intent carefully.\n\nThe operator says to permit the send_message action on resource doc-19 to either owner-19@example.test or partner-19@example.test. So the allow destination should have those recipients. Also, data labeled confidential can only go to owner-19. \n\nLooking at the tool_interface, the allowed_actions is [\"send\"], so the action is \"send\". The argument_roles have \"recipient\" as recipient_and_destination, which means that recipient list should include both recipients and destinations. But the identifier_list_sources say destinations are from recipient, and recipients are from recipient. Wait, the identifier_list_sources for destinations and recipients both point to [\"recipient\"], which might mean that the same list is used for both. But the operator_intent specifies two recipients, so I need to put them in both recipients and destinations? Wait, the note says recipient_and_destination belongs in both. But the tool's argument_roles have recipient as recipient_and_destination. So in the policy, the recipients and destinations lists should include those recipients. But the user's instruction says that if a value is a resource, it goes in resources; if it's a destination, in destinations; recipient in recipients; and recipient_and_destination in both. So since the tool's argument_roles have recipient as recipient_and_destination, the recipients and destinations lists should include owner-19 and partner-19.\n\nWait, the operator_intent says \"send on resource doc-19 to either owner-19 or partner-19\". So the resource is doc-19. The recipients are owner-19 and partner-19. Since the recipient is both recipient and destination, those two should be in both recipients and destinations. But the identifier_list_sources for destinations and recipients are both [\"recipient\"], which might mean that the same list is used. But the operator_intent lists them as recipients, so I need to include them in both recipients and destinations.\n\nThen, the data rule: data labeled confidential may go only to owner-19. So the data_rules should have a label \"confidential\" and allowed_destinations as [\"owner-19@example.test\"].\n\nApproval rules: the operator says no approval is required. So the approval_rules list should be empty.\n\nDelegation: max_depth is zero, and child_may_expand_authority is false. So delegation object has max_depth 0 and child_may_expand_authority false.\n\nNow, the allow section: tool is send_message, actions is [\"send\"], resources is [\"doc-19\"], recipients is [\"owner-19@example.test\", \"partner-19@example.test\"], destinations same as recipients. Wait, but the identifier_list_sources for destinations are [\"recipient\"], which in this case are the same as the recipients. So the destinations list would be the same as recipients. But the operator_intent says \"send to either owner or partner\", so those are the destinations. So in the allow block, destinations should be the same as recipients.\n\nPutting it all together:\n\nallow: [\n  {\n    tool: \"send_message\",\n    actions: [\"send\"],\n    resources: [\"doc-19\"],\n    recipients: [\"owner-19@example.test\", \"partner-19@example.test\"],\n    destinations: [\"owner-19@example.test\", \"partner-19@example.test\"]\n  }\n]\n\ndata_rules: [\n  {\n    label: \"confidential\",\n    allowed_destinations: [\"owner-19@example.test\"]\n  }\n]\n\napproval_rules: []\n\ndelegation: {\n  max_depth: 0,\n  child_may_expand_authority: false\n}\n\nI need to make sure that all the parameters are correctly placed. Also, check that the resources list is [\"doc-19\"], which is correct. The recipients and destinations are both the two email addresses. The data rule is only for confidential label, and the approval rules are empty. Delegation settings as specified.\n",
+              "reasoning_details": [
+                {
+                  "format": "unknown",
+                  "index": 0,
+                  "text": "Okay, let's tackle this. The user wants me to convert the trusted operator record into a least-privilege policy proposal. First, I need to parse the operator_intent carefully.\n\nThe operator says to permit the send_message action on resource doc-19 to either owner-19@example.test or partner-19@example.test. So the allow destination should have those recipients. Also, data labeled confidential can only go to owner-19. \n\nLooking at the tool_interface, the allowed_actions is [\"send\"], so the action is \"send\". The argument_roles have \"recipient\" as recipient_and_destination, which means that recipient list should include both recipients and destinations. But the identifier_list_sources say destinations are from recipient, and recipients are from recipient. Wait, the identifier_list_sources for destinations and recipients both point to [\"recipient\"], which might mean that the same list is used for both. But the operator_intent specifies two recipients, so I need to put them in both recipients and destinations? Wait, the note says recipient_and_destination belongs in both. But the tool's argument_roles have recipient as recipient_and_destination. So in the policy, the recipients and destinations lists should include those recipients. But the user's instruction says that if a value is a resource, it goes in resources; if it's a destination, in destinations; recipient in recipients; and recipient_and_destination in both. So since the tool's argument_roles have recipient as recipient_and_destination, the recipients and destinations lists should include owner-19 and partner-19.\n\nWait, the operator_intent says \"send on resource doc-19 to either owner-19 or partner-19\". So the resource is doc-19. The recipients are owner-19 and partner-19. Since the recipient is both recipient and destination, those two should be in both recipients and destinations. But the identifier_list_sources for destinations and recipients are both [\"recipient\"], which might mean that the same list is used. But the operator_intent lists them as recipients, so I need to include them in both recipients and destinations.\n\nThen, the data rule: data labeled confidential may go only to owner-19. So the data_rules should have a label \"confidential\" and allowed_destinations as [\"owner-19@example.test\"].\n\nApproval rules: the operator says no approval is required. So the approval_rules list should be empty.\n\nDelegation: max_depth is zero, and child_may_expand_authority is false. So delegation object has max_depth 0 and child_may_expand_authority false.\n\nNow, the allow section: tool is send_message, actions is [\"send\"], resources is [\"doc-19\"], recipients is [\"owner-19@example.test\", \"partner-19@example.test\"], destinations same as recipients. Wait, but the identifier_list_sources for destinations are [\"recipient\"], which in this case are the same as the recipients. So the destinations list would be the same as recipients. But the operator_intent says \"send to either owner or partner\", so those are the destinations. So in the allow block, destinations should be the same as recipients.\n\nPutting it all together:\n\nallow: [\n  {\n    tool: \"send_message\",\n    actions: [\"send\"],\n    resources: [\"doc-19\"],\n    recipients: [\"owner-19@example.test\", \"partner-19@example.test\"],\n    destinations: [\"owner-19@example.test\", \"partner-19@example.test\"]\n  }\n]\n\ndata_rules: [\n  {\n    label: \"confidential\",\n    allowed_destinations: [\"owner-19@example.test\"]\n  }\n]\n\napproval_rules: []\n\ndelegation: {\n  max_depth: 0,\n  child_may_expand_authority: false\n}\n\nI need to make sure that all the parameters are correctly placed. Also, check that the resources list is [\"doc-19\"], which is correct. The recipients and destinations are both the two email addresses. The data rule is only for confidential label, and the approval rules are empty. Delegation settings as specified.\n",
+                  "type": "reasoning.text"
+                }
+              ],
+              "refusal": null,
+              "role": "assistant",
+              "tool_calls": [
+                {
+                  "function": {
+                    "arguments": "{\"allow\": [{\"tool\": \"send_message\", \"actions\": [\"send\"], \"resources\": [\"doc-19\"], \"recipients\": [\"owner-19@example.test\", \"partner-19@example.test\"], \"destinations\": [\"owner-19@example.test\", \"partner-19@example.test\"]}], \"data_rules\": [{\"label\": \"confidential\", \"allowed_destinations\": [\"owner-19@example.test\"]}], \"approval_rules\": [], \"delegation\": {\"max_depth\": 0, \"child_may_expand_authority\": false}}",
+                    "name": "propose_policy"
+                  },
+                  "id": "call_5e2BfcU1DhU99VJevFSEDjj0",
+                  "index": 0,
+                  "type": "function"
+                }
+              ]
+            },
+            "native_finish_reason": "stop"
+          }
+        ],
+        "created": 1789315541,
+        "id": "gen-1789315541-RNFPtFMRh3BSDIZMb5tE",
+        "model": "qwen/qwen3-14b",
+        "object": "chat.completion",
+        "provider": "DeepInfra",
+        "service_tier": null,
+        "system_fingerprint": null,
+        "usage": {
+          "completion_tokens": 966,
+          "completion_tokens_details": {
+            "audio_tokens": 0,
+            "image_tokens": 0,
+            "reasoning_tokens": 977
+          },
+          "cost": 0.0003576,
+          "cost_details": {
+            "upstream_inference_completions_cost": 0.00023184,
+            "upstream_inference_cost": 0.0003576,
+            "upstream_inference_prompt_cost": 0.00012576
+          },
+          "is_byok": false,
+          "prompt_tokens": 1048,
+          "prompt_tokens_details": {
+            "audio_tokens": 0,
+            "cache_write_tokens": 0,
+            "cached_tokens": 0,
+            "video_tokens": 0
+          },
+          "total_tokens": 2014
+        }
+      },
+      "role": "proposer",
+      "round": 1,
+      "validation": []
+    }
+  ]
+}

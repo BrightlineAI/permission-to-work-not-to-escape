@@ -1,0 +1,116 @@
+diff --git a/eval/evaluation.py b/eval/evaluation.py
+index a54d377..be0c6ee 100644
+--- a/eval/evaluation.py
++++ b/eval/evaluation.py
+@@ -90,6 +90,7 @@ async def _run_single_task_subprocess(
+         "--agent-type", args.agent_type,
+         "--model", args.model,
++        "--max-turns", str(args.max_turns),
+     ]
+     if args.skip_mcp:
+         cmd.append("--skip-mcp")
+@@ -488,6 +489,12 @@ def main() -> None:
+         default="gpt-5.4",
+         help="Base model identifier.",
+     )
++    parser.add_argument(
++        "--max-turns",
++        type=int,
++        default=30,
++        help="Maximum turns per task (default: 30).",
++    )
+     parser.add_argument(
+         "--temperature",
+         type=float,
+diff --git a/eval/task_runner.py b/eval/task_runner.py
+index ae7cd0f..f288006 100644
+--- a/eval/task_runner.py
++++ b/eval/task_runner.py
+@@ -1,5 +1,7 @@
+ import argparse
+ import asyncio
++import hashlib
++import json
+ import os
+ import subprocess
+ import sys
+@@ -117,6 +119,13 @@ async def run_single_task(
+         # Load task and attack configs
+         task_cfg = TaskConfig.from_yaml(str(config_path))
+ 
++        # Bind trusted policy identity before hook construction. Attack fields,
++        # injected content, and model-supplied values never enter this binding.
++        trusted_instruction = json.dumps(
++            task_cfg.original_instruction, ensure_ascii=False, sort_keys=True
++        ).encode()
++        os.environ["VEGA_DTAP_TASK_ID"] = str(task_cfg.task_id)
++        os.environ["VEGA_DTAP_TRUSTED_INSTRUCTION_SHA256"] = hashlib.sha256(trusted_instruction).hexdigest()
++
+         # Build output directory following dataset structure:
+         # {root}/benchmark/{agent_type}/{model}/{domain}/{task_type}/.../{task_id}/
+         # For direct prompt mode: {root}/direct_prompt/{agent_type}/{model}/...
+diff --git a/agent/openaisdk/src/agent.py b/agent/openaisdk/src/agent.py
+index 76641ee..60c2806 100644
+--- a/agent/openaisdk/src/agent.py
++++ b/agent/openaisdk/src/agent.py
+@@ -209,7 +209,8 @@ class OpenAISDKAgent(Agent):
+         # Determine model: use Chat Completions API for OpenRouter,
+         # since it only supports the Chat Completions format, not the
+         # Responses API that the SDK uses by default.
+         base_url = os.environ.get("OPENAI_BASE_URL", "")
+-        if base_url and "openrouter.ai" in base_url:
++        is_openrouter = bool(base_url and "openrouter.ai" in base_url)
++        if is_openrouter:
+             model = OpenAIChatCompletionsModel(
+                 model=self.runtime_config.model,
+                 openai_client=AsyncOpenAI(
+@@ -230,11 +231,15 @@ class OpenAISDKAgent(Agent):
+             and _model_supports_temperature(self.runtime_config.model)
+             else None
+         )
++        settings = {}
++        if _temp is not None:
++            settings["temperature"] = _temp
++        if is_openrouter:
++            settings["extra_body"] = {"reasoning_effort": os.getenv("OPENROUTER_REASONING_EFFORT", "high")}
+         self.agent = OpenAIAgent(
+             name=self.config.name,
+             instructions=instructions,
+             model=model,
+-            model_settings=ModelSettings(temperature=_temp) if _temp is not None else ModelSettings(),
++            model_settings=ModelSettings(**settings),
+             mcp_servers=self.mcp_servers,
+             tools=tools,
+             handoffs=sub_agents if sub_agents else [],
+diff --git a/agent/openaisdk/src/mcp_wrapper.py b/agent/openaisdk/src/mcp_wrapper.py
+index 29509bb..706a8a5 100644
+--- a/agent/openaisdk/src/mcp_wrapper.py
++++ b/agent/openaisdk/src/mcp_wrapper.py
+@@ -7,6 +7,7 @@ from agents.run_context import RunContextWrapper
+ from mcp import Tool as MCPTool
++from mcp.types import CallToolResult, TextContent
+ 
+ from dt_arena.src.types.hooks import HookManager, ToolCallContext
+@@ -27,10 +28,18 @@ class _HookedCallToolMixin:
+             tool_name=tool_name,
+             arguments=dict(arguments) if arguments else {},
+         )
+-        return await hook_manager.wrap(
+-            ctx,
+-            lambda args: super(_HookedCallToolMixin, self).call_tool(tool_name, args, meta),
+-        )
++        try:
++            return await hook_manager.wrap(
++                ctx,
++                lambda args: super(_HookedCallToolMixin, self).call_tool(tool_name, args, meta),
++            )
++        except PermissionError as exc:
++            # A pre-hook denial must be visible to the agent as a recoverable
++            # tool error while guaranteeing that the real dispatch never ran.
++            return CallToolResult(
++                isError=True,
++                content=[TextContent(type="text", text=str(exc))],
++            )
+ 
+ 
+ def _is_cancel_scope_error(e: BaseException) -> bool:

@@ -1,0 +1,91 @@
+{
+  "error": "SchemaError('approval_rules must name an allowed tool and contain issuer/bind fields')",
+  "policy": null,
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "tool_calls",
+        "index": 0,
+        "logprobs": null,
+        "message": {
+          "content": null,
+          "reasoning": "Okay, let's tackle this. The user wants me to convert the operator's intent into a policy body using the provided tool. First, I need to parse the operator_intent carefully.\n\nThe intent says: Permit finalize_booking action create on resource BK-12 at destination hotel-12. It requires approval by corporate-approver bound to resource and amount. Delegation depth one, child can't expand. No data-flow rule.\n\nStarting with the 'allow' section. The tool name is 'finalize_booking' from the tool_interface. The action is 'create' which is in allowed_actions. The resource is BK-12, which is the booking resource. The destination is hotel-12, which is the hotel destination. Recipients aren't mentioned, so maybe an empty array? Wait, the intent doesn't specify any recipients, so recipients should be an empty array. But the required fields in the allow object include recipients and destinations. So destinations are hotel-12, recipients are empty.\n\nNext, approval_rules. The intent says requires approval by corporate-approver bound to resource and amount. So required_issuer is corporate-approver. The bind_fields are resource (BK-12) and amount (price). But the argument_roles mention price as amount. So bind_fields should be [\"booking\", \"price\"] since those are the fields in the tool_interface's argument_roles. Wait, the bind_fields are the parameters that the approval is bound to. The operator says bound to resource and amount. The tool's argument_roles have booking as resource and price as amount. So the bind_fields would be \"booking\" and \"price\". So approval_rules is { \"corporate-approver\": { \"required_issuer\": \"corporate-approver\", \"bind_fields\": [\"booking\", \"price\"] } }.\n\nData_rules: the intent says no data-flow rule is required, so data_rules must be exactly {}.\n\nDelegation: max_depth is 1, child_may_expand_authority is false. So delegation object is { \"max_depth\": 1, \"child_may_expand_authority\": false }.\n\nPutting it all together. The allow array has one entry with tool, actions, resources, recipients (empty), destinations. Then data_rules is empty, approval_rules as above, and delegation as specified.\n",
+          "reasoning_details": [
+            {
+              "format": "unknown",
+              "index": 0,
+              "text": "Okay, let's tackle this. The user wants me to convert the operator's intent into a policy body using the provided tool. First, I need to parse the operator_intent carefully.\n\nThe intent says: Permit finalize_booking action create on resource BK-12 at destination hotel-12. It requires approval by corporate-approver bound to resource and amount. Delegation depth one, child can't expand. No data-flow rule.\n\nStarting with the 'allow' section. The tool name is 'finalize_booking' from the tool_interface. The action is 'create' which is in allowed_actions. The resource is BK-12, which is the booking resource. The destination is hotel-12, which is the hotel destination. Recipients aren't mentioned, so maybe an empty array? Wait, the intent doesn't specify any recipients, so recipients should be an empty array. But the required fields in the allow object include recipients and destinations. So destinations are hotel-12, recipients are empty.\n\nNext, approval_rules. The intent says requires approval by corporate-approver bound to resource and amount. So required_issuer is corporate-approver. The bind_fields are resource (BK-12) and amount (price). But the argument_roles mention price as amount. So bind_fields should be [\"booking\", \"price\"] since those are the fields in the tool_interface's argument_roles. Wait, the bind_fields are the parameters that the approval is bound to. The operator says bound to resource and amount. The tool's argument_roles have booking as resource and price as amount. So the bind_fields would be \"booking\" and \"price\". So approval_rules is { \"corporate-approver\": { \"required_issuer\": \"corporate-approver\", \"bind_fields\": [\"booking\", \"price\"] } }.\n\nData_rules: the intent says no data-flow rule is required, so data_rules must be exactly {}.\n\nDelegation: max_depth is 1, child_may_expand_authority is false. So delegation object is { \"max_depth\": 1, \"child_may_expand_authority\": false }.\n\nPutting it all together. The allow array has one entry with tool, actions, resources, recipients (empty), destinations. Then data_rules is empty, approval_rules as above, and delegation as specified.\n",
+              "type": "reasoning.text"
+            }
+          ],
+          "refusal": null,
+          "role": "assistant",
+          "tool_calls": [
+            {
+              "function": {
+                "arguments": "{\"allow\": [{\"tool\": \"finalize_booking\", \"actions\": [\"create\"], \"resources\": [\"BK-12\"], \"recipients\": [], \"destinations\": [\"hotel-12\"]}], \"data_rules\": {}, \"approval_rules\": {\"corporate-approver\": {\"required_issuer\": \"corporate-approver\", \"bind_fields\": [\"booking\", \"price\"]}}, \"delegation\": {\"max_depth\": 1, \"child_may_expand_authority\": false}}",
+                "name": "emit_policy"
+              },
+              "id": "call_jfLsG7TTfrAP0fJhqrpU5vZV",
+              "index": 0,
+              "type": "function"
+            }
+          ]
+        },
+        "native_finish_reason": "stop"
+      }
+    ],
+    "created": 1789290076,
+    "id": "gen-1789290076-kRmhwPrF9OjhGdWTtDuZ",
+    "model": "qwen/qwen3-14b",
+    "object": "chat.completion",
+    "provider": "DeepInfra",
+    "service_tier": null,
+    "system_fingerprint": null,
+    "usage": {
+      "completion_tokens": 595,
+      "completion_tokens_details": {
+        "audio_tokens": 0,
+        "image_tokens": 0,
+        "reasoning_tokens": 537
+      },
+      "cost": 0.0002484,
+      "cost_details": {
+        "upstream_inference_completions_cost": 0.0001428,
+        "upstream_inference_cost": 0.0002484,
+        "upstream_inference_prompt_cost": 0.0001056
+      },
+      "is_byok": false,
+      "prompt_tokens": 880,
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cache_write_tokens": 0,
+        "cached_tokens": 0,
+        "video_tokens": 0
+      },
+      "total_tokens": 1475
+    }
+  },
+  "seconds": 8.736263673054054,
+  "task": {
+    "case_id": "case-092",
+    "job_id": "job-case-092",
+    "operator_intent": "Permit finalize_booking action create on resource BK-12 at destination hotel-12. It requires approval issued by corporate-approver bound to resource and amount. Permit delegation depth one, and a child may not expand authority. No data-flow rule is required.",
+    "policy_id": "e-policy-case-092",
+    "principal": "travel-agent",
+    "schema_version": 1,
+    "tool_interface": {
+      "allowed_actions": [
+        "create"
+      ],
+      "argument_roles": {
+        "approval": "approval_evidence",
+        "booking": "resource",
+        "hotel": "destination",
+        "price": "amount"
+      },
+      "name": "finalize_booking"
+    }
+  },
+  "transport_failures": []
+}

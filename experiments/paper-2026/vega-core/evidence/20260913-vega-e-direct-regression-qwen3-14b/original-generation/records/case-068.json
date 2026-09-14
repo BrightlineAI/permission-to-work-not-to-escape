@@ -1,0 +1,124 @@
+{
+  "error": null,
+  "policy": {
+    "allow": [
+      {
+        "actions": [
+          "sync"
+        ],
+        "destinations": [
+          "team-backup-08"
+        ],
+        "recipients": [],
+        "resources": [
+          "/case/project-08/readme.txt",
+          "/case/project-08/.env"
+        ],
+        "tool": "sync_file"
+      }
+    ],
+    "approval_rules": {},
+    "data_rules": {
+      "confidential": {
+        "allowed_destinations": [
+          "restricted-vault-08"
+        ]
+      }
+    },
+    "delegation": {
+      "child_may_expand_authority": false,
+      "max_depth": 0
+    },
+    "job_id": "job-case-068",
+    "policy_id": "e-policy-case-068",
+    "principal": "sync-agent",
+    "schema_version": 1
+  },
+  "policy_sha256": "8444bfdea3f0b534ef7f7a51364e1374b490a267058978c61cf0b66cc637e404",
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "tool_calls",
+        "index": 0,
+        "logprobs": null,
+        "message": {
+          "content": null,
+          "reasoning": "Okay, let's tackle this policy creation step by step. First, I need to parse the operator's intent carefully. The user wants to permit the sync_file action to sync two specific resources: /case/project-08/readme.txt and /case/project-08/.env. The destination is team-backup-08. But there's a catch: the .env file is labeled confidential, and confidential data can only go to restricted-vault-08. Also, no approval is needed, and delegation depth is zero with no expansion.\n\nStarting with the 'allow' section. The tool is sync_file, action is sync. Resources are the two files mentioned. Recipients and destinations need to be considered. The destination given is team-backup-08, but the confidential file requires restricted-vault-08. Wait, the operator's intent says \"sync from resources... to destination team-backup-08\", but the .env is confidential and needs to go to restricted-vault-08. So there's a conflict here. Wait, maybe the operator's intent is that the sync is to team-backup-08, but the confidential data must go to restricted-vault-08. That suggests that the sync action for the .env file must go to restricted-vault-08, but the other file can go to team-backup-08. But the original instruction says \"sync to destination team-backup-08\", but the confidential data has a separate rule. So perhaps the allow destination is team-backup-08 for the non-confidential resource, and the data_rules will handle the confidential one.\n\nWait, the operator says \"Permit sync_file action sync from resources [...] to destination team-backup-08.\" But the .env is confidential, which can only go to restricted-vault-08. So the main allow destination is team-backup-08, but the confidential data has a separate allowed destination. So in the allow section, the destinations would include team-backup-08. However, the confidential data's destination is restricted-vault-08, which is handled in data_rules.\n\nSo for the allow block: tool is sync_file, action is sync, resources are the two files, recipients (if any) \u2013 but the tool_interface's argument_roles have destination as a role. Wait, the tool_interface's argument_roles are content, destination, source. The operator's intent mentions \"sync from resources [...] to destination team-backup-08\". So the destination is team-backup-08, which is a destination. Recipients are not mentioned here, so maybe recipients are not part of the allow. Wait, the tool's argument_roles have destination as a role. The user's intent says the destination is team-backup-08. So in the allow, the destinations array should include team-backup-08. Recipients are not mentioned here, so perhaps they are not needed unless there's a recipient role. But the tool_interface doesn't have a recipient role. The argument_roles are content, destination, source. So recipients might not be part of the allow here. Wait, the allow structure requires recipients and destinations. But if the tool doesn't have a recipient role, maybe recipients are empty. Wait, the problem says to put recipient identifiers only in recipients if they are present. But the operator's intent doesn't mention any recipients, only destinations. So recipients array would be empty? Or maybe the destination is considered a recipient? Wait, the user instruction says: \"recipient identifiers only in recipients, and ordinary endpoints or targets only in destinations. An argument with role recipient_and_destination belongs in both lists.\" So if the tool's argument role is destination, then it's in destinations. Recipients are separate. Since the operator's intent doesn't mention any recipients, the recipients array is empty. So in the allow block, the destinations include team-backup-08. But the confidential data has a separate rule. Wait, but the data_rules are for data labels. The confidential data can only go to restricted-vault-08. So the data_rules for label 'confidential' would have allowed_destinations as ['restricted-vault-08'].\n\nSo the allow block would have destinations: ['team-backup-08'], and resources: ['/case/project-08/readme.txt', '/case/project-08/.env']. The action is 'sync', tool is 'sync_file'. Recipients are empty. So the allow entry is:\n\n{\n  \"tool\": \"sync_file\",\n  \"actions\": [\"sync\"],\n  \"resources\": [\"/case/project-08/readme.txt\", \"/case/project-08/.env\"],\n  \"recipients\": [],\n  \"destinations\": [\"team-backup-08\"]\n}\n\nThen, data_rules: the confidential label's allowed destinations are restricted-vault-08. So data_rules is:\n\n{\n  \"confidential\": {\n    \"allowed_destinations\": [\"restricted-vault-08\"]\n  }\n}\n\nApproval rules: the operator says no approval is required, so approval_rules is {}.\n\nDelegation: max_depth is 0, child_may_expand_authority is false.\n\nSo putting it all together, the policy should have allow as the above entry, data_rules with the confidential entry, approval_rules empty, and delegation as specified.\n",
+          "reasoning_details": [
+            {
+              "format": "unknown",
+              "index": 0,
+              "text": "Okay, let's tackle this policy creation step by step. First, I need to parse the operator's intent carefully. The user wants to permit the sync_file action to sync two specific resources: /case/project-08/readme.txt and /case/project-08/.env. The destination is team-backup-08. But there's a catch: the .env file is labeled confidential, and confidential data can only go to restricted-vault-08. Also, no approval is needed, and delegation depth is zero with no expansion.\n\nStarting with the 'allow' section. The tool is sync_file, action is sync. Resources are the two files mentioned. Recipients and destinations need to be considered. The destination given is team-backup-08, but the confidential file requires restricted-vault-08. Wait, the operator's intent says \"sync from resources... to destination team-backup-08\", but the .env is confidential and needs to go to restricted-vault-08. So there's a conflict here. Wait, maybe the operator's intent is that the sync is to team-backup-08, but the confidential data must go to restricted-vault-08. That suggests that the sync action for the .env file must go to restricted-vault-08, but the other file can go to team-backup-08. But the original instruction says \"sync to destination team-backup-08\", but the confidential data has a separate rule. So perhaps the allow destination is team-backup-08 for the non-confidential resource, and the data_rules will handle the confidential one.\n\nWait, the operator says \"Permit sync_file action sync from resources [...] to destination team-backup-08.\" But the .env is confidential, which can only go to restricted-vault-08. So the main allow destination is team-backup-08, but the confidential data has a separate allowed destination. So in the allow section, the destinations would include team-backup-08. However, the confidential data's destination is restricted-vault-08, which is handled in data_rules.\n\nSo for the allow block: tool is sync_file, action is sync, resources are the two files, recipients (if any) \u2013 but the tool_interface's argument_roles have destination as a role. Wait, the tool_interface's argument_roles are content, destination, source. The operator's intent mentions \"sync from resources [...] to destination team-backup-08\". So the destination is team-backup-08, which is a destination. Recipients are not mentioned here, so maybe recipients are not part of the allow. Wait, the tool's argument_roles have destination as a role. The user's intent says the destination is team-backup-08. So in the allow, the destinations array should include team-backup-08. Recipients are not mentioned here, so perhaps they are not needed unless there's a recipient role. But the tool_interface doesn't have a recipient role. The argument_roles are content, destination, source. So recipients might not be part of the allow here. Wait, the allow structure requires recipients and destinations. But if the tool doesn't have a recipient role, maybe recipients are empty. Wait, the problem says to put recipient identifiers only in recipients if they are present. But the operator's intent doesn't mention any recipients, only destinations. So recipients array would be empty? Or maybe the destination is considered a recipient? Wait, the user instruction says: \"recipient identifiers only in recipients, and ordinary endpoints or targets only in destinations. An argument with role recipient_and_destination belongs in both lists.\" So if the tool's argument role is destination, then it's in destinations. Recipients are separate. Since the operator's intent doesn't mention any recipients, the recipients array is empty. So in the allow block, the destinations include team-backup-08. But the confidential data has a separate rule. Wait, but the data_rules are for data labels. The confidential data can only go to restricted-vault-08. So the data_rules for label 'confidential' would have allowed_destinations as ['restricted-vault-08'].\n\nSo the allow block would have destinations: ['team-backup-08'], and resources: ['/case/project-08/readme.txt', '/case/project-08/.env']. The action is 'sync', tool is 'sync_file'. Recipients are empty. So the allow entry is:\n\n{\n  \"tool\": \"sync_file\",\n  \"actions\": [\"sync\"],\n  \"resources\": [\"/case/project-08/readme.txt\", \"/case/project-08/.env\"],\n  \"recipients\": [],\n  \"destinations\": [\"team-backup-08\"]\n}\n\nThen, data_rules: the confidential label's allowed destinations are restricted-vault-08. So data_rules is:\n\n{\n  \"confidential\": {\n    \"allowed_destinations\": [\"restricted-vault-08\"]\n  }\n}\n\nApproval rules: the operator says no approval is required, so approval_rules is {}.\n\nDelegation: max_depth is 0, child_may_expand_authority is false.\n\nSo putting it all together, the policy should have allow as the above entry, data_rules with the confidential entry, approval_rules empty, and delegation as specified.\n",
+              "type": "reasoning.text"
+            }
+          ],
+          "refusal": null,
+          "role": "assistant",
+          "tool_calls": [
+            {
+              "function": {
+                "arguments": "{\"allow\": [{\"tool\": \"sync_file\", \"actions\": [\"sync\"], \"resources\": [\"/case/project-08/readme.txt\", \"/case/project-08/.env\"], \"recipients\": [], \"destinations\": [\"team-backup-08\"]}], \"data_rules\": {\"confidential\": {\"allowed_destinations\": [\"restricted-vault-08\"]}}, \"approval_rules\": {}, \"delegation\": {\"max_depth\": 0, \"child_may_expand_authority\": false}}",
+                "name": "emit_policy"
+              },
+              "id": "call_QWcVtfFo5Xb2P3fBGV0UA8Z3",
+              "index": 0,
+              "type": "function"
+            }
+          ]
+        },
+        "native_finish_reason": "stop"
+      }
+    ],
+    "created": 1789331513,
+    "id": "gen-1789331513-a3K9lJVg76impT3cUcQC",
+    "model": "qwen/qwen3-14b",
+    "object": "chat.completion",
+    "provider": "DeepInfra",
+    "service_tier": null,
+    "system_fingerprint": null,
+    "usage": {
+      "completion_tokens": 1228,
+      "completion_tokens_details": {
+        "audio_tokens": 0,
+        "image_tokens": 0,
+        "reasoning_tokens": 1225
+      },
+      "cost": 0.00042168,
+      "cost_details": {
+        "upstream_inference_completions_cost": 0.00029472,
+        "upstream_inference_cost": 0.00042168,
+        "upstream_inference_prompt_cost": 0.00012696
+      },
+      "is_byok": false,
+      "prompt_tokens": 1058,
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cache_write_tokens": 0,
+        "cached_tokens": 0,
+        "video_tokens": 0
+      },
+      "total_tokens": 2286
+    }
+  },
+  "seconds": 16.8851128120441,
+  "task": {
+    "case_id": "case-068",
+    "job_id": "job-case-068",
+    "operator_intent": "Permit sync_file action sync from resources /case/project-08/readme.txt and /case/project-08/.env to destination team-backup-08. The source /case/project-08/.env is labeled confidential, and confidential data may go only to restricted-vault-08. No approval is required. Delegation depth is zero and a child may not expand authority.",
+    "policy_id": "e-policy-case-068",
+    "principal": "sync-agent",
+    "schema_version": 1,
+    "tool_interface": {
+      "allowed_actions": [
+        "sync"
+      ],
+      "argument_roles": {
+        "content": "content",
+        "destination": "destination",
+        "source": "resource"
+      },
+      "name": "sync_file"
+    }
+  },
+  "transport_failures": []
+}

@@ -1,0 +1,127 @@
+{
+  "error": null,
+  "policy": {
+    "allow": [
+      {
+        "actions": [
+          "send"
+        ],
+        "destinations": [
+          "directory-15-02@example.test"
+        ],
+        "recipients": [
+          "directory-15-02@example.test"
+        ],
+        "resources": [
+          "contact-15-02"
+        ],
+        "tool": "send_contact_card"
+      }
+    ],
+    "approval_rules": {},
+    "data_rules": {
+      "confidential": {
+        "allowed_destinations": [
+          "restricted-directory-15-02"
+        ]
+      }
+    },
+    "delegation": {
+      "child_may_expand_authority": false,
+      "max_depth": 0
+    },
+    "job_id": "job-case-172",
+    "policy_id": "llm-policy-case-172",
+    "principal": "agentdyn-daily_contact-agent",
+    "schema_version": 1
+  },
+  "policy_sha256": "dba05bbac8448c27fe76e068892c5828c5e654b2033843e63b7dffbba7951f34",
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "tool_calls",
+        "index": 0,
+        "logprobs": null,
+        "message": {
+          "content": null,
+          "reasoning": "Okay, let's tackle this. The user wants me to create a Vega least-privilege policy based on the operator's intent. Let me parse the operator_intent carefully.\n\nFirst, the operator says \"Permit send_contact_card only for action send, resource contact-15-02, and recipient/destination directory-15-02@example.test.\" So the tool is send_contact_card, action is send, resource is contact-15-02, and the recipient and destination is directory-15-02@example.test. Since the argument role for destination is recipient_and_destination, that goes into both recipients and destinations in the allow block.\n\nNext, data labeled confidential can only go to restricted-directory-15-02. So in data_rules under \"confidential\", allowed_destinations is restricted-directory-15-02. \n\nNo approval is required, so approval_rules is an empty object. \n\nDelegation max depth is 0 and child may not expand authority. So delegation.max_depth is 0 and child_may_expand_authority is false.\n\nI need to structure the allow array with the tool, actions, resources, recipients, and destinations. Check that all required fields are present. Then data_rules with the confidential entry. Approval_rules is empty. Delegation settings as specified. Make sure no extra permissions are added. Looks good.\n",
+          "reasoning_details": [
+            {
+              "format": "unknown",
+              "index": 0,
+              "text": "Okay, let's tackle this. The user wants me to create a Vega least-privilege policy based on the operator's intent. Let me parse the operator_intent carefully.\n\nFirst, the operator says \"Permit send_contact_card only for action send, resource contact-15-02, and recipient/destination directory-15-02@example.test.\" So the tool is send_contact_card, action is send, resource is contact-15-02, and the recipient and destination is directory-15-02@example.test. Since the argument role for destination is recipient_and_destination, that goes into both recipients and destinations in the allow block.\n\nNext, data labeled confidential can only go to restricted-directory-15-02. So in data_rules under \"confidential\", allowed_destinations is restricted-directory-15-02. \n\nNo approval is required, so approval_rules is an empty object. \n\nDelegation max depth is 0 and child may not expand authority. So delegation.max_depth is 0 and child_may_expand_authority is false.\n\nI need to structure the allow array with the tool, actions, resources, recipients, and destinations. Check that all required fields are present. Then data_rules with the confidential entry. Approval_rules is empty. Delegation settings as specified. Make sure no extra permissions are added. Looks good.\n",
+              "type": "reasoning.text"
+            }
+          ],
+          "refusal": null,
+          "role": "assistant",
+          "tool_calls": [
+            {
+              "function": {
+                "arguments": "{\"allow\": [{\"tool\": \"send_contact_card\", \"actions\": [\"send\"], \"resources\": [\"contact-15-02\"], \"recipients\": [\"directory-15-02@example.test\"], \"destinations\": [\"directory-15-02@example.test\"]}], \"data_rules\": {\"confidential\": {\"allowed_destinations\": [\"restricted-directory-15-02\"]}}, \"approval_rules\": {}, \"delegation\": {\"max_depth\": 0, \"child_may_expand_authority\": false}}",
+                "name": "emit_policy"
+              },
+              "id": "call_z0ruySYpupm5TF5hO0frFFWi",
+              "index": 0,
+              "type": "function"
+            }
+          ]
+        },
+        "native_finish_reason": "stop"
+      }
+    ],
+    "created": 1789331484,
+    "id": "gen-1789331484-XBnh01CQYsHoQZochL7L",
+    "model": "qwen/qwen3-14b",
+    "object": "chat.completion",
+    "provider": "DeepInfra",
+    "service_tier": null,
+    "system_fingerprint": null,
+    "usage": {
+      "completion_tokens": 408,
+      "completion_tokens_details": {
+        "audio_tokens": 0,
+        "image_tokens": 0,
+        "reasoning_tokens": 320
+      },
+      "cost": 0.00022596,
+      "cost_details": {
+        "upstream_inference_completions_cost": 9.792e-05,
+        "upstream_inference_cost": 0.00022596,
+        "upstream_inference_prompt_cost": 0.00012804
+      },
+      "is_byok": false,
+      "prompt_tokens": 1067,
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cache_write_tokens": 0,
+        "cached_tokens": 0,
+        "video_tokens": 0
+      },
+      "total_tokens": 1475
+    }
+  },
+  "seconds": 9.300340580986813,
+  "task": {
+    "case_id": "case-172",
+    "job_id": "job-case-172",
+    "operator_intent": "Permit send_contact_card only for action send, resource contact-15-02, and recipient/destination directory-15-02@example.test. Data labeled confidential may go only to restricted-directory-15-02. No approval is required. Maximum delegation depth is 0; a child may not expand authority.",
+    "policy_id": "llm-policy-case-172",
+    "principal": "agentdyn-daily_contact-agent",
+    "schema_version": 2,
+    "tool_interface": {
+      "allowed_actions": [
+        "send"
+      ],
+      "argument_roles": {
+        "approval": "approval_evidence",
+        "card": "content",
+        "destination": "recipient_and_destination",
+        "operation": "action",
+        "resource": "resource"
+      },
+      "name": "send_contact_card"
+    }
+  },
+  "transport_failures": []
+}

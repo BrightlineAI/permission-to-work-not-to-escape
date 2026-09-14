@@ -1,0 +1,123 @@
+{
+  "error": null,
+  "policy": {
+    "allow": [
+      {
+        "actions": [
+          "send"
+        ],
+        "destinations": [],
+        "recipients": [
+          "owner-16@example.test",
+          "partner-16@example.test"
+        ],
+        "resources": [
+          "doc-16"
+        ],
+        "tool": "send_message"
+      }
+    ],
+    "approval_rules": {},
+    "data_rules": {
+      "confidential": {
+        "allowed_destinations": [
+          "owner-16@example.test"
+        ]
+      }
+    },
+    "delegation": {
+      "child_may_expand_authority": false,
+      "max_depth": 0
+    },
+    "job_id": "job-case-056",
+    "policy_id": "e-policy-case-056",
+    "principal": "message-agent",
+    "schema_version": 1
+  },
+  "policy_sha256": "931b03df2748c3c558c4b0f3b7e8cc2db5196358c2370242f2cf8aab0a956f3a",
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "tool_calls",
+        "index": 0,
+        "logprobs": null,
+        "message": {
+          "content": null,
+          "reasoning": "Okay, let's tackle this. The user wants a policy based on the operator's intent. First, I need to parse the intent carefully.\n\nThe operator says to permit the send_message action on resource doc-16 to either owner-16@example.test or partner-16@example.test. So the allow rule should have the tool as send_message, action as [\"send\"], resources as [\"doc-16\"], recipients as [\"owner-16@example.test\", \"partner-16@example.test\"], and destinations... Wait, the tool_interface doesn't mention destinations. Oh, the parameters for allow include destinations, but the intent doesn't specify any. Wait, the intent says data labeled confidential can only go to owner-16. That's a data rule, not a destination. So maybe destinations in the allow rule are empty? Or maybe the destinations here are the recipients? Wait, the allow rule's recipients are the allowed recipients, and data_rules handle the allowed destinations based on data labels.\n\nSo for the allow rule: tool is send_message, actions are [\"send\"], resources [\"doc-16\"], recipients [\"owner-16@example.test\", \"partner-16@example.test\"], and destinations? The tool_interface's allowed_actions is [\"send\"], and the parameters for allow include destinations. But the intent doesn't mention destinations for the send action. Maybe destinations are not required here. Wait, the schema requires all five fields: tool, actions, resources, recipients, destinations. But the intent doesn't mention destinations. However, the user says \"data labeled confidential may go only to owner-16@example.test\". That's a data rule, so data_rules would have allowed_destinations for confidential data as [\"owner-16@example.test\"].\n\nSo for the allow rule, the destinations array might be empty? But the schema requires it. Wait, the tool_interface's argument_names are [\"message\", \"recipient\"], which might imply that the recipient is part of the action, but the policy's allow rule's recipients are the allowed recipients. The destinations might be a separate field. But the intent doesn't specify any destinations beyond the recipients. Maybe the destinations here are the same as recipients? Or maybe they are different. But the user didn't mention destinations, so perhaps the destinations array is empty. But the schema requires it. Wait, the parameters for allow have \"required\": [\"tool\", \"actions\", \"resources\", \"recipients\", \"destinations\"], so all must be present. So even if the intent doesn't mention destinations, I have to include it. But the intent doesn't specify any, so maybe it's an empty array.\n\nNext, data_rules: the intent says data labeled confidential can only go to owner-16. So data_rules should have an entry for \"confidential\" with allowed_destinations [\"owner-16@example.test\"]. The data_rules structure is an object where each key is a data label, and each value has allowed_destinations.\n\nApproval rules: the intent says no approval is required. So approval_rules must be exactly {}.\n\nDelegation: max_depth is zero, and child_may_expand_authority is false. So delegation object has max_depth 0 and child_may_expand_authority false.\n\nPutting it all together:\n\nallow array has one entry with tool: \"send_message\", actions: [\"send\"], resources: [\"doc-16\"], recipients: [\"owner-16@example.test\", \"partner-16@example.test\"], destinations: [] (since the intent doesn't mention destinations, but the schema requires it).\n\ndata_rules: {\"confidential\": {\"allowed_destinations\": [\"owner-16@example.test\"]}}.\n\napproval_rules: {}.\n\ndelegation: { \"max_depth\": 0, \"child_may_expand_authority\": false }.\n\nCheck if all required fields are present and correct. Yes. No extra fields. The tool name is exact. Actions are from allowed_actions. Recipients are as specified. Data rules handle the confidential data. Approval is empty as required. Delegation parameters are set correctly.\n",
+          "reasoning_details": [
+            {
+              "format": "unknown",
+              "index": 0,
+              "text": "Okay, let's tackle this. The user wants a policy based on the operator's intent. First, I need to parse the intent carefully.\n\nThe operator says to permit the send_message action on resource doc-16 to either owner-16@example.test or partner-16@example.test. So the allow rule should have the tool as send_message, action as [\"send\"], resources as [\"doc-16\"], recipients as [\"owner-16@example.test\", \"partner-16@example.test\"], and destinations... Wait, the tool_interface doesn't mention destinations. Oh, the parameters for allow include destinations, but the intent doesn't specify any. Wait, the intent says data labeled confidential can only go to owner-16. That's a data rule, not a destination. So maybe destinations in the allow rule are empty? Or maybe the destinations here are the recipients? Wait, the allow rule's recipients are the allowed recipients, and data_rules handle the allowed destinations based on data labels.\n\nSo for the allow rule: tool is send_message, actions are [\"send\"], resources [\"doc-16\"], recipients [\"owner-16@example.test\", \"partner-16@example.test\"], and destinations? The tool_interface's allowed_actions is [\"send\"], and the parameters for allow include destinations. But the intent doesn't mention destinations for the send action. Maybe destinations are not required here. Wait, the schema requires all five fields: tool, actions, resources, recipients, destinations. But the intent doesn't mention destinations. However, the user says \"data labeled confidential may go only to owner-16@example.test\". That's a data rule, so data_rules would have allowed_destinations for confidential data as [\"owner-16@example.test\"].\n\nSo for the allow rule, the destinations array might be empty? But the schema requires it. Wait, the tool_interface's argument_names are [\"message\", \"recipient\"], which might imply that the recipient is part of the action, but the policy's allow rule's recipients are the allowed recipients. The destinations might be a separate field. But the intent doesn't specify any destinations beyond the recipients. Maybe the destinations here are the same as recipients? Or maybe they are different. But the user didn't mention destinations, so perhaps the destinations array is empty. But the schema requires it. Wait, the parameters for allow have \"required\": [\"tool\", \"actions\", \"resources\", \"recipients\", \"destinations\"], so all must be present. So even if the intent doesn't mention destinations, I have to include it. But the intent doesn't specify any, so maybe it's an empty array.\n\nNext, data_rules: the intent says data labeled confidential can only go to owner-16. So data_rules should have an entry for \"confidential\" with allowed_destinations [\"owner-16@example.test\"]. The data_rules structure is an object where each key is a data label, and each value has allowed_destinations.\n\nApproval rules: the intent says no approval is required. So approval_rules must be exactly {}.\n\nDelegation: max_depth is zero, and child_may_expand_authority is false. So delegation object has max_depth 0 and child_may_expand_authority false.\n\nPutting it all together:\n\nallow array has one entry with tool: \"send_message\", actions: [\"send\"], resources: [\"doc-16\"], recipients: [\"owner-16@example.test\", \"partner-16@example.test\"], destinations: [] (since the intent doesn't mention destinations, but the schema requires it).\n\ndata_rules: {\"confidential\": {\"allowed_destinations\": [\"owner-16@example.test\"]}}.\n\napproval_rules: {}.\n\ndelegation: { \"max_depth\": 0, \"child_may_expand_authority\": false }.\n\nCheck if all required fields are present and correct. Yes. No extra fields. The tool name is exact. Actions are from allowed_actions. Recipients are as specified. Data rules handle the confidential data. Approval is empty as required. Delegation parameters are set correctly.\n",
+              "type": "reasoning.text"
+            }
+          ],
+          "refusal": null,
+          "role": "assistant",
+          "tool_calls": [
+            {
+              "function": {
+                "arguments": "{\"allow\": [{\"tool\": \"send_message\", \"actions\": [\"send\"], \"resources\": [\"doc-16\"], \"recipients\": [\"owner-16@example.test\", \"partner-16@example.test\"], \"destinations\": []}], \"data_rules\": {\"confidential\": {\"allowed_destinations\": [\"owner-16@example.test\"]}}, \"approval_rules\": {}, \"delegation\": {\"max_depth\": 0, \"child_may_expand_authority\": false}}",
+                "name": "emit_policy"
+              },
+              "id": "call_edzWHixDRZcgqd8V7uBiSpPX",
+              "index": 0,
+              "type": "function"
+            }
+          ]
+        },
+        "native_finish_reason": "stop"
+      }
+    ],
+    "created": 1789289391,
+    "id": "gen-1789289391-iCWKSAgAHeH4nfATIYn2",
+    "model": "qwen/qwen3-14b",
+    "object": "chat.completion",
+    "provider": "DeepInfra",
+    "service_tier": null,
+    "system_fingerprint": null,
+    "usage": {
+      "completion_tokens": 947,
+      "completion_tokens_details": {
+        "audio_tokens": 0,
+        "image_tokens": 0,
+        "reasoning_tokens": 964
+      },
+      "cost": 0.00032436,
+      "cost_details": {
+        "upstream_inference_completions_cost": 0.00022728,
+        "upstream_inference_cost": 0.00032436,
+        "upstream_inference_prompt_cost": 9.708e-05
+      },
+      "is_byok": false,
+      "prompt_tokens": 809,
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cache_write_tokens": 0,
+        "cached_tokens": 0,
+        "video_tokens": 0
+      },
+      "total_tokens": 1756
+    }
+  },
+  "seconds": 29.52768495993223,
+  "task": {
+    "case_id": "case-056",
+    "job_id": "job-case-056",
+    "operator_intent": "Permit send_message action send on resource doc-16 to either owner-16@example.test or partner-16@example.test. Data labeled confidential may go only to owner-16@example.test. No approval is required. Delegation depth is zero and a child may not expand authority.",
+    "policy_id": "e-policy-case-056",
+    "principal": "message-agent",
+    "schema_version": 1,
+    "tool_interface": {
+      "allowed_actions": [
+        "send"
+      ],
+      "argument_names": [
+        "message",
+        "recipient"
+      ],
+      "name": "send_message"
+    }
+  },
+  "transport_failures": []
+}

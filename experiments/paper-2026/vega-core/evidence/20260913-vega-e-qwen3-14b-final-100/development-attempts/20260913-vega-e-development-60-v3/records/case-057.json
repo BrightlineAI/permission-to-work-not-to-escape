@@ -1,0 +1,123 @@
+{
+  "error": null,
+  "policy": {
+    "allow": [
+      {
+        "actions": [
+          "send"
+        ],
+        "destinations": [],
+        "recipients": [
+          "owner-17@example.test",
+          "partner-17@example.test"
+        ],
+        "resources": [
+          "doc-17"
+        ],
+        "tool": "send_message"
+      }
+    ],
+    "approval_rules": {},
+    "data_rules": {
+      "confidential": {
+        "allowed_destinations": [
+          "owner-17@example.test"
+        ]
+      }
+    },
+    "delegation": {
+      "child_may_expand_authority": false,
+      "max_depth": 0
+    },
+    "job_id": "job-case-057",
+    "policy_id": "e-policy-case-057",
+    "principal": "message-agent",
+    "schema_version": 1
+  },
+  "policy_sha256": "db5b0590fcb842fd3b1caee89c303509544eadbebbdd42813c796000e58526a1",
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "tool_calls",
+        "index": 0,
+        "logprobs": null,
+        "message": {
+          "content": null,
+          "reasoning": "Okay, let's tackle this policy compilation. The user provided a trusted operator record with specific intent. First, I need to parse the operator's intent carefully.\n\nThe main points from the intent are:\n- Permit the send_message action on resource doc-17 to either owner-17@example.test or partner-17@example.test.\n- Data labeled confidential can only go to owner-17@example.test.\n- No approval is required.\n- Delegation depth is zero, and children can't expand authority.\n\nStarting with the 'allow' section. The tool is send_message, action is send, resource is doc-17. Recipients are the two emails mentioned. The data_rules need to restrict confidential data to only owner-17. Since the intent specifies that confidential data may go only to owner-17, the allowed_destinations for data labeled confidential should be that email. \n\nApproval rules: the intent says no approval is required, so approval_rules must be an empty object.\n\nDelegation: max_depth is 0, child_may_expand_authority is false. So delegation object has those values.\n\nNeed to make sure that all parameters are exactly as specified. No wildcards or placeholders. The principal is message-agent, but in the allow array, the principal isn't mentioned here because the allow is for the tool's actions. Wait, the principal is the identity, but in the tool's allow, the tool's actions are permitted. The principal here is the message-agent, but the allow entries are about the tool's permissions. Wait, the allow array is for the tool's allowed actions. The principal is the one initiating, but in the policy structure, the allow is about the tool's permissions. Hmm, maybe I need to check the tool_interface. The tool is send_message, and the allowed_actions is [\"send\"], so the allow entry should have tool: \"send_message\", actions: [\"send\"], resources: [\"doc-17\"], recipients: [\"owner-17@example.test\", \"partner-17@example.test\"], destinations: maybe not needed here? Wait, the destinations in the allow are for where the message is sent? Or is that part of data_rules? The data_rules have allowed_destinations for data labeled confidential. The allow's destinations might not be needed here unless specified. Wait, the user's intent says \"send on resource doc-17 to either owner-17 or partner-17\". So the recipients are those two, so in the allow entry, recipients should be those two. The destinations might be separate, but the intent doesn't mention destinations, only recipients. So maybe the allow's destinations can be omitted? Wait, looking back at the tool_interface, the allowed_actions for send_message have argument_names [\"message\", \"recipient\"], so the recipient is part of the action's arguments. But in the policy structure, the allow entry has recipients as an array. So the allow entry's recipients are the allowed recipients for the action. Therefore, in this case, the recipients are owner-17 and partner-17. \n\nFor data_rules, the data labeled confidential can only go to owner-17. So data_rules should have a key for \"confidential\" (assuming that's the data label) with allowed_destinations as [\"owner-17@example.test\"]. \n\nApproval_rules is empty because no approval is required. \n\nDelegation has max_depth 0 and child_may_expand_authority false. \n\nPutting it all together, the allow array has one entry with tool: send_message, actions: [\"send\"], resources: [\"doc-17\"], recipients: [\"owner-17@example.test\", \"partner-17@example.test\"], destinations: maybe not needed here. Wait, the tool_interface's allowed_actions for send_message have argument_names [\"message\", \"recipient\"], so the recipient is specified in the action's arguments. But the policy's allow entry includes recipients as an array. So that's correct. The destinations in the allow might be for something else, but the user's intent doesn't mention destinations, only recipients. So the allow entry's destinations can be an empty array or omitted? Wait, looking at the function parameters, the allow's required fields are tool, actions, resources, recipients, destinations. All must be present. So even if the intent doesn't mention destinations, they need to be included. But the user's intent doesn't specify any destinations, so maybe they are empty. Wait, the user says \"send on resource doc-17 to either owner-17 or partner-17\". So the destinations here are the recipients. But the allow's destinations might be different. Wait, maybe I'm confusing terms here. The 'destinations' in the allow might refer to where the message is sent, which in this case is the recipients. But the user's intent says the recipients are owner-17 and partner-17. So the allow's destinations would be those same emails? Or is destinations a separate field? The tool_interface's argument_names include recipient, which is part of the action. The policy's allow has recipients and destinations as separate fields. This is a bit confusing. Let me check the function parameters again. The allow entry has recipients and destinations as separate arrays. So perhaps 'recipients' are the intended recipients, and 'destinations' are where the data is sent. But the user's intent says \"send on resource doc-17 to either owner-17 or partner-17\", which implies that the recipients are those two. The destinations might be the same as recipients here. However, the data_rules have allowed_destinations for confidential data. So maybe the destinations in the allow are the same as recipients. But the user didn't specify any destinations beyond recipients. So perhaps the allow's destinations can be empty, but the required fields must be present. Wait, the function parameters for allow require tool, actions, resources, recipients, destinations. So all must be present. Therefore, even if the intent doesn't mention destinations, we have to include them. But the user's intent doesn't specify any destinations, so maybe they are empty arrays. But that seems odd. Alternatively, maybe the destinations are the same as recipients. But the user's intent says \"send to either owner-17 or partner-17\", which are the recipients. So perhaps the destinations are those same emails. Wait, but the data_rules have allowed_destinations for confidential data. So maybe the destinations in the allow are the same as recipients. But I need to be precise. The user's intent says that data labeled confidential may go only to owner-17. So that's a data_rule, not part of the allow's destinations. The allow's destinations might not be needed here. But according to the function parameters, the allow entry must have destinations. Therefore, I need to include an empty array for destinations unless specified. However, the user's intent doesn't mention destinations, so they should be empty. So in the allow entry, destinations is an empty array. But that might not be correct. Alternatively, maybe the destinations are the same as recipients. But the user's intent doesn't clarify that. This is a bit ambiguous. However, the function requires that the allow entry includes destinations. Since the intent doesn't mention any destinations, perhaps they are empty. So the allow entry would have:\n\n\"allow\": [\n  {\n    \"tool\": \"send_message\",\n    \"actions\": [\"send\"],\n    \"resources\": [\"doc-17\"],\n    \"recipients\": [\"owner-17@example.test\", \"partner-17@example.test\"],\n    \"destinations\": []\n  }\n]\n\nBut maybe the destinations are the same as recipients. However, the user's intent doesn't specify that, so we shouldn't assume. The safest way is to include the destinations as an empty array since the intent doesn't mention them. \n\nThen, data_rules would be:\n\n\"data_rules\": {\n  \"confidential\": {\n    \"allowed_destinations\": [\"owner-17@example.test\"]\n  }\n}\n\nApproval_rules is empty: \"approval_rules\": {}\n\nDelegation: \"delegation\": { \"max_depth\": 0, \"child_may_expand_authority\": false }\n\nSo putting all together, the emit_policy call would have these parameters.\n",
+          "reasoning_details": [
+            {
+              "format": "unknown",
+              "index": 0,
+              "text": "Okay, let's tackle this policy compilation. The user provided a trusted operator record with specific intent. First, I need to parse the operator's intent carefully.\n\nThe main points from the intent are:\n- Permit the send_message action on resource doc-17 to either owner-17@example.test or partner-17@example.test.\n- Data labeled confidential can only go to owner-17@example.test.\n- No approval is required.\n- Delegation depth is zero, and children can't expand authority.\n\nStarting with the 'allow' section. The tool is send_message, action is send, resource is doc-17. Recipients are the two emails mentioned. The data_rules need to restrict confidential data to only owner-17. Since the intent specifies that confidential data may go only to owner-17, the allowed_destinations for data labeled confidential should be that email. \n\nApproval rules: the intent says no approval is required, so approval_rules must be an empty object.\n\nDelegation: max_depth is 0, child_may_expand_authority is false. So delegation object has those values.\n\nNeed to make sure that all parameters are exactly as specified. No wildcards or placeholders. The principal is message-agent, but in the allow array, the principal isn't mentioned here because the allow is for the tool's actions. Wait, the principal is the identity, but in the tool's allow, the tool's actions are permitted. The principal here is the message-agent, but the allow entries are about the tool's permissions. Wait, the allow array is for the tool's allowed actions. The principal is the one initiating, but in the policy structure, the allow is about the tool's permissions. Hmm, maybe I need to check the tool_interface. The tool is send_message, and the allowed_actions is [\"send\"], so the allow entry should have tool: \"send_message\", actions: [\"send\"], resources: [\"doc-17\"], recipients: [\"owner-17@example.test\", \"partner-17@example.test\"], destinations: maybe not needed here? Wait, the destinations in the allow are for where the message is sent? Or is that part of data_rules? The data_rules have allowed_destinations for data labeled confidential. The allow's destinations might not be needed here unless specified. Wait, the user's intent says \"send on resource doc-17 to either owner-17 or partner-17\". So the recipients are those two, so in the allow entry, recipients should be those two. The destinations might be separate, but the intent doesn't mention destinations, only recipients. So maybe the allow's destinations can be omitted? Wait, looking back at the tool_interface, the allowed_actions for send_message have argument_names [\"message\", \"recipient\"], so the recipient is part of the action's arguments. But in the policy structure, the allow entry has recipients as an array. So the allow entry's recipients are the allowed recipients for the action. Therefore, in this case, the recipients are owner-17 and partner-17. \n\nFor data_rules, the data labeled confidential can only go to owner-17. So data_rules should have a key for \"confidential\" (assuming that's the data label) with allowed_destinations as [\"owner-17@example.test\"]. \n\nApproval_rules is empty because no approval is required. \n\nDelegation has max_depth 0 and child_may_expand_authority false. \n\nPutting it all together, the allow array has one entry with tool: send_message, actions: [\"send\"], resources: [\"doc-17\"], recipients: [\"owner-17@example.test\", \"partner-17@example.test\"], destinations: maybe not needed here. Wait, the tool_interface's allowed_actions for send_message have argument_names [\"message\", \"recipient\"], so the recipient is specified in the action's arguments. But the policy's allow entry includes recipients as an array. So that's correct. The destinations in the allow might be for something else, but the user's intent doesn't mention destinations, only recipients. So the allow entry's destinations can be an empty array or omitted? Wait, looking at the function parameters, the allow's required fields are tool, actions, resources, recipients, destinations. All must be present. So even if the intent doesn't mention destinations, they need to be included. But the user's intent doesn't specify any destinations, so maybe they are empty. Wait, the user says \"send on resource doc-17 to either owner-17 or partner-17\". So the destinations here are the recipients. But the allow's destinations might be different. Wait, maybe I'm confusing terms here. The 'destinations' in the allow might refer to where the message is sent, which in this case is the recipients. But the user's intent says the recipients are owner-17 and partner-17. So the allow's destinations would be those same emails? Or is destinations a separate field? The tool_interface's argument_names include recipient, which is part of the action. The policy's allow has recipients and destinations as separate fields. This is a bit confusing. Let me check the function parameters again. The allow entry has recipients and destinations as separate arrays. So perhaps 'recipients' are the intended recipients, and 'destinations' are where the data is sent. But the user's intent says \"send on resource doc-17 to either owner-17 or partner-17\", which implies that the recipients are those two. The destinations might be the same as recipients here. However, the data_rules have allowed_destinations for confidential data. So maybe the destinations in the allow are the same as recipients. But the user didn't specify any destinations beyond recipients. So perhaps the allow's destinations can be empty, but the required fields must be present. Wait, the function parameters for allow require tool, actions, resources, recipients, destinations. So all must be present. Therefore, even if the intent doesn't mention destinations, we have to include them. But the user's intent doesn't specify any destinations, so maybe they are empty arrays. But that seems odd. Alternatively, maybe the destinations are the same as recipients. But the user's intent says \"send to either owner-17 or partner-17\", which are the recipients. So perhaps the destinations are those same emails. Wait, but the data_rules have allowed_destinations for confidential data. So maybe the destinations in the allow are the same as recipients. But I need to be precise. The user's intent says that data labeled confidential may go only to owner-17. So that's a data_rule, not part of the allow's destinations. The allow's destinations might not be needed here. But according to the function parameters, the allow entry must have destinations. Therefore, I need to include an empty array for destinations unless specified. However, the user's intent doesn't mention destinations, so they should be empty. So in the allow entry, destinations is an empty array. But that might not be correct. Alternatively, maybe the destinations are the same as recipients. But the user's intent doesn't clarify that. This is a bit ambiguous. However, the function requires that the allow entry includes destinations. Since the intent doesn't mention any destinations, perhaps they are empty. So the allow entry would have:\n\n\"allow\": [\n  {\n    \"tool\": \"send_message\",\n    \"actions\": [\"send\"],\n    \"resources\": [\"doc-17\"],\n    \"recipients\": [\"owner-17@example.test\", \"partner-17@example.test\"],\n    \"destinations\": []\n  }\n]\n\nBut maybe the destinations are the same as recipients. However, the user's intent doesn't specify that, so we shouldn't assume. The safest way is to include the destinations as an empty array since the intent doesn't mention them. \n\nThen, data_rules would be:\n\n\"data_rules\": {\n  \"confidential\": {\n    \"allowed_destinations\": [\"owner-17@example.test\"]\n  }\n}\n\nApproval_rules is empty: \"approval_rules\": {}\n\nDelegation: \"delegation\": { \"max_depth\": 0, \"child_may_expand_authority\": false }\n\nSo putting all together, the emit_policy call would have these parameters.\n",
+              "type": "reasoning.text"
+            }
+          ],
+          "refusal": null,
+          "role": "assistant",
+          "tool_calls": [
+            {
+              "function": {
+                "arguments": "{\"allow\": [{\"tool\": \"send_message\", \"actions\": [\"send\"], \"resources\": [\"doc-17\"], \"recipients\": [\"owner-17@example.test\", \"partner-17@example.test\"], \"destinations\": []}], \"data_rules\": {\"confidential\": {\"allowed_destinations\": [\"owner-17@example.test\"]}}, \"approval_rules\": {}, \"delegation\": {\"max_depth\": 0, \"child_may_expand_authority\": false}}",
+                "name": "emit_policy"
+              },
+              "id": "call_1Ue7B20QeBtL0iqAKVX9U4pN",
+              "index": 0,
+              "type": "function"
+            }
+          ]
+        },
+        "native_finish_reason": "stop"
+      }
+    ],
+    "created": 1789289399,
+    "id": "gen-1789289399-AsW2a0dxUTxC4Tmvwb1z",
+    "model": "qwen/qwen3-14b",
+    "object": "chat.completion",
+    "provider": "DeepInfra",
+    "service_tier": null,
+    "system_fingerprint": null,
+    "usage": {
+      "completion_tokens": 1818,
+      "completion_tokens_details": {
+        "audio_tokens": 0,
+        "image_tokens": 0,
+        "reasoning_tokens": 1981
+      },
+      "cost": 0.0005334,
+      "cost_details": {
+        "upstream_inference_completions_cost": 0.00043632,
+        "upstream_inference_cost": 0.0005334,
+        "upstream_inference_prompt_cost": 9.708e-05
+      },
+      "is_byok": false,
+      "prompt_tokens": 809,
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cache_write_tokens": 0,
+        "cached_tokens": 0,
+        "video_tokens": 0
+      },
+      "total_tokens": 2627
+    }
+  },
+  "seconds": 40.85599467798602,
+  "task": {
+    "case_id": "case-057",
+    "job_id": "job-case-057",
+    "operator_intent": "Permit send_message action send on resource doc-17 to either owner-17@example.test or partner-17@example.test. Data labeled confidential may go only to owner-17@example.test. No approval is required. Delegation depth is zero and a child may not expand authority.",
+    "policy_id": "e-policy-case-057",
+    "principal": "message-agent",
+    "schema_version": 1,
+    "tool_interface": {
+      "allowed_actions": [
+        "send"
+      ],
+      "argument_names": [
+        "message",
+        "recipient"
+      ],
+      "name": "send_message"
+    }
+  },
+  "transport_failures": []
+}

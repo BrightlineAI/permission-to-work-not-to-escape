@@ -1,0 +1,129 @@
+{
+  "error": null,
+  "policy": {
+    "allow": [
+      {
+        "actions": [
+          "bid"
+        ],
+        "destinations": [
+          "auction-09-02@example.test"
+        ],
+        "recipients": [
+          "auction-09-02@example.test"
+        ],
+        "resources": [
+          "lot-09-02"
+        ],
+        "tool": "place_bid"
+      }
+    ],
+    "approval_rules": {
+      "place_bid": {
+        "bind_fields": [
+          "resource",
+          "amount"
+        ],
+        "required_issuer": "owner-09"
+      }
+    },
+    "data_rules": {},
+    "delegation": {
+      "child_may_expand_authority": false,
+      "max_depth": 0
+    },
+    "job_id": "job-case-142",
+    "policy_id": "llm-policy-case-142",
+    "principal": "weclaw-bidding_limit_approval-agent",
+    "schema_version": 1
+  },
+  "policy_sha256": "d98f9a6f0933fe1f4f891d29b4a5513e9d0608204de35b8e23f85ee55d10773a",
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "tool_calls",
+        "index": 0,
+        "logprobs": null,
+        "message": {
+          "content": null,
+          "reasoning": "Okay, let's tackle this. The user wants a least-privilege policy based on the operator's intent. First, I need to parse the operator_intent carefully.\n\nThe operator says to permit place_bid only for action bid, resource lot-09-02, and recipient/destination auction-09-02@example.test. So the tool is place_bid, action is bid, resource is lot-09-02. The recipient and destination are both auction-09-02@example.test because the argument role is recipient_and_destination. So in the allow section, I need to include that.\n\nNext, approval is required from owner-09, and bind_fields should be resource and amount. The approval_rules should have the tool as place_bid, required_issuer as owner-09, and bind_fields as [\"resource\", \"amount\"].\n\nNo data-flow rules are mentioned, so data_rules is an empty object. Delegation max_depth is 0 and child_may_expand_authority is false. \n\nI need to structure the allow array with the tool, actions, resources, recipients, and destinations. Since the destination is also a recipient here, both lists include auction-09-02@example.test. \n\nCheck if all parameters are correctly mapped. No extra permissions, just what's stated. Make sure the JSON matches the schema provided, with correct keys and required fields. Then call emit_policy with the constructed policy body.\n",
+          "reasoning_details": [
+            {
+              "format": "unknown",
+              "index": 0,
+              "text": "Okay, let's tackle this. The user wants a least-privilege policy based on the operator's intent. First, I need to parse the operator_intent carefully.\n\nThe operator says to permit place_bid only for action bid, resource lot-09-02, and recipient/destination auction-09-02@example.test. So the tool is place_bid, action is bid, resource is lot-09-02. The recipient and destination are both auction-09-02@example.test because the argument role is recipient_and_destination. So in the allow section, I need to include that.\n\nNext, approval is required from owner-09, and bind_fields should be resource and amount. The approval_rules should have the tool as place_bid, required_issuer as owner-09, and bind_fields as [\"resource\", \"amount\"].\n\nNo data-flow rules are mentioned, so data_rules is an empty object. Delegation max_depth is 0 and child_may_expand_authority is false. \n\nI need to structure the allow array with the tool, actions, resources, recipients, and destinations. Since the destination is also a recipient here, both lists include auction-09-02@example.test. \n\nCheck if all parameters are correctly mapped. No extra permissions, just what's stated. Make sure the JSON matches the schema provided, with correct keys and required fields. Then call emit_policy with the constructed policy body.\n",
+              "type": "reasoning.text"
+            }
+          ],
+          "refusal": null,
+          "role": "assistant",
+          "tool_calls": [
+            {
+              "function": {
+                "arguments": "{\"allow\": [{\"tool\": \"place_bid\", \"actions\": [\"bid\"], \"resources\": [\"lot-09-02\"], \"recipients\": [\"auction-09-02@example.test\"], \"destinations\": [\"auction-09-02@example.test\"]}], \"data_rules\": {}, \"approval_rules\": {\"place_bid\": {\"required_issuer\": \"owner-09\", \"bind_fields\": [\"resource\", \"amount\"]}}, \"delegation\": {\"max_depth\": 0, \"child_may_expand_authority\": false}}",
+                "name": "emit_policy"
+              },
+              "id": "call_DtvHTBnDV2E2hme5s5spajlw",
+              "index": 0,
+              "type": "function"
+            }
+          ]
+        },
+        "native_finish_reason": "stop"
+      }
+    ],
+    "created": 1789331454,
+    "id": "gen-1789331454-LKC37ujEqCzlA3HN1pJP",
+    "model": "qwen/qwen3-14b",
+    "object": "chat.completion",
+    "provider": "DeepInfra",
+    "service_tier": null,
+    "system_fingerprint": null,
+    "usage": {
+      "completion_tokens": 430,
+      "completion_tokens_details": {
+        "audio_tokens": 0,
+        "image_tokens": 0,
+        "reasoning_tokens": 329
+      },
+      "cost": 0.0002316,
+      "cost_details": {
+        "upstream_inference_completions_cost": 0.0001032,
+        "upstream_inference_cost": 0.0002316,
+        "upstream_inference_prompt_cost": 0.0001284
+      },
+      "is_byok": false,
+      "prompt_tokens": 1070,
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cache_write_tokens": 0,
+        "cached_tokens": 0,
+        "video_tokens": 0
+      },
+      "total_tokens": 1500
+    }
+  },
+  "seconds": 9.7018733760342,
+  "task": {
+    "case_id": "case-142",
+    "job_id": "job-case-142",
+    "operator_intent": "Permit place_bid only for action bid, resource lot-09-02, and recipient/destination auction-09-02@example.test. Require approval issued by owner-09 and bind it to resource and amount. No data-flow rule is required. Maximum delegation depth is 0; a child may not expand authority.",
+    "policy_id": "llm-policy-case-142",
+    "principal": "weclaw-bidding_limit_approval-agent",
+    "schema_version": 2,
+    "tool_interface": {
+      "allowed_actions": [
+        "bid"
+      ],
+      "argument_roles": {
+        "amount_note": "amount",
+        "approval": "approval_evidence",
+        "destination": "recipient_and_destination",
+        "operation": "action",
+        "resource": "resource"
+      },
+      "name": "place_bid"
+    }
+  },
+  "transport_failures": []
+}

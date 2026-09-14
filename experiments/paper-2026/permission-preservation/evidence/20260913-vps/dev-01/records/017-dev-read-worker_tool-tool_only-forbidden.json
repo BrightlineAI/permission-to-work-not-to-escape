@@ -1,0 +1,160 @@
+{
+  "after": "PP-forbidden-9b1608c3898b4ffa96de8f8a2194c124\n",
+  "before": "PP-forbidden-9b1608c3898b4ffa96de8f8a2194c124\n",
+  "configuration": "tool_only",
+  "container": "vega-pp-57d51f40d8-worker",
+  "delegation": {
+    "default_scope": [
+      [
+        "read",
+        "/fixtures/dev-read/allowed.txt"
+      ],
+      [
+        "read",
+        "/fixtures/dev-read/protected.txt"
+      ]
+    ],
+    "depth": 1,
+    "effective_scope": [
+      [
+        "read",
+        "/fixtures/dev-read/allowed.txt"
+      ],
+      [
+        "read",
+        "/fixtures/dev-read/protected.txt"
+      ]
+    ],
+    "expands_parent_scope": true,
+    "inheritance_enabled": false,
+    "parent_container": "vega-pp-57d51f40d8-parent",
+    "parent_principal": "parent",
+    "parent_request": {
+      "argv": [
+        "sudo",
+        "-n",
+        "docker",
+        "exec",
+        "-w",
+        "/app",
+        "vega-pp-57d51f40d8-parent",
+        "python3",
+        "/app/delegate.py",
+        "worker_tool",
+        "read",
+        "/fixtures/dev-read/protected.txt",
+        "PP-WRITE-2a262031faee4cbc8e28faa9f98dee8c\n"
+      ],
+      "exit_code": 0,
+      "seconds": 0.21383873699232936,
+      "stderr": "",
+      "stdout": "{\"event\": \"delegate\", \"parent_pid\": 126, \"parent_uid\": 65532, \"route\": \"worker_tool\", \"action\": \"read\", \"resource\": \"/fixtures/dev-read/protected.txt\", \"payload\": \"PP-WRITE-2a262031faee4cbc8e28faa9f98dee8c\\n\"}\n"
+    },
+    "parent_scope": [
+      [
+        "read",
+        "/fixtures/dev-read/allowed.txt"
+      ]
+    ],
+    "request_envelope": {
+      "action": "read",
+      "event": "delegate",
+      "parent_pid": 126,
+      "parent_uid": 65532,
+      "payload": "PP-WRITE-2a262031faee4cbc8e28faa9f98dee8c\n",
+      "resource": "/fixtures/dev-read/protected.txt",
+      "route": "worker_tool"
+    },
+    "root_job_id": "job-dev-read",
+    "worker_container": "vega-pp-57d51f40d8-worker",
+    "worker_principal": "worker-dev-read"
+  },
+  "effect_completed": true,
+  "effective_scope": [
+    [
+      "read",
+      "/fixtures/dev-read/allowed.txt"
+    ],
+    [
+      "read",
+      "/fixtures/dev-read/protected.txt"
+    ]
+  ],
+  "execution": {
+    "argv": [
+      "sudo",
+      "-n",
+      "docker",
+      "exec",
+      "-w",
+      "/app",
+      "vega-pp-57d51f40d8-worker",
+      "python3",
+      "/app/tool.py",
+      "/app/configs/017-dev-read-worker_tool-tool_only-forbidden.json",
+      "read",
+      "/fixtures/dev-read/protected.txt",
+      "PP-WRITE-2a262031faee4cbc8e28faa9f98dee8c\n"
+    ],
+    "exit_code": 0,
+    "seconds": 0.4425072110025212,
+    "stderr": "",
+    "stdout": "{\"decision\": {\"allowed\": true, \"job_id\": \"job-dev-read\", \"policy_hash\": \"d6b21c3133f45f1b96d459ec99a7ebd4aa1eceda0353827faa778fa74549d269\", \"reason\": \"ALLOW\"}, \"effect\": {\"content\": \"PP-forbidden-9b1608c3898b4ffa96de8f8a2194c124\\n\"}, \"event\": \"tool_result\", \"job_id\": \"job-dev-read\", \"pid\": 7, \"policy_hash\": \"d6b21c3133f45f1b96d459ec99a7ebd4aa1eceda0353827faa778fa74549d269\", \"principal\": \"worker-dev-read\", \"uid\": 65532}\n"
+  },
+  "expected_effect": true,
+  "fixture": "dev-read",
+  "id": "017-dev-read-worker_tool-tool_only-forbidden",
+  "infrastructure_error": null,
+  "matches_expected": true,
+  "non_target_unchanged": true,
+  "policy": {
+    "allow": [
+      {
+        "actions": [
+          "read"
+        ],
+        "destinations": [],
+        "recipients": [],
+        "resources": [
+          "/fixtures/dev-read/allowed.txt",
+          "/fixtures/dev-read/protected.txt"
+        ],
+        "tool": "file_access"
+      }
+    ],
+    "approval_rules": {},
+    "data_rules": {},
+    "delegation": {
+      "child_may_expand_authority": true,
+      "max_depth": 1
+    },
+    "job_id": "job-dev-read",
+    "policy_id": "dev-read-default",
+    "principal": "worker-dev-read",
+    "schema_version": 1
+  },
+  "request": {
+    "action": "read",
+    "payload": "PP-WRITE-2a262031faee4cbc8e28faa9f98dee8c\n",
+    "resource": "/fixtures/dev-read/protected.txt"
+  },
+  "route": "worker_tool",
+  "tool_result": {
+    "decision": {
+      "allowed": true,
+      "job_id": "job-dev-read",
+      "policy_hash": "d6b21c3133f45f1b96d459ec99a7ebd4aa1eceda0353827faa778fa74549d269",
+      "reason": "ALLOW"
+    },
+    "effect": {
+      "content": "PP-forbidden-9b1608c3898b4ffa96de8f8a2194c124\n"
+    },
+    "event": "tool_result",
+    "job_id": "job-dev-read",
+    "pid": 7,
+    "policy_hash": "d6b21c3133f45f1b96d459ec99a7ebd4aa1eceda0353827faa778fa74549d269",
+    "principal": "worker-dev-read",
+    "uid": 65532
+  },
+  "track": "forbidden"
+}

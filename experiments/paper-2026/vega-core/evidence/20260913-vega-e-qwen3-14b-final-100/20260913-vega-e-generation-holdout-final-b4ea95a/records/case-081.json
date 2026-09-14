@@ -1,0 +1,91 @@
+{
+  "error": "SchemaError('approval_rules must name an allowed tool and contain issuer/bind fields')",
+  "policy": null,
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "tool_calls",
+        "index": 0,
+        "logprobs": null,
+        "message": {
+          "content": null,
+          "reasoning": "Okay, let's tackle this policy compilation. The user provided a trusted operator record with specific intent. First, I need to parse the operator_intent carefully.\n\nThe intent says: Permit finalize_booking action create on resource BK-01 at destination hotel-01. Requires approval by corporate-approver bound to resource and amount. Delegation depth one, child may not expand. No data-flow rule.\n\nStarting with the 'allow' section. The tool is finalize_booking, action is create. The resource is BK-01, destination is hotel-01. Recipients aren't mentioned, so maybe an empty array? Wait, the tool_interface's argument_roles have 'booking' as resource and 'hotel' as destination. The example uses BK-01 as the resource, which maps to the booking argument. The destination is hotel-01, which matches the hotel argument. So resources should be [\"BK-01\"], destinations [\"hotel-01\"]. Recipients are not specified, so leave as empty array.\n\nNext, approval_rules. The intent says requires approval by corporate-approver, bound to resource and amount. The bind_fields are resource and amount. The required_issuer is corporate-approver. So approval_rules should have corporate-approver with bind_fields [\"resource\", \"amount\"].\n\nData_rules: the intent says no data-flow rule is required, so data_rules is an empty object {}.\n\nDelegation: max_depth 1, child_may_expand_authority false. So delegation object has max_depth 1 and child_may_expand_authority set to false.\n\nCheck if all parameters are covered. The principal is travel-agent, but in the policy, the principal isn't part of the allow array. The allow array's principal is the identity, but the tool is the one being allowed. Wait, the allow array's entries are about the tool's permissions. The principal is the user (travel-agent) but in the policy structure, the allow is about the tool's actions. Wait, the tool is finalize_booking, and the allow entry is for that tool. The principal is the one who is allowed to use the tool, but according to the schema, the allow array's entries don't include the principal. Wait, the schema for allow is an array of objects with tool, actions, resources, recipients, destinations. The principal is an identity, but the policy's allow is about the tool's permissions. Maybe the principal is the subject, but the policy structure here might not include the principal in the allow array. Wait, looking back at the emit_policy parameters, the allow array's items don't have a principal field. The principal is part of the overall policy, but the allow array is about the tool's allowed actions. So perhaps the principal is not included here. Wait, the user's instruction says: \"The principal is an identity, never a tool.\" So the allow array is about the tool's permissions, not the principal's. Therefore, the allow entry is for the tool, not the principal. So the allow array is for the tool's allowed actions, and the principal is the one who is allowed to perform those actions. But the schema doesn't include the principal in the allow array. So maybe the principal is handled elsewhere, but according to the given schema, the allow array entries don't have a principal. Therefore, the allow array is just about the tool's actions, resources, etc.\n\nSo putting it all together:\n\nallow: [\n  {\n    tool: \"finalize_booking\",\n    actions: [\"create\"],\n    resources: [\"BK-01\"],\n    recipients: [],\n    destinations: [\"hotel-01\"]\n  }\n]\n\napproval_rules: {\n  \"corporate-approver\": {\n    required_issuer: \"corporate-approver\",\n    bind_fields: [\"resource\", \"amount\"]\n  }\n}\n\nWait, the approval_rules structure is an object where each key is an issuer, and each value has required_issuer and bind_fields. Wait, looking at the schema for approval_rules: it's an object where each property is an object with required_issuer (string) and bind_fields (array of strings). So for the corporate-approver, the key would be the issuer, which is \"corporate-approver\", and the value is {required_issuer: \"corporate-approver\", bind_fields: [\"resource\", \"amount\"]}? Wait, no. The schema says approval_rules is an object where each property is an object with required_issuer and bind_fields. So the key is the name of the approval rule, perhaps. Wait, the example in the tool_interface's argument_roles has \"approval\" as the role, but the approval_rules are about the required issuer and bind fields. The user's intent says \"requires approval issued by corporate-approver bound to resource and amount.\" So the approval rule is that the approval must be issued by corporate-approver, and the bind_fields are resource and amount. So the approval_rules should have a key (maybe \"corporate-approver\") with the required_issuer as \"corporate-approver\" and bind_fields as [\"resource\", \"amount\"]. But the schema says approval_rules is an object where each property is an object with required_issuer and bind_fields. So the key is the name of the approval rule, which in this case is \"corporate-approver\", and the value is {required_issuer: \"corporate-approver\", bind_fields: [\"resource\", \"amount\"]}? Or is the key something else? Wait, the schema says \"approval_rules\" is an object where each key is a string (the name of the approval rule?), and each value is an object with required_issuer and bind_fields. But the user's intent says \"requires approval issued by corporate-approver\", so the required_issuer is corporate-approver. So the approval rule is that the approval must be from corporate-approver, and bind_fields are resource and amount. Therefore, the approval_rules would be:\n\n\"approval_rules\": {\n  \"corporate-approver\": {\n    \"required_issuer\": \"corporate-approver\",\n    \"bind_fields\": [\"resource\", \"amount\"]\n  }\n}\n\nBut the schema says that approval_rules is an object where each property is an object with required_issuer and bind_fields. So the key here is the name of the approval rule, which is \"corporate-approver\", and the value is the object with required_issuer and bind_fields. That seems correct.\n\nData_rules is empty as per the intent.\n\nDelegation: max_depth is 1, child_may_expand_authority is false.\n\nSo the final policy should have all these parts.\n",
+          "reasoning_details": [
+            {
+              "format": "unknown",
+              "index": 0,
+              "text": "Okay, let's tackle this policy compilation. The user provided a trusted operator record with specific intent. First, I need to parse the operator_intent carefully.\n\nThe intent says: Permit finalize_booking action create on resource BK-01 at destination hotel-01. Requires approval by corporate-approver bound to resource and amount. Delegation depth one, child may not expand. No data-flow rule.\n\nStarting with the 'allow' section. The tool is finalize_booking, action is create. The resource is BK-01, destination is hotel-01. Recipients aren't mentioned, so maybe an empty array? Wait, the tool_interface's argument_roles have 'booking' as resource and 'hotel' as destination. The example uses BK-01 as the resource, which maps to the booking argument. The destination is hotel-01, which matches the hotel argument. So resources should be [\"BK-01\"], destinations [\"hotel-01\"]. Recipients are not specified, so leave as empty array.\n\nNext, approval_rules. The intent says requires approval by corporate-approver, bound to resource and amount. The bind_fields are resource and amount. The required_issuer is corporate-approver. So approval_rules should have corporate-approver with bind_fields [\"resource\", \"amount\"].\n\nData_rules: the intent says no data-flow rule is required, so data_rules is an empty object {}.\n\nDelegation: max_depth 1, child_may_expand_authority false. So delegation object has max_depth 1 and child_may_expand_authority set to false.\n\nCheck if all parameters are covered. The principal is travel-agent, but in the policy, the principal isn't part of the allow array. The allow array's principal is the identity, but the tool is the one being allowed. Wait, the allow array's entries are about the tool's permissions. The principal is the user (travel-agent) but in the policy structure, the allow is about the tool's actions. Wait, the tool is finalize_booking, and the allow entry is for that tool. The principal is the one who is allowed to use the tool, but according to the schema, the allow array's entries don't include the principal. Wait, the schema for allow is an array of objects with tool, actions, resources, recipients, destinations. The principal is an identity, but the policy's allow is about the tool's permissions. Maybe the principal is the subject, but the policy structure here might not include the principal in the allow array. Wait, looking back at the emit_policy parameters, the allow array's items don't have a principal field. The principal is part of the overall policy, but the allow array is about the tool's allowed actions. So perhaps the principal is not included here. Wait, the user's instruction says: \"The principal is an identity, never a tool.\" So the allow array is about the tool's permissions, not the principal's. Therefore, the allow entry is for the tool, not the principal. So the allow array is for the tool's allowed actions, and the principal is the one who is allowed to perform those actions. But the schema doesn't include the principal in the allow array. So maybe the principal is handled elsewhere, but according to the given schema, the allow array entries don't have a principal. Therefore, the allow array is just about the tool's actions, resources, etc.\n\nSo putting it all together:\n\nallow: [\n  {\n    tool: \"finalize_booking\",\n    actions: [\"create\"],\n    resources: [\"BK-01\"],\n    recipients: [],\n    destinations: [\"hotel-01\"]\n  }\n]\n\napproval_rules: {\n  \"corporate-approver\": {\n    required_issuer: \"corporate-approver\",\n    bind_fields: [\"resource\", \"amount\"]\n  }\n}\n\nWait, the approval_rules structure is an object where each key is an issuer, and each value has required_issuer and bind_fields. Wait, looking at the schema for approval_rules: it's an object where each property is an object with required_issuer (string) and bind_fields (array of strings). So for the corporate-approver, the key would be the issuer, which is \"corporate-approver\", and the value is {required_issuer: \"corporate-approver\", bind_fields: [\"resource\", \"amount\"]}? Wait, no. The schema says approval_rules is an object where each property is an object with required_issuer and bind_fields. So the key is the name of the approval rule, perhaps. Wait, the example in the tool_interface's argument_roles has \"approval\" as the role, but the approval_rules are about the required issuer and bind fields. The user's intent says \"requires approval issued by corporate-approver bound to resource and amount.\" So the approval rule is that the approval must be issued by corporate-approver, and the bind_fields are resource and amount. So the approval_rules should have a key (maybe \"corporate-approver\") with the required_issuer as \"corporate-approver\" and bind_fields as [\"resource\", \"amount\"]. But the schema says approval_rules is an object where each property is an object with required_issuer and bind_fields. So the key is the name of the approval rule, which in this case is \"corporate-approver\", and the value is {required_issuer: \"corporate-approver\", bind_fields: [\"resource\", \"amount\"]}? Or is the key something else? Wait, the schema says \"approval_rules\" is an object where each key is a string (the name of the approval rule?), and each value is an object with required_issuer and bind_fields. But the user's intent says \"requires approval issued by corporate-approver\", so the required_issuer is corporate-approver. So the approval rule is that the approval must be from corporate-approver, and bind_fields are resource and amount. Therefore, the approval_rules would be:\n\n\"approval_rules\": {\n  \"corporate-approver\": {\n    \"required_issuer\": \"corporate-approver\",\n    \"bind_fields\": [\"resource\", \"amount\"]\n  }\n}\n\nBut the schema says that approval_rules is an object where each property is an object with required_issuer and bind_fields. So the key here is the name of the approval rule, which is \"corporate-approver\", and the value is the object with required_issuer and bind_fields. That seems correct.\n\nData_rules is empty as per the intent.\n\nDelegation: max_depth is 1, child_may_expand_authority is false.\n\nSo the final policy should have all these parts.\n",
+              "type": "reasoning.text"
+            }
+          ],
+          "refusal": null,
+          "role": "assistant",
+          "tool_calls": [
+            {
+              "function": {
+                "arguments": "{\"allow\": [{\"tool\": \"finalize_booking\", \"actions\": [\"create\"], \"resources\": [\"BK-01\"], \"recipients\": [], \"destinations\": [\"hotel-01\"]}], \"data_rules\": {}, \"approval_rules\": {\"corporate-approver\": {\"required_issuer\": \"corporate-approver\", \"bind_fields\": [\"resource\", \"amount\"]}}, \"delegation\": {\"max_depth\": 1, \"child_may_expand_authority\": false}}",
+                "name": "emit_policy"
+              },
+              "id": "call_VTzv8o0GFLhWTooOqxy5TCqK",
+              "index": 0,
+              "type": "function"
+            }
+          ]
+        },
+        "native_finish_reason": "stop"
+      }
+    ],
+    "created": 1789290056,
+    "id": "gen-1789290056-KCBRE66h8hasULRywvVg",
+    "model": "qwen/qwen3-14b",
+    "object": "chat.completion",
+    "provider": "DeepInfra",
+    "service_tier": null,
+    "system_fingerprint": null,
+    "usage": {
+      "completion_tokens": 1494,
+      "completion_tokens_details": {
+        "audio_tokens": 0,
+        "image_tokens": 0,
+        "reasoning_tokens": 1546
+      },
+      "cost": 0.00046416,
+      "cost_details": {
+        "upstream_inference_completions_cost": 0.00035856,
+        "upstream_inference_cost": 0.00046416,
+        "upstream_inference_prompt_cost": 0.0001056
+      },
+      "is_byok": false,
+      "prompt_tokens": 880,
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cache_write_tokens": 0,
+        "cached_tokens": 0,
+        "video_tokens": 0
+      },
+      "total_tokens": 2374
+    }
+  },
+  "seconds": 19.519219866022468,
+  "task": {
+    "case_id": "case-081",
+    "job_id": "job-case-081",
+    "operator_intent": "Permit finalize_booking action create on resource BK-01 at destination hotel-01. It requires approval issued by corporate-approver bound to resource and amount. Permit delegation depth one, and a child may not expand authority. No data-flow rule is required.",
+    "policy_id": "e-policy-case-081",
+    "principal": "travel-agent",
+    "schema_version": 1,
+    "tool_interface": {
+      "allowed_actions": [
+        "create"
+      ],
+      "argument_roles": {
+        "approval": "approval_evidence",
+        "booking": "resource",
+        "hotel": "destination",
+        "price": "amount"
+      },
+      "name": "finalize_booking"
+    }
+  },
+  "transport_failures": []
+}

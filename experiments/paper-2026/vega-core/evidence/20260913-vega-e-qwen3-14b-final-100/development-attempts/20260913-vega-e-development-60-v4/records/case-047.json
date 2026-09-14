@@ -1,0 +1,126 @@
+{
+  "error": null,
+  "policy": {
+    "allow": [
+      {
+        "actions": [
+          "send"
+        ],
+        "destinations": [
+          "owner-07@example.test",
+          "partner-07@example.test"
+        ],
+        "recipients": [
+          "owner-07@example.test",
+          "partner-07@example.test"
+        ],
+        "resources": [
+          "doc-07"
+        ],
+        "tool": "send_message"
+      }
+    ],
+    "approval_rules": {},
+    "data_rules": {
+      "confidential": {
+        "allowed_destinations": [
+          "owner-07@example.test"
+        ]
+      }
+    },
+    "delegation": {
+      "child_may_expand_authority": false,
+      "max_depth": 0
+    },
+    "job_id": "job-case-047",
+    "policy_id": "e-policy-case-047",
+    "principal": "message-agent",
+    "schema_version": 1
+  },
+  "policy_sha256": "7bdf923bbeb3d1ac047181231574850c1c8739347d42688735d10cc0b089fcb0",
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "tool_calls",
+        "index": 0,
+        "logprobs": null,
+        "message": {
+          "content": null,
+          "reasoning": "Okay, let's tackle this. The user wants a policy based on the operator's intent. First, I need to parse the intent carefully.\n\nThe main points from the operator_intent: Permit send_message action to send on resource doc-07 to either owner-07 or partner-07. But confidential data can only go to owner-07. No approval needed. Delegation depth is zero, and children can't expand authority.\n\nStarting with the allow array. The tool is send_message, action is send, resource is doc-07. Recipients are owner-07 and partner-07. Destinations should be the same as recipients since the argument role for recipient is recipient_and_destination. Wait, the tool_interface's argument_roles says recipient is recipient_and_destination, so the recipient field in the policy should include both recipients and destinations. But the user specified \"to either owner-07 or partner-07\", so recipients are those two. But destinations might be the same? Or maybe the destinations are the same as recipients here. Need to check the tool's argument roles. The tool's argument_roles for recipient is recipient_and_destination, meaning that when the action is performed, the recipient parameter is used for both recipient and destination. So in the policy, recipients and destinations would both include owner-07 and partner-07. Wait, but the data labeled confidential can only go to owner-07. So maybe the destinations are different? Hmm, but the data_rules are separate. Let me think.\n\nThe data_rules part: Data labeled confidential may go only to owner-07. So in data_rules, under allowed_destinations, it's owner-07. So data_rules would have a key (maybe the data label) with allowed_destinations as [owner-07]. But the tool_interface doesn't mention data labels, but the operator_intent says data labeled confidential. So the data_rules would have an entry for \"confidential\" with allowed_destinations as [owner-07@example.test].\n\nApproval rules: No approval required, so approval_rules is an empty object {}.\n\nDelegation: max_depth is 0, child_may_expand_authority is false.\n\nNow, the allow entry: tool is send_message, actions is [\"send\"], resources is [\"doc-07\"], recipients are [\"owner-07@example.test\", \"partner-07@example.test\"], and destinations same as recipients because of the argument role. Wait, the argument_roles for recipient is recipient_and_destination. So when the action is called, the recipient parameter is used for both recipient and destination. So in the policy, the recipients and destinations would be the same. So the allow entry would have recipients and destinations both as [\"owner-07@example.test\", \"partner-07@example.test\"].\n\nBut wait, the data_rules for confidential data restricts destinations to owner-07. So even though the allow rule permits sending to both, the data rule would override that for confidential data. So the allow rule is permissive, but data_rules restricts based on data labels.\n\nPutting it all together:\n\nallow: [\n  {\n    tool: \"send_message\",\n    actions: [\"send\"],\n    resources: [\"doc-07\"],\n    recipients: [\"owner-07@example.test\", \"partner-07@example.test\"],\n    destinations: [\"owner-07@example.test\", \"partner-07@example.test\"]\n  }\n]\n\ndata_rules: {\n  \"confidential\": {\n    allowed_destinations: [\"owner-07@example.test\"]\n  }\n}\n\napproval_rules: {}\n\ndelegation: {\n  max_depth: 0,\n  child_may_expand_authority: false\n}\n\nI need to make sure that all parameters are correctly filled. The principal is message-agent, but in the policy, the principal is the identity, so it's not part of the allow entry. The allow entries are about the tool's permissions. The tool's name is send_message, actions allowed are send, resources are doc-07. Recipients and destinations as per the argument roles. Data rules for confidential data. Approval rules empty. Delegation settings as specified.\n",
+          "reasoning_details": [
+            {
+              "format": "unknown",
+              "index": 0,
+              "text": "Okay, let's tackle this. The user wants a policy based on the operator's intent. First, I need to parse the intent carefully.\n\nThe main points from the operator_intent: Permit send_message action to send on resource doc-07 to either owner-07 or partner-07. But confidential data can only go to owner-07. No approval needed. Delegation depth is zero, and children can't expand authority.\n\nStarting with the allow array. The tool is send_message, action is send, resource is doc-07. Recipients are owner-07 and partner-07. Destinations should be the same as recipients since the argument role for recipient is recipient_and_destination. Wait, the tool_interface's argument_roles says recipient is recipient_and_destination, so the recipient field in the policy should include both recipients and destinations. But the user specified \"to either owner-07 or partner-07\", so recipients are those two. But destinations might be the same? Or maybe the destinations are the same as recipients here. Need to check the tool's argument roles. The tool's argument_roles for recipient is recipient_and_destination, meaning that when the action is performed, the recipient parameter is used for both recipient and destination. So in the policy, recipients and destinations would both include owner-07 and partner-07. Wait, but the data labeled confidential can only go to owner-07. So maybe the destinations are different? Hmm, but the data_rules are separate. Let me think.\n\nThe data_rules part: Data labeled confidential may go only to owner-07. So in data_rules, under allowed_destinations, it's owner-07. So data_rules would have a key (maybe the data label) with allowed_destinations as [owner-07]. But the tool_interface doesn't mention data labels, but the operator_intent says data labeled confidential. So the data_rules would have an entry for \"confidential\" with allowed_destinations as [owner-07@example.test].\n\nApproval rules: No approval required, so approval_rules is an empty object {}.\n\nDelegation: max_depth is 0, child_may_expand_authority is false.\n\nNow, the allow entry: tool is send_message, actions is [\"send\"], resources is [\"doc-07\"], recipients are [\"owner-07@example.test\", \"partner-07@example.test\"], and destinations same as recipients because of the argument role. Wait, the argument_roles for recipient is recipient_and_destination. So when the action is called, the recipient parameter is used for both recipient and destination. So in the policy, the recipients and destinations would be the same. So the allow entry would have recipients and destinations both as [\"owner-07@example.test\", \"partner-07@example.test\"].\n\nBut wait, the data_rules for confidential data restricts destinations to owner-07. So even though the allow rule permits sending to both, the data rule would override that for confidential data. So the allow rule is permissive, but data_rules restricts based on data labels.\n\nPutting it all together:\n\nallow: [\n  {\n    tool: \"send_message\",\n    actions: [\"send\"],\n    resources: [\"doc-07\"],\n    recipients: [\"owner-07@example.test\", \"partner-07@example.test\"],\n    destinations: [\"owner-07@example.test\", \"partner-07@example.test\"]\n  }\n]\n\ndata_rules: {\n  \"confidential\": {\n    allowed_destinations: [\"owner-07@example.test\"]\n  }\n}\n\napproval_rules: {}\n\ndelegation: {\n  max_depth: 0,\n  child_may_expand_authority: false\n}\n\nI need to make sure that all parameters are correctly filled. The principal is message-agent, but in the policy, the principal is the identity, so it's not part of the allow entry. The allow entries are about the tool's permissions. The tool's name is send_message, actions allowed are send, resources are doc-07. Recipients and destinations as per the argument roles. Data rules for confidential data. Approval rules empty. Delegation settings as specified.\n",
+              "type": "reasoning.text"
+            }
+          ],
+          "refusal": null,
+          "role": "assistant",
+          "tool_calls": [
+            {
+              "function": {
+                "arguments": "{\"allow\": [{\"tool\": \"send_message\", \"actions\": [\"send\"], \"resources\": [\"doc-07\"], \"recipients\": [\"owner-07@example.test\", \"partner-07@example.test\"], \"destinations\": [\"owner-07@example.test\", \"partner-07@example.test\"]}], \"data_rules\": {\"confidential\": {\"allowed_destinations\": [\"owner-07@example.test\"]}}, \"approval_rules\": {}, \"delegation\": {\"max_depth\": 0, \"child_may_expand_authority\": false}}",
+                "name": "emit_policy"
+              },
+              "id": "call_zvcuHUHXNV5SGmFncPx2ndeu",
+              "index": 0,
+              "type": "function"
+            }
+          ]
+        },
+        "native_finish_reason": "stop"
+      }
+    ],
+    "created": 1789289735,
+    "id": "gen-1789289735-Z7SaxAwnQDRJfhmOpICw",
+    "model": "qwen/qwen3-14b",
+    "object": "chat.completion",
+    "provider": "DeepInfra",
+    "service_tier": null,
+    "system_fingerprint": null,
+    "usage": {
+      "completion_tokens": 984,
+      "completion_tokens_details": {
+        "audio_tokens": 0,
+        "image_tokens": 0,
+        "reasoning_tokens": 965
+      },
+      "cost": 0.00034104,
+      "cost_details": {
+        "upstream_inference_completions_cost": 0.00023616,
+        "upstream_inference_cost": 0.00034104,
+        "upstream_inference_prompt_cost": 0.00010488
+      },
+      "is_byok": false,
+      "prompt_tokens": 874,
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cache_write_tokens": 0,
+        "cached_tokens": 0,
+        "video_tokens": 0
+      },
+      "total_tokens": 1858
+    }
+  },
+  "seconds": 38.5604474931024,
+  "task": {
+    "case_id": "case-047",
+    "job_id": "job-case-047",
+    "operator_intent": "Permit send_message action send on resource doc-07 to either owner-07@example.test or partner-07@example.test. Data labeled confidential may go only to owner-07@example.test. No approval is required. Delegation depth is zero and a child may not expand authority.",
+    "policy_id": "e-policy-case-047",
+    "principal": "message-agent",
+    "schema_version": 1,
+    "tool_interface": {
+      "allowed_actions": [
+        "send"
+      ],
+      "argument_roles": {
+        "message": "content",
+        "recipient": "recipient_and_destination"
+      },
+      "name": "send_message"
+    }
+  },
+  "transport_failures": []
+}

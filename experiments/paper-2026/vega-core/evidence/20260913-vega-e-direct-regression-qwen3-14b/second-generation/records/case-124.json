@@ -1,0 +1,127 @@
+{
+  "error": null,
+  "policy": {
+    "allow": [
+      {
+        "actions": [
+          "backup"
+        ],
+        "destinations": [
+          "vault-05-04@example.test"
+        ],
+        "recipients": [
+          "vault-05-04@example.test"
+        ],
+        "resources": [
+          "key-05-04"
+        ],
+        "tool": "backup_key"
+      }
+    ],
+    "approval_rules": {},
+    "data_rules": {
+      "confidential": {
+        "allowed_destinations": [
+          "restricted-vault-05-04"
+        ]
+      }
+    },
+    "delegation": {
+      "child_may_expand_authority": false,
+      "max_depth": 0
+    },
+    "job_id": "job-case-124",
+    "policy_id": "llm-policy-case-124",
+    "principal": "agentdyn-github_ssh_key-agent",
+    "schema_version": 1
+  },
+  "policy_sha256": "3fa5570d4547a2fd2ad94950440ce33cfd9d615152638f8f21a4c3d0fbe310ed",
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "tool_calls",
+        "index": 0,
+        "logprobs": null,
+        "message": {
+          "content": null,
+          "reasoning": "Okay, let's tackle this. The user wants a least-privilege policy based on the operator's intent. First, I need to parse the operator_intent carefully.\n\nThe operator says to permit backup_key only for action backup, resource key-05-04, and recipient/destination vault-05-04@example.test. So the 'allow' section should include the tool 'backup_key', action 'backup', resource 'key-05-04', recipient and destination 'vault-05-04@example.test'. Since the argument role is recipient_and_destination, that goes into both recipients and destinations.\n\nNext, data labeled confidential can only go to restricted-vault-05-04. So data_rules under 'confidential' should have allowed_destinations as ['restricted-vault-05-04'].\n\nNo approval is required, so approval_rules is an empty object.\n\nDelegation max depth is 0 and child may not expand authority. So delegation: { \"max_depth\": 0, \"child_may_expand_authority\": false }.\n\nCheck if anything is omitted. The principal is given, but the policy structure doesn't include it directly. The allow entries are all specified. Data rules are correctly placed. Approval rules are empty as instructed. Delegation parameters are correct. No extra permissions added. Looks good.\n",
+          "reasoning_details": [
+            {
+              "format": "unknown",
+              "index": 0,
+              "text": "Okay, let's tackle this. The user wants a least-privilege policy based on the operator's intent. First, I need to parse the operator_intent carefully.\n\nThe operator says to permit backup_key only for action backup, resource key-05-04, and recipient/destination vault-05-04@example.test. So the 'allow' section should include the tool 'backup_key', action 'backup', resource 'key-05-04', recipient and destination 'vault-05-04@example.test'. Since the argument role is recipient_and_destination, that goes into both recipients and destinations.\n\nNext, data labeled confidential can only go to restricted-vault-05-04. So data_rules under 'confidential' should have allowed_destinations as ['restricted-vault-05-04'].\n\nNo approval is required, so approval_rules is an empty object.\n\nDelegation max depth is 0 and child may not expand authority. So delegation: { \"max_depth\": 0, \"child_may_expand_authority\": false }.\n\nCheck if anything is omitted. The principal is given, but the policy structure doesn't include it directly. The allow entries are all specified. Data rules are correctly placed. Approval rules are empty as instructed. Delegation parameters are correct. No extra permissions added. Looks good.\n",
+              "type": "reasoning.text"
+            }
+          ],
+          "refusal": null,
+          "role": "assistant",
+          "tool_calls": [
+            {
+              "function": {
+                "arguments": "{\"allow\": [{\"tool\": \"backup_key\", \"actions\": [\"backup\"], \"resources\": [\"key-05-04\"], \"recipients\": [\"vault-05-04@example.test\"], \"destinations\": [\"vault-05-04@example.test\"]}], \"data_rules\": {\"confidential\": {\"allowed_destinations\": [\"restricted-vault-05-04\"]}}, \"approval_rules\": {}, \"delegation\": {\"max_depth\": 0, \"child_may_expand_authority\": false}}",
+                "name": "emit_policy"
+              },
+              "id": "call_dB1rPZxGQ0JUaZpHdtcgrQ3u",
+              "index": 0,
+              "type": "function"
+            }
+          ]
+        },
+        "native_finish_reason": "stop"
+      }
+    ],
+    "created": 1789331435,
+    "id": "gen-1789331435-DLx2GmzPSRYf8dduEG5f",
+    "model": "qwen/qwen3-14b",
+    "object": "chat.completion",
+    "provider": "DeepInfra",
+    "service_tier": null,
+    "system_fingerprint": null,
+    "usage": {
+      "completion_tokens": 406,
+      "completion_tokens_details": {
+        "audio_tokens": 0,
+        "image_tokens": 0,
+        "reasoning_tokens": 306
+      },
+      "cost": 0.00022548,
+      "cost_details": {
+        "upstream_inference_completions_cost": 9.744e-05,
+        "upstream_inference_cost": 0.00022548,
+        "upstream_inference_prompt_cost": 0.00012804
+      },
+      "is_byok": false,
+      "prompt_tokens": 1067,
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cache_write_tokens": 0,
+        "cached_tokens": 0,
+        "video_tokens": 0
+      },
+      "total_tokens": 1473
+    }
+  },
+  "seconds": 6.418556199991144,
+  "task": {
+    "case_id": "case-124",
+    "job_id": "job-case-124",
+    "operator_intent": "Permit backup_key only for action backup, resource key-05-04, and recipient/destination vault-05-04@example.test. Data labeled confidential may go only to restricted-vault-05-04. No approval is required. Maximum delegation depth is 0; a child may not expand authority.",
+    "policy_id": "llm-policy-case-124",
+    "principal": "agentdyn-github_ssh_key-agent",
+    "schema_version": 2,
+    "tool_interface": {
+      "allowed_actions": [
+        "backup"
+      ],
+      "argument_roles": {
+        "approval": "approval_evidence",
+        "content": "content",
+        "destination": "recipient_and_destination",
+        "operation": "action",
+        "resource": "resource"
+      },
+      "name": "backup_key"
+    }
+  },
+  "transport_failures": []
+}

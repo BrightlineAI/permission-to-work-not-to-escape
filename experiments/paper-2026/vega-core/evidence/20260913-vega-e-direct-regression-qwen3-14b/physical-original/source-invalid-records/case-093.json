@@ -1,0 +1,91 @@
+{
+  "error": "SchemaError('approval bind_fields must contain resource and/or amount')",
+  "policy": null,
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "tool_calls",
+        "index": 0,
+        "logprobs": null,
+        "message": {
+          "content": null,
+          "reasoning": "Okay, let's break this down. The user wants a least-privilege policy based on the operator's intent. The operator said to permit the 'finalize_booking' action's 'create' on resource BK-13 at destination hotel-13. It needs approval from corporate-approver bound to resource and amount. Delegation depth is one, and children can't expand authority. No data-flow rules.\n\nFirst, the 'allow' section. The tool is 'finalize_booking', action is 'create', resource is BK-13. The destination is hotel-13. The recipients might be the hotel, but the operator didn't mention any recipients explicitly. Wait, the argument_roles have 'hotel' as destination, so maybe the destination is hotel-13. The principal is travel-agent. So the allow entry should include tool, actions, resources, recipients (if any), and destinations. The operator didn't mention recipients, so recipients array might be empty? Wait, the tool_interface's argument_roles have 'booking' as resource, which is BK-13, and 'hotel' as destination, which is hotel-13. The 'approval' is an argument role, but that's for the approval evidence, not a recipient. So recipients might not be needed here unless specified. The operator's intent doesn't mention any recipients, so recipients array could be empty. But the tool's allowed_actions is create, so actions is [\"create\"], resources [\"BK-13\"], destinations [\"hotel-13\"], recipients maybe empty?\n\nNext, data_rules: the operator says no data-flow rule is required, so data_rules is {}.\n\nApproval_rules: the action requires approval by corporate-approver, bound to resource (BK-13) and amount (price). So the approval_rules key is the tool 'finalize_booking', and the value has required_issuer as 'corporate-approver' and bind_fields as ['booking', 'price'] because those are the argument roles bound. Wait, the argument_roles for approval is 'approval_evidence', but the bind_fields are the fields that need to be bound. The operator says \"bound to resource and amount\" which correspond to the resource (booking) and price (amount). So bind_fields should be [\"booking\", \"price\"].\n\nDelegation: max_depth is 1, child_may_expand_authority is false.\n\nPutting it all together:\n\nallow should have tool: 'finalize_booking', actions: ['create'], resources: ['BK-13'], recipients: maybe empty array? Wait, the tool_interface's argument_roles have 'hotel' as destination, which is hotel-13. The operator's intent says destination hotel-13, so destinations is ['hotel-13']. Recipients are not mentioned, so perhaps the recipients array is empty. But the tool's parameters might require a recipient? Wait, the tool_interface's argument_roles don't have a recipient role. The user's instruction says that recipients are only in the recipients array if the argument has role recipient_and_destination. The operator's intent doesn't mention any recipients, so recipients is an empty array. So the allow entry is:\n\n{\n  \"tool\": \"finalize_booking\",\n  \"actions\": [\"create\"],\n  \"resources\": [\"BK-13\"],\n  \"recipients\": [],\n  \"destinations\": [\"hotel-13\"]\n}\n\nBut wait, the tool_interface's argument_roles have 'hotel' as destination, which maps to hotel-13. So destinations is [\"hotel-13\"], and recipients are not present unless specified. So that's correct.\n\napproval_rules is:\n\n{\n  \"finalize_booking\": {\n    \"required_issuer\": \"corporate-approver\",\n    \"bind_fields\": [\"booking\", \"price\"]\n  }\n}\n\ndata_rules is {}.\n\ndelegation is max_depth 1, child_may_expand_authority false.\n\nSo the final policy should have all these parts.\n",
+          "reasoning_details": [
+            {
+              "format": "unknown",
+              "index": 0,
+              "text": "Okay, let's break this down. The user wants a least-privilege policy based on the operator's intent. The operator said to permit the 'finalize_booking' action's 'create' on resource BK-13 at destination hotel-13. It needs approval from corporate-approver bound to resource and amount. Delegation depth is one, and children can't expand authority. No data-flow rules.\n\nFirst, the 'allow' section. The tool is 'finalize_booking', action is 'create', resource is BK-13. The destination is hotel-13. The recipients might be the hotel, but the operator didn't mention any recipients explicitly. Wait, the argument_roles have 'hotel' as destination, so maybe the destination is hotel-13. The principal is travel-agent. So the allow entry should include tool, actions, resources, recipients (if any), and destinations. The operator didn't mention recipients, so recipients array might be empty? Wait, the tool_interface's argument_roles have 'booking' as resource, which is BK-13, and 'hotel' as destination, which is hotel-13. The 'approval' is an argument role, but that's for the approval evidence, not a recipient. So recipients might not be needed here unless specified. The operator's intent doesn't mention any recipients, so recipients array could be empty. But the tool's allowed_actions is create, so actions is [\"create\"], resources [\"BK-13\"], destinations [\"hotel-13\"], recipients maybe empty?\n\nNext, data_rules: the operator says no data-flow rule is required, so data_rules is {}.\n\nApproval_rules: the action requires approval by corporate-approver, bound to resource (BK-13) and amount (price). So the approval_rules key is the tool 'finalize_booking', and the value has required_issuer as 'corporate-approver' and bind_fields as ['booking', 'price'] because those are the argument roles bound. Wait, the argument_roles for approval is 'approval_evidence', but the bind_fields are the fields that need to be bound. The operator says \"bound to resource and amount\" which correspond to the resource (booking) and price (amount). So bind_fields should be [\"booking\", \"price\"].\n\nDelegation: max_depth is 1, child_may_expand_authority is false.\n\nPutting it all together:\n\nallow should have tool: 'finalize_booking', actions: ['create'], resources: ['BK-13'], recipients: maybe empty array? Wait, the tool_interface's argument_roles have 'hotel' as destination, which is hotel-13. The operator's intent says destination hotel-13, so destinations is ['hotel-13']. Recipients are not mentioned, so perhaps the recipients array is empty. But the tool's parameters might require a recipient? Wait, the tool_interface's argument_roles don't have a recipient role. The user's instruction says that recipients are only in the recipients array if the argument has role recipient_and_destination. The operator's intent doesn't mention any recipients, so recipients is an empty array. So the allow entry is:\n\n{\n  \"tool\": \"finalize_booking\",\n  \"actions\": [\"create\"],\n  \"resources\": [\"BK-13\"],\n  \"recipients\": [],\n  \"destinations\": [\"hotel-13\"]\n}\n\nBut wait, the tool_interface's argument_roles have 'hotel' as destination, which maps to hotel-13. So destinations is [\"hotel-13\"], and recipients are not present unless specified. So that's correct.\n\napproval_rules is:\n\n{\n  \"finalize_booking\": {\n    \"required_issuer\": \"corporate-approver\",\n    \"bind_fields\": [\"booking\", \"price\"]\n  }\n}\n\ndata_rules is {}.\n\ndelegation is max_depth 1, child_may_expand_authority false.\n\nSo the final policy should have all these parts.\n",
+              "type": "reasoning.text"
+            }
+          ],
+          "refusal": null,
+          "role": "assistant",
+          "tool_calls": [
+            {
+              "function": {
+                "arguments": "{\"allow\": [{\"tool\": \"finalize_booking\", \"actions\": [\"create\"], \"resources\": [\"BK-13\"], \"recipients\": [], \"destinations\": [\"hotel-13\"]}], \"data_rules\": {}, \"approval_rules\": {\"finalize_booking\": {\"required_issuer\": \"corporate-approver\", \"bind_fields\": [\"booking\", \"price\"]}}, \"delegation\": {\"max_depth\": 1, \"child_may_expand_authority\": false}}",
+                "name": "emit_policy"
+              },
+              "id": "call_6fTlasDOmfa97bSjqbdkC38S",
+              "index": 0,
+              "type": "function"
+            }
+          ]
+        },
+        "native_finish_reason": "stop"
+      }
+    ],
+    "created": 1789331614,
+    "id": "gen-1789331614-dWHNNkz0OVP9g0Q4DtBF",
+    "model": "qwen/qwen3-14b",
+    "object": "chat.completion",
+    "provider": "DeepInfra",
+    "service_tier": null,
+    "system_fingerprint": null,
+    "usage": {
+      "completion_tokens": 922,
+      "completion_tokens_details": {
+        "audio_tokens": 0,
+        "image_tokens": 0,
+        "reasoning_tokens": 887
+      },
+      "cost": 0.00034596,
+      "cost_details": {
+        "upstream_inference_completions_cost": 0.00022128,
+        "upstream_inference_cost": 0.00034596,
+        "upstream_inference_prompt_cost": 0.00012468
+      },
+      "is_byok": false,
+      "prompt_tokens": 1039,
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cache_write_tokens": 0,
+        "cached_tokens": 0,
+        "video_tokens": 0
+      },
+      "total_tokens": 1961
+    }
+  },
+  "seconds": 18.719207691960037,
+  "task": {
+    "case_id": "case-093",
+    "job_id": "job-case-093",
+    "operator_intent": "Permit finalize_booking action create on resource BK-13 at destination hotel-13. It requires approval issued by corporate-approver bound to resource and amount. Permit delegation depth one, and a child may not expand authority. No data-flow rule is required.",
+    "policy_id": "e-policy-case-093",
+    "principal": "travel-agent",
+    "schema_version": 1,
+    "tool_interface": {
+      "allowed_actions": [
+        "create"
+      ],
+      "argument_roles": {
+        "approval": "approval_evidence",
+        "booking": "resource",
+        "hotel": "destination",
+        "price": "amount"
+      },
+      "name": "finalize_booking"
+    }
+  },
+  "transport_failures": []
+}

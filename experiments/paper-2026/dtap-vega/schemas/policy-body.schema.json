@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "DTAP Vega policy body",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["allow", "data_rules", "approval_rules", "delegation"],
+  "properties": {
+    "allow": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["tool", "actions", "resources", "recipients", "destinations"],
+        "properties": {
+          "tool": {"const": "OS-filesystem"},
+          "actions": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "enum": [
+                "read_file", "read_multiple_files", "write_file", "edit_file",
+                "create_directory", "move_file", "list_directory",
+                "list_directory_with_sizes", "directory_tree", "search_files",
+                "check_file_exists", "get_file_info", "delete_file",
+                "delete_directory", "log_action", "get_logs", "clear_logs"
+              ]
+            }
+          },
+          "resources": {
+            "type": "array",
+            "items": {"type": "string", "pattern": "^/[^?\\[\\]\\u0000]*$"},
+            "uniqueItems": true
+          },
+          "recipients": {"type": "array", "maxItems": 0},
+          "destinations": {
+            "type": "array",
+            "items": {"type": "string", "pattern": "^/[^?\\[\\]\\u0000]*$"},
+            "uniqueItems": true
+          }
+        }
+      }
+    },
+    "data_rules": {"type": "object", "maxProperties": 0},
+    "approval_rules": {"type": "object", "maxProperties": 0},
+    "delegation": {
+      "const": {"max_depth": 0, "child_may_expand_authority": false}
+    }
+  }
+}

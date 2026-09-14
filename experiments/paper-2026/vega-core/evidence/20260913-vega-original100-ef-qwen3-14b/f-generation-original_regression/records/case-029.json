@@ -1,0 +1,353 @@
+{
+  "completion_tokens": 888,
+  "critic_model": "qwen/qwen3-14b",
+  "error": null,
+  "final_ir": {
+    "allow": [
+      {
+        "actions": [
+          "send"
+        ],
+        "destinations": [
+          "owner-09@example.test"
+        ],
+        "recipients": [
+          "owner-09@example.test"
+        ],
+        "resources": [
+          "trip-09"
+        ],
+        "tool": "send_email"
+      }
+    ],
+    "approval_rules": [],
+    "data_rules": [],
+    "delegation": {
+      "child_may_expand_authority": false,
+      "max_depth": 0
+    }
+  },
+  "mode": "F",
+  "model": "qwen/qwen3-14b",
+  "policy": {
+    "allow": [
+      {
+        "actions": [
+          "send"
+        ],
+        "destinations": [
+          "owner-09@example.test"
+        ],
+        "recipients": [
+          "owner-09@example.test"
+        ],
+        "resources": [
+          "trip-09"
+        ],
+        "tool": "send_email"
+      }
+    ],
+    "approval_rules": {},
+    "data_rules": {},
+    "delegation": {
+      "child_may_expand_authority": false,
+      "max_depth": 0
+    },
+    "job_id": "job-case-029",
+    "policy_id": "e-policy-case-029",
+    "principal": "mail-agent",
+    "schema_version": 1
+  },
+  "policy_sha256": "1d74069c5eec99a3fab16ffd5b4a95d8f47302f23e5c60286ec39993de9bb6cb",
+  "prompt_tokens": 1825,
+  "reported_cost_usd": 0.00043212000000000003,
+  "rounds": 1,
+  "seconds": 22.12700333003886,
+  "task": {
+    "case_id": "case-029",
+    "job_id": "job-case-029",
+    "operator_intent": "Permit tool send_email only for action send on resource trip-09 with recipient and destination owner-09@example.test. No approval or data-flow rule is required. Delegation depth is zero and a child may not expand authority.",
+    "policy_id": "e-policy-case-029",
+    "principal": "mail-agent",
+    "schema_version": 1,
+    "tool_interface": {
+      "allowed_actions": [
+        "send"
+      ],
+      "argument_roles": {
+        "body": "content",
+        "recipient": "recipient_and_destination",
+        "subject": "content"
+      },
+      "name": "send_email"
+    }
+  },
+  "transcript": [
+    {
+      "candidate": {
+        "allow": [
+          {
+            "actions": [
+              "send"
+            ],
+            "destinations": [
+              "owner-09@example.test"
+            ],
+            "recipients": [
+              "owner-09@example.test"
+            ],
+            "resources": [
+              "trip-09"
+            ],
+            "tool": "send_email"
+          }
+        ],
+        "approval_rules": [],
+        "data_rules": [],
+        "delegation": {
+          "child_may_expand_authority": false,
+          "max_depth": 0
+        }
+      },
+      "request": {
+        "deterministic_compiler_contract": {
+          "allow_grants_required": 1,
+          "identifier_list_sources": {
+            "destinations": [
+              "recipient"
+            ],
+            "recipients": [
+              "recipient"
+            ],
+            "resources": []
+          },
+          "literal_scope_may_be_declared_in_operator_intent": true,
+          "never_copy_an_identifier_to_another_role_without_an_explicit_declaration": true,
+          "ordinary_allow_and_labeled_data_rule_are_distinct_layers": true
+        },
+        "trusted_operator_record": {
+          "case_id": "case-029",
+          "job_id": "job-case-029",
+          "operator_intent": "Permit tool send_email only for action send on resource trip-09 with recipient and destination owner-09@example.test. No approval or data-flow rule is required. Delegation depth is zero and a child may not expand authority.",
+          "policy_id": "e-policy-case-029",
+          "principal": "mail-agent",
+          "schema_version": 1,
+          "tool_interface": {
+            "allowed_actions": [
+              "send"
+            ],
+            "argument_roles": {
+              "body": "content",
+              "recipient": "recipient_and_destination",
+              "subject": "content"
+            },
+            "name": "send_email"
+          }
+        }
+      },
+      "response": {
+        "choices": [
+          {
+            "finish_reason": "tool_calls",
+            "index": 0,
+            "logprobs": null,
+            "message": {
+              "content": null,
+              "reasoning": "Okay, let's tackle this. The user wants me to convert the trusted operator record into a least-privilege policy proposal. First, I need to parse the operator_intent and tool_interface from the trusted_operator_record.\n\nThe operator_intent says: Permit tool send_email only for action send on resource trip-09 with recipient and destination owner-09@example.test. No approval or data-flow rule is required. Delegation depth is zero and a child may not expand authority.\n\nSo, the tool is send_email, action is send, resource is trip-09. The recipient and destination are both owner-09@example.test. Since the identifier_list_sources in the contract says destinations and recipients come from \"recipient\", and resources are empty. Also, the never_copy_an_identifier_to_another_role_without_an_explicit_declaration is true, so I can't assume that recipient is also a destination unless explicitly stated. But in the operator_intent, they explicitly mention recipient and destination as the same, so I need to put owner-09@example.test in both recipients and destinations.\n\nThe data_rules and approval_rules are not required, so those arrays should be empty. The delegation has max_depth 0 and child_may_expand_authority false. \n\nNow, checking the function parameters. The allow array must have exactly one object with tool, actions, resources, recipients, destinations. The tool is send_email, actions is [\"send\"], resources is [\"trip-09\"], recipients is [\"owner-09@example.test\"], destinations is [\"owner-09@example.test\"]. \n\nData_rules is an empty list because no data-flow rules are needed. Approval_rules is also empty. Delegation has max_depth 0 and child_may_expand_authority false. \n\nI need to make sure that all the required fields are present. The allow object requires tool, actions, resources, recipients, destinations. All are there. Resources are [\"trip-09\"], which is correct. Recipients and destinations both have the same value as per the operator's intent. \n\nNo approval rules or data rules, so those are empty lists. Delegation parameters are set as specified. \n\nI think that's all. Let me structure the JSON accordingly.\n",
+              "reasoning_details": [
+                {
+                  "format": "unknown",
+                  "index": 0,
+                  "text": "Okay, let's tackle this. The user wants me to convert the trusted operator record into a least-privilege policy proposal. First, I need to parse the operator_intent and tool_interface from the trusted_operator_record.\n\nThe operator_intent says: Permit tool send_email only for action send on resource trip-09 with recipient and destination owner-09@example.test. No approval or data-flow rule is required. Delegation depth is zero and a child may not expand authority.\n\nSo, the tool is send_email, action is send, resource is trip-09. The recipient and destination are both owner-09@example.test. Since the identifier_list_sources in the contract says destinations and recipients come from \"recipient\", and resources are empty. Also, the never_copy_an_identifier_to_another_role_without_an_explicit_declaration is true, so I can't assume that recipient is also a destination unless explicitly stated. But in the operator_intent, they explicitly mention recipient and destination as the same, so I need to put owner-09@example.test in both recipients and destinations.\n\nThe data_rules and approval_rules are not required, so those arrays should be empty. The delegation has max_depth 0 and child_may_expand_authority false. \n\nNow, checking the function parameters. The allow array must have exactly one object with tool, actions, resources, recipients, destinations. The tool is send_email, actions is [\"send\"], resources is [\"trip-09\"], recipients is [\"owner-09@example.test\"], destinations is [\"owner-09@example.test\"]. \n\nData_rules is an empty list because no data-flow rules are needed. Approval_rules is also empty. Delegation has max_depth 0 and child_may_expand_authority false. \n\nI need to make sure that all the required fields are present. The allow object requires tool, actions, resources, recipients, destinations. All are there. Resources are [\"trip-09\"], which is correct. Recipients and destinations both have the same value as per the operator's intent. \n\nNo approval rules or data rules, so those are empty lists. Delegation parameters are set as specified. \n\nI think that's all. Let me structure the JSON accordingly.\n",
+                  "type": "reasoning.text"
+                }
+              ],
+              "refusal": null,
+              "role": "assistant",
+              "tool_calls": [
+                {
+                  "function": {
+                    "arguments": "{\"allow\": [{\"tool\": \"send_email\", \"actions\": [\"send\"], \"resources\": [\"trip-09\"], \"recipients\": [\"owner-09@example.test\"], \"destinations\": [\"owner-09@example.test\"]}], \"data_rules\": [], \"approval_rules\": [], \"delegation\": {\"max_depth\": 0, \"child_may_expand_authority\": false}}",
+                    "name": "propose_policy"
+                  },
+                  "id": "call_CD7vDmN5lUpHkQ2gDLKkXh0M",
+                  "index": 0,
+                  "type": "function"
+                }
+              ]
+            },
+            "native_finish_reason": "stop"
+          }
+        ],
+        "created": 1789315525,
+        "id": "gen-1789315525-WUmhcI49n4cdgyfcAyUB",
+        "model": "qwen/qwen3-14b",
+        "object": "chat.completion",
+        "provider": "DeepInfra",
+        "service_tier": null,
+        "system_fingerprint": null,
+        "usage": {
+          "completion_tokens": 550,
+          "completion_tokens_details": {
+            "audio_tokens": 0,
+            "image_tokens": 0,
+            "reasoning_tokens": 539
+          },
+          "cost": 0.00025704,
+          "cost_details": {
+            "upstream_inference_completions_cost": 0.000132,
+            "upstream_inference_cost": 0.00025704,
+            "upstream_inference_prompt_cost": 0.00012504
+          },
+          "is_byok": false,
+          "prompt_tokens": 1042,
+          "prompt_tokens_details": {
+            "audio_tokens": 0,
+            "cache_write_tokens": 0,
+            "cached_tokens": 0,
+            "video_tokens": 0
+          },
+          "total_tokens": 1592
+        }
+      },
+      "role": "proposer",
+      "round": 1,
+      "validation": []
+    },
+    {
+      "request": {
+        "candidate_policy": {
+          "allow": [
+            {
+              "actions": [
+                "send"
+              ],
+              "destinations": [
+                "owner-09@example.test"
+              ],
+              "recipients": [
+                "owner-09@example.test"
+              ],
+              "resources": [
+                "trip-09"
+              ],
+              "tool": "send_email"
+            }
+          ],
+          "approval_rules": [],
+          "data_rules": [],
+          "delegation": {
+            "child_may_expand_authority": false,
+            "max_depth": 0
+          }
+        },
+        "deterministic_compiler_contract": {
+          "allow_grants_required": 1,
+          "identifier_list_sources": {
+            "destinations": [
+              "recipient"
+            ],
+            "recipients": [
+              "recipient"
+            ],
+            "resources": []
+          },
+          "literal_scope_may_be_declared_in_operator_intent": true,
+          "never_copy_an_identifier_to_another_role_without_an_explicit_declaration": true,
+          "ordinary_allow_and_labeled_data_rule_are_distinct_layers": true
+        },
+        "deterministic_validation_findings": [],
+        "trusted_operator_record": {
+          "case_id": "case-029",
+          "job_id": "job-case-029",
+          "operator_intent": "Permit tool send_email only for action send on resource trip-09 with recipient and destination owner-09@example.test. No approval or data-flow rule is required. Delegation depth is zero and a child may not expand authority.",
+          "policy_id": "e-policy-case-029",
+          "principal": "mail-agent",
+          "schema_version": 1,
+          "tool_interface": {
+            "allowed_actions": [
+              "send"
+            ],
+            "argument_roles": {
+              "body": "content",
+              "recipient": "recipient_and_destination",
+              "subject": "content"
+            },
+            "name": "send_email"
+          }
+        }
+      },
+      "response": {
+        "choices": [
+          {
+            "finish_reason": "tool_calls",
+            "index": 0,
+            "logprobs": null,
+            "message": {
+              "content": null,
+              "reasoning": "Okay, let's take a look at this candidate policy. The user wants me to review it based on the trusted operator record. First, I need to check if the policy matches the operator's intent.\n\nThe operator's intent says to permit the send_email tool only for the send action on the trip-09 resource, with recipient and destination as owner-09@example.test. No approval or data rules are needed, and delegation is set to zero depth with no expansion.\n\nLooking at the candidate policy's allow section: the action is send, destination and recipient are both owner-09@example.test, resource is trip-09, and tool is send_email. That seems to align with the intent. The approval_rules and data_rules are empty, which matches the \"no approval or data-flow rule required\" part. \n\nDelegation settings have child_may_expand_authority as false and max_depth 0, which fits the operator's statement about delegation depth being zero and no expansion. \n\nThe tool_interface in the operator record specifies that the recipient argument role is recipient_and_destination. The policy uses recipient and destination as the same email, which is correct because the argument role combines both. \n\nNo over-grants here since the policy is specific to the mentioned resource and recipient. The feedback should confirm approval with no issues found.\n",
+              "reasoning_details": [
+                {
+                  "format": "unknown",
+                  "index": 0,
+                  "text": "Okay, let's take a look at this candidate policy. The user wants me to review it based on the trusted operator record. First, I need to check if the policy matches the operator's intent.\n\nThe operator's intent says to permit the send_email tool only for the send action on the trip-09 resource, with recipient and destination as owner-09@example.test. No approval or data rules are needed, and delegation is set to zero depth with no expansion.\n\nLooking at the candidate policy's allow section: the action is send, destination and recipient are both owner-09@example.test, resource is trip-09, and tool is send_email. That seems to align with the intent. The approval_rules and data_rules are empty, which matches the \"no approval or data-flow rule required\" part. \n\nDelegation settings have child_may_expand_authority as false and max_depth 0, which fits the operator's statement about delegation depth being zero and no expansion. \n\nThe tool_interface in the operator record specifies that the recipient argument role is recipient_and_destination. The policy uses recipient and destination as the same email, which is correct because the argument role combines both. \n\nNo over-grants here since the policy is specific to the mentioned resource and recipient. The feedback should confirm approval with no issues found.\n",
+                  "type": "reasoning.text"
+                }
+              ],
+              "refusal": null,
+              "role": "assistant",
+              "tool_calls": [
+                {
+                  "function": {
+                    "arguments": "{\"approved\": true, \"feedback\": \"Policy matches operator intent: send_email send action on trip-09 with recipient/destination owner-09@example.test, no approval/data rules, zero-depth delegation. All parameters align with trusted_operator_record.\"}",
+                    "name": "review_policy"
+                  },
+                  "id": "call_JrMguCJwoPykYUDFQQdi5qAg",
+                  "index": 0,
+                  "type": "function"
+                }
+              ]
+            },
+            "native_finish_reason": "stop"
+          }
+        ],
+        "created": 1789315537,
+        "id": "gen-1789315537-YeLVy8csUWu9lzyr8YNm",
+        "model": "qwen/qwen3-14b",
+        "object": "chat.completion",
+        "provider": "DeepInfra",
+        "service_tier": null,
+        "system_fingerprint": null,
+        "usage": {
+          "completion_tokens": 338,
+          "completion_tokens_details": {
+            "audio_tokens": 0,
+            "image_tokens": 0,
+            "reasoning_tokens": 334
+          },
+          "cost": 0.00017508,
+          "cost_details": {
+            "upstream_inference_completions_cost": 8.112e-05,
+            "upstream_inference_cost": 0.00017508,
+            "upstream_inference_prompt_cost": 9.396e-05
+          },
+          "is_byok": false,
+          "prompt_tokens": 783,
+          "prompt_tokens_details": {
+            "audio_tokens": 0,
+            "cache_write_tokens": 0,
+            "cached_tokens": 0,
+            "video_tokens": 0
+          },
+          "total_tokens": 1121
+        }
+      },
+      "review": {
+        "approved": true,
+        "feedback": "Policy matches operator intent: send_email send action on trip-09 with recipient/destination owner-09@example.test, no approval/data rules, zero-depth delegation. All parameters align with trusted_operator_record."
+      },
+      "role": "critic",
+      "round": 1
+    }
+  ]
+}

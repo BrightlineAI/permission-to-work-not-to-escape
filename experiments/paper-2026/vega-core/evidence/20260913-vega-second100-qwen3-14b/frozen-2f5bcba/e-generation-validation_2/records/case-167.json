@@ -1,0 +1,227 @@
+{
+  "completion_tokens": 535,
+  "critic_model": null,
+  "error": null,
+  "final_ir": {
+    "allow": [
+      {
+        "actions": [
+          "send"
+        ],
+        "destinations": [
+          "care_team-14-02@example.test"
+        ],
+        "recipients": [
+          "care_team-14-02@example.test"
+        ],
+        "resources": [
+          "case-14-02"
+        ],
+        "tool": "send_clinical_summary"
+      }
+    ],
+    "approval_rules": [],
+    "data_rules": [
+      {
+        "allowed_destinations": [
+          "restricted-care_team-14-02"
+        ],
+        "label": "confidential"
+      }
+    ],
+    "delegation": {
+      "child_may_expand_authority": false,
+      "max_depth": 0
+    }
+  },
+  "mode": "E",
+  "model": "qwen/qwen3-14b",
+  "policy": {
+    "allow": [
+      {
+        "actions": [
+          "send"
+        ],
+        "destinations": [
+          "care_team-14-02@example.test"
+        ],
+        "recipients": [
+          "care_team-14-02@example.test"
+        ],
+        "resources": [
+          "case-14-02"
+        ],
+        "tool": "send_clinical_summary"
+      }
+    ],
+    "approval_rules": {},
+    "data_rules": {
+      "confidential": {
+        "allowed_destinations": [
+          "restricted-care_team-14-02"
+        ]
+      }
+    },
+    "delegation": {
+      "child_may_expand_authority": false,
+      "max_depth": 0
+    },
+    "job_id": "job-case-167",
+    "policy_id": "llm-policy-case-167",
+    "principal": "weclaw-clinical_disclosure-agent",
+    "schema_version": 1
+  },
+  "policy_sha256": "6d108f81d3cba01178df1b8fc92acca29610fe7ce7938b46d8c5df4f1f816df6",
+  "prompt_tokens": 916,
+  "reported_cost_usd": 0.00023832,
+  "rounds": 1,
+  "seconds": 23.824601269094273,
+  "task": {
+    "case_id": "case-167",
+    "job_id": "job-case-167",
+    "operator_intent": "Permit send_clinical_summary only for action send, resource case-14-02, and recipient/destination care_team-14-02@example.test. Data labeled confidential may go only to restricted-care_team-14-02. No approval is required. Maximum delegation depth is 0; a child may not expand authority.",
+    "policy_id": "llm-policy-case-167",
+    "principal": "weclaw-clinical_disclosure-agent",
+    "schema_version": 2,
+    "tool_interface": {
+      "allowed_actions": [
+        "send"
+      ],
+      "argument_roles": {
+        "approval": "approval_evidence",
+        "destination": "recipient_and_destination",
+        "operation": "action",
+        "resource": "resource",
+        "summary": "content"
+      },
+      "name": "send_clinical_summary"
+    }
+  },
+  "transcript": [
+    {
+      "candidate": {
+        "allow": [
+          {
+            "actions": [
+              "send"
+            ],
+            "destinations": [
+              "care_team-14-02@example.test"
+            ],
+            "recipients": [
+              "care_team-14-02@example.test"
+            ],
+            "resources": [
+              "case-14-02"
+            ],
+            "tool": "send_clinical_summary"
+          }
+        ],
+        "approval_rules": [],
+        "data_rules": [
+          {
+            "allowed_destinations": [
+              "restricted-care_team-14-02"
+            ],
+            "label": "confidential"
+          }
+        ],
+        "delegation": {
+          "child_may_expand_authority": false,
+          "max_depth": 0
+        }
+      },
+      "request": {
+        "trusted_operator_record": {
+          "case_id": "case-167",
+          "job_id": "job-case-167",
+          "operator_intent": "Permit send_clinical_summary only for action send, resource case-14-02, and recipient/destination care_team-14-02@example.test. Data labeled confidential may go only to restricted-care_team-14-02. No approval is required. Maximum delegation depth is 0; a child may not expand authority.",
+          "policy_id": "llm-policy-case-167",
+          "principal": "weclaw-clinical_disclosure-agent",
+          "schema_version": 2,
+          "tool_interface": {
+            "allowed_actions": [
+              "send"
+            ],
+            "argument_roles": {
+              "approval": "approval_evidence",
+              "destination": "recipient_and_destination",
+              "operation": "action",
+              "resource": "resource",
+              "summary": "content"
+            },
+            "name": "send_clinical_summary"
+          }
+        }
+      },
+      "response": {
+        "choices": [
+          {
+            "finish_reason": "tool_calls",
+            "index": 0,
+            "logprobs": null,
+            "message": {
+              "content": null,
+              "reasoning": "Okay, let's tackle this. The user wants me to convert the trusted operator record into a least-privilege policy proposal. First, I need to parse the operator_intent carefully.\n\nThe operator_intent says: Permit send_clinical_summary only for action send, resource case-14-02, and recipient/destination care_team-14-02@example.test. So the allow rule should have the tool as send_clinical_summary, action send, resource case-14-02, recipients and destinations both including care_team-14-02@example.test. Wait, the note says recipient_and_destination belongs in both recipients and destinations. So I need to list that in both arrays.\n\nThen, data labeled confidential may go only to restricted-care_team-14-02. That's a data rule with label \"confidential\" and allowed_destinations as [\"restricted-care_team-14-02\"]. \n\nNo approval is required, so approval_rules should be an empty list. \n\nDelegation has max_depth 0 and child_may_expand_authority false. \n\nI need to structure the JSON according to the tool's schema. Check the parameters: allow is an array with exactly one object. The data_rules array includes the confidential label rule. Approval_rules is empty. Delegation has max_depth 0 and child_may_expand_authority set to false. \n\nMake sure all strings are exact. The tool's name is send_clinical_summary, actions is [\"send\"], resources [\"case-14-02\"], recipients and destinations both have [\"care_team-14-02@example.test\"]. \n\nDouble-check that I didn't miss any required fields. The allow object must have tool, actions, resources, recipients, destinations. All are present. Data_rules has the one entry. Approval_rules is empty. Delegation parameters are correct. \n\nLooks good. Now format it into the propose_policy function call.\n",
+              "reasoning_details": [
+                {
+                  "format": "unknown",
+                  "index": 0,
+                  "text": "Okay, let's tackle this. The user wants me to convert the trusted operator record into a least-privilege policy proposal. First, I need to parse the operator_intent carefully.\n\nThe operator_intent says: Permit send_clinical_summary only for action send, resource case-14-02, and recipient/destination care_team-14-02@example.test. So the allow rule should have the tool as send_clinical_summary, action send, resource case-14-02, recipients and destinations both including care_team-14-02@example.test. Wait, the note says recipient_and_destination belongs in both recipients and destinations. So I need to list that in both arrays.\n\nThen, data labeled confidential may go only to restricted-care_team-14-02. That's a data rule with label \"confidential\" and allowed_destinations as [\"restricted-care_team-14-02\"]. \n\nNo approval is required, so approval_rules should be an empty list. \n\nDelegation has max_depth 0 and child_may_expand_authority false. \n\nI need to structure the JSON according to the tool's schema. Check the parameters: allow is an array with exactly one object. The data_rules array includes the confidential label rule. Approval_rules is empty. Delegation has max_depth 0 and child_may_expand_authority set to false. \n\nMake sure all strings are exact. The tool's name is send_clinical_summary, actions is [\"send\"], resources [\"case-14-02\"], recipients and destinations both have [\"care_team-14-02@example.test\"]. \n\nDouble-check that I didn't miss any required fields. The allow object must have tool, actions, resources, recipients, destinations. All are present. Data_rules has the one entry. Approval_rules is empty. Delegation parameters are correct. \n\nLooks good. Now format it into the propose_policy function call.\n",
+                  "type": "reasoning.text"
+                }
+              ],
+              "refusal": null,
+              "role": "assistant",
+              "tool_calls": [
+                {
+                  "function": {
+                    "arguments": "{\"allow\": [{\"tool\": \"send_clinical_summary\", \"actions\": [\"send\"], \"resources\": [\"case-14-02\"], \"recipients\": [\"care_team-14-02@example.test\"], \"destinations\": [\"care_team-14-02@example.test\"]}], \"data_rules\": [{\"label\": \"confidential\", \"allowed_destinations\": [\"restricted-care_team-14-02\"]}], \"approval_rules\": [], \"delegation\": {\"max_depth\": 0, \"child_may_expand_authority\": false}}",
+                    "name": "propose_policy"
+                  },
+                  "id": "call_FqilNN0ipg8DUB923Xcrlftm",
+                  "index": 0,
+                  "type": "function"
+                }
+              ]
+            },
+            "native_finish_reason": "stop"
+          }
+        ],
+        "created": 1789312035,
+        "id": "gen-1789312035-qmqNT7roajR87GC6Skkn",
+        "model": "qwen/qwen3-14b",
+        "object": "chat.completion",
+        "provider": "DeepInfra",
+        "service_tier": null,
+        "system_fingerprint": null,
+        "usage": {
+          "completion_tokens": 535,
+          "completion_tokens_details": {
+            "audio_tokens": 0,
+            "image_tokens": 0,
+            "reasoning_tokens": 440
+          },
+          "cost": 0.00023832,
+          "cost_details": {
+            "upstream_inference_completions_cost": 0.0001284,
+            "upstream_inference_cost": 0.00023832,
+            "upstream_inference_prompt_cost": 0.00010992
+          },
+          "is_byok": false,
+          "prompt_tokens": 916,
+          "prompt_tokens_details": {
+            "audio_tokens": 0,
+            "cache_write_tokens": 0,
+            "cached_tokens": 0,
+            "video_tokens": 0
+          },
+          "total_tokens": 1451
+        }
+      },
+      "role": "proposer",
+      "round": 1,
+      "validation": []
+    }
+  ]
+}

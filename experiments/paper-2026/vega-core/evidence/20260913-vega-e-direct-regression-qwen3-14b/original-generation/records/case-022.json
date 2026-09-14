@@ -1,0 +1,119 @@
+{
+  "error": null,
+  "policy": {
+    "allow": [
+      {
+        "actions": [
+          "send"
+        ],
+        "destinations": [
+          "owner-02@example.test"
+        ],
+        "recipients": [
+          "owner-02@example.test"
+        ],
+        "resources": [
+          "trip-02"
+        ],
+        "tool": "send_email"
+      }
+    ],
+    "approval_rules": {},
+    "data_rules": {},
+    "delegation": {
+      "child_may_expand_authority": false,
+      "max_depth": 0
+    },
+    "job_id": "job-case-022",
+    "policy_id": "e-policy-case-022",
+    "principal": "mail-agent",
+    "schema_version": 1
+  },
+  "policy_sha256": "550ae636719f14d61725b1c9043eadae2ec2167c79db5b50415967e43cd6a6c2",
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "tool_calls",
+        "index": 0,
+        "logprobs": null,
+        "message": {
+          "content": null,
+          "reasoning": "Okay, let's break down the user's query. The goal is to create a least-privilege policy based on the trusted operator's record. The operator's intent is clear: allow the send_email tool only for sending on the trip-02 resource, with recipient and destination as owner-02@example.test. No approval or data-flow rules are needed, and delegation depth is zero with no expansion.\n\nFirst, the 'allow' section. The tool is send_email, action is send, resource is trip-02. The recipient and destination are both owner-02@example.test. Since the argument role is recipient_and_destination, I need to include that in both recipients and destinations. So the allow entry will have tool: send_email, actions: [\"send\"], resources: [\"trip-02\"], recipients: [\"owner-02@example.test\"], destinations: [\"owner-02@example.test\"].\n\nNext, data_rules. The operator said no data-flow rules are required, so data_rules is an empty object {}.\n\nApproval_rules also aren't needed here, so that's another empty object {}.\n\nFor delegation, max_depth is 0 and child_may_expand_authority is false. So delegation: { \"max_depth\": 0, \"child_may_expand_authority\": false }.\n\nI need to make sure there are no extra permissions. The allow entry is strict, only the specified tool, action, resource, and recipients/destinations. No wildcards or defaults. Everything else is denied by default. Looks good. Now structure the JSON accordingly.\n",
+          "reasoning_details": [
+            {
+              "format": "unknown",
+              "index": 0,
+              "text": "Okay, let's break down the user's query. The goal is to create a least-privilege policy based on the trusted operator's record. The operator's intent is clear: allow the send_email tool only for sending on the trip-02 resource, with recipient and destination as owner-02@example.test. No approval or data-flow rules are needed, and delegation depth is zero with no expansion.\n\nFirst, the 'allow' section. The tool is send_email, action is send, resource is trip-02. The recipient and destination are both owner-02@example.test. Since the argument role is recipient_and_destination, I need to include that in both recipients and destinations. So the allow entry will have tool: send_email, actions: [\"send\"], resources: [\"trip-02\"], recipients: [\"owner-02@example.test\"], destinations: [\"owner-02@example.test\"].\n\nNext, data_rules. The operator said no data-flow rules are required, so data_rules is an empty object {}.\n\nApproval_rules also aren't needed here, so that's another empty object {}.\n\nFor delegation, max_depth is 0 and child_may_expand_authority is false. So delegation: { \"max_depth\": 0, \"child_may_expand_authority\": false }.\n\nI need to make sure there are no extra permissions. The allow entry is strict, only the specified tool, action, resource, and recipients/destinations. No wildcards or defaults. Everything else is denied by default. Looks good. Now structure the JSON accordingly.\n",
+              "type": "reasoning.text"
+            }
+          ],
+          "refusal": null,
+          "role": "assistant",
+          "tool_calls": [
+            {
+              "function": {
+                "arguments": "{\"allow\": [{\"tool\": \"send_email\", \"actions\": [\"send\"], \"resources\": [\"trip-02\"], \"recipients\": [\"owner-02@example.test\"], \"destinations\": [\"owner-02@example.test\"]}], \"data_rules\": {}, \"approval_rules\": {}, \"delegation\": {\"max_depth\": 0, \"child_may_expand_authority\": false}}",
+                "name": "emit_policy"
+              },
+              "id": "call_lCwc9bLnaj3yMEd9XRJyU6mu",
+              "index": 0,
+              "type": "function"
+            }
+          ]
+        },
+        "native_finish_reason": "stop"
+      }
+    ],
+    "created": 1789331441,
+    "id": "gen-1789331441-8HQVaaKTtka0rW8di6BF",
+    "model": "qwen/qwen3-14b",
+    "object": "chat.completion",
+    "provider": "DeepInfra",
+    "service_tier": null,
+    "system_fingerprint": null,
+    "usage": {
+      "completion_tokens": 420,
+      "completion_tokens_details": {
+        "audio_tokens": 0,
+        "image_tokens": 0,
+        "reasoning_tokens": 355
+      },
+      "cost": 0.00022404,
+      "cost_details": {
+        "upstream_inference_completions_cost": 0.0001008,
+        "upstream_inference_cost": 0.00022404,
+        "upstream_inference_prompt_cost": 0.00012324
+      },
+      "is_byok": false,
+      "prompt_tokens": 1027,
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cache_write_tokens": 0,
+        "cached_tokens": 0,
+        "video_tokens": 0
+      },
+      "total_tokens": 1447
+    }
+  },
+  "seconds": 7.2719267250504345,
+  "task": {
+    "case_id": "case-022",
+    "job_id": "job-case-022",
+    "operator_intent": "Permit tool send_email only for action send on resource trip-02 with recipient and destination owner-02@example.test. No approval or data-flow rule is required. Delegation depth is zero and a child may not expand authority.",
+    "policy_id": "e-policy-case-022",
+    "principal": "mail-agent",
+    "schema_version": 1,
+    "tool_interface": {
+      "allowed_actions": [
+        "send"
+      ],
+      "argument_roles": {
+        "body": "content",
+        "recipient": "recipient_and_destination",
+        "subject": "content"
+      },
+      "name": "send_email"
+    }
+  },
+  "transport_failures": []
+}

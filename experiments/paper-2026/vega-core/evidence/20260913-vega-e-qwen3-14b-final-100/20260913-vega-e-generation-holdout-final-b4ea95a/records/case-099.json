@@ -1,0 +1,91 @@
+{
+  "error": "SchemaError('approval_rules must name an allowed tool and contain issuer/bind fields')",
+  "policy": null,
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "tool_calls",
+        "index": 0,
+        "logprobs": null,
+        "message": {
+          "content": null,
+          "reasoning": "Okay, let's break down the user's request. They want a policy based on the operator's intent. The principal is \"travel-agent\", and the tool is \"finalize_booking\". The action allowed is \"create\" on resource \"BK-19\" at destination \"hotel-19\". \n\nFirst, the approval rules: the intent says it requires approval by \"corporate-approver\" bound to resource and amount. So the approval_rules should have required_issuer as \"corporate-approver\" and bind_fields as [\"booking\", \"price\"], which correspond to the resource and amount from the tool's argument roles.\n\nNext, data_rules: the user mentioned no data-flow rule is needed, so data_rules must be an empty object {}.\n\nDelegation: Permit depth one, and child may not expand authority. So max_depth is 1 and child_may_expand_authority is false.\n\nFor the allow array, the tool is \"finalize_booking\", action is [\"create\"], resource is [\"BK-19\"], recipient is empty (since not mentioned), destination is [\"hotel-19\"]. Wait, the intent says \"at destination hotel-19\", so destinations should include that. Recipients aren't specified, so it's an empty array.\n\nPutting it all together, the allow entry has tool, actions, resources, recipients (empty), and destinations. Then the other sections as per the rules. Need to make sure all parameters are exactly as specified, no wildcards or placeholders. Check that the JSON structure matches the schema provided, with all required fields present.\n",
+          "reasoning_details": [
+            {
+              "format": "unknown",
+              "index": 0,
+              "text": "Okay, let's break down the user's request. They want a policy based on the operator's intent. The principal is \"travel-agent\", and the tool is \"finalize_booking\". The action allowed is \"create\" on resource \"BK-19\" at destination \"hotel-19\". \n\nFirst, the approval rules: the intent says it requires approval by \"corporate-approver\" bound to resource and amount. So the approval_rules should have required_issuer as \"corporate-approver\" and bind_fields as [\"booking\", \"price\"], which correspond to the resource and amount from the tool's argument roles.\n\nNext, data_rules: the user mentioned no data-flow rule is needed, so data_rules must be an empty object {}.\n\nDelegation: Permit depth one, and child may not expand authority. So max_depth is 1 and child_may_expand_authority is false.\n\nFor the allow array, the tool is \"finalize_booking\", action is [\"create\"], resource is [\"BK-19\"], recipient is empty (since not mentioned), destination is [\"hotel-19\"]. Wait, the intent says \"at destination hotel-19\", so destinations should include that. Recipients aren't specified, so it's an empty array.\n\nPutting it all together, the allow entry has tool, actions, resources, recipients (empty), and destinations. Then the other sections as per the rules. Need to make sure all parameters are exactly as specified, no wildcards or placeholders. Check that the JSON structure matches the schema provided, with all required fields present.\n",
+              "type": "reasoning.text"
+            }
+          ],
+          "refusal": null,
+          "role": "assistant",
+          "tool_calls": [
+            {
+              "function": {
+                "arguments": "{\"allow\": [{\"tool\": \"finalize_booking\", \"actions\": [\"create\"], \"resources\": [\"BK-19\"], \"recipients\": [], \"destinations\": [\"hotel-19\"]}], \"data_rules\": {}, \"approval_rules\": {\"corporate-approver\": {\"required_issuer\": \"corporate-approver\", \"bind_fields\": [\"booking\", \"price\"]}}, \"delegation\": {\"max_depth\": 1, \"child_may_expand_authority\": false}}",
+                "name": "emit_policy"
+              },
+              "id": "call_xzU8XUiUcwjTYOpvsS0XXRJ5",
+              "index": 0,
+              "type": "function"
+            }
+          ]
+        },
+        "native_finish_reason": "stop"
+      }
+    ],
+    "created": 1789290087,
+    "id": "gen-1789290087-nB7MBez7Ir449PscfqCG",
+    "model": "qwen/qwen3-14b",
+    "object": "chat.completion",
+    "provider": "DeepInfra",
+    "service_tier": null,
+    "system_fingerprint": null,
+    "usage": {
+      "completion_tokens": 440,
+      "completion_tokens_details": {
+        "audio_tokens": 0,
+        "image_tokens": 0,
+        "reasoning_tokens": 361
+      },
+      "cost": 0.0002112,
+      "cost_details": {
+        "upstream_inference_completions_cost": 0.0001056,
+        "upstream_inference_cost": 0.0002112,
+        "upstream_inference_prompt_cost": 0.0001056
+      },
+      "is_byok": false,
+      "prompt_tokens": 880,
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cache_write_tokens": 0,
+        "cached_tokens": 0,
+        "video_tokens": 0
+      },
+      "total_tokens": 1320
+    }
+  },
+  "seconds": 6.128124709008262,
+  "task": {
+    "case_id": "case-099",
+    "job_id": "job-case-099",
+    "operator_intent": "Permit finalize_booking action create on resource BK-19 at destination hotel-19. It requires approval issued by corporate-approver bound to resource and amount. Permit delegation depth one, and a child may not expand authority. No data-flow rule is required.",
+    "policy_id": "e-policy-case-099",
+    "principal": "travel-agent",
+    "schema_version": 1,
+    "tool_interface": {
+      "allowed_actions": [
+        "create"
+      ],
+      "argument_roles": {
+        "approval": "approval_evidence",
+        "booking": "resource",
+        "hotel": "destination",
+        "price": "amount"
+      },
+      "name": "finalize_booking"
+    }
+  },
+  "transport_failures": []
+}

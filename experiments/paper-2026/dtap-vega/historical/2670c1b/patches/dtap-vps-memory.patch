@@ -1,0 +1,20 @@
+diff --git a/utils/memory_guard.py b/utils/memory_guard.py
+index d883b1a..9fbd3f0 100644
+--- a/utils/memory_guard.py
++++ b/utils/memory_guard.py
+@@ -1,5 +1,6 @@
+ """Memory guard to prevent OOM from too many Docker containers."""
+ 
++import os
+ import psutil
+ 
+ 
+@@ -9,6 +10,8 @@ def check_memory_before_launch(required_gb: float = 4, reserve_gb: float = 64) -> None:
+         required_gb: Estimated memory needed by the new container.
+         reserve_gb: Memory to keep free for the OS and other processes.
+     """
++    required_gb = float(os.getenv("DTAP_MEMORY_REQUIRED_GB", required_gb))
++    reserve_gb = float(os.getenv("DTAP_MEMORY_RESERVE_GB", reserve_gb))
+     available_gb = psutil.virtual_memory().available / (1024 ** 3)
+     if available_gb < required_gb + reserve_gb:
+         raise RuntimeError(
