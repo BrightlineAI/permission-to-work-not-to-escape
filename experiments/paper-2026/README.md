@@ -1,6 +1,6 @@
 # Paper experiments and supporting checks
 
-The [final PDF](../../paper/submission.pdf) presents three main experiments: (1) request misuse and (2) policy generation, both in `vega-core`; and (3) shared escalation in `native-stop`. The other directories retain supporting checks discussed in the paper, including the negative native task completion result. They are not seven equally weighted headline experiments.
+The [paper](../../paper/submission.pdf) presents three main experiments: (1) request misuse and (2) policy generation, both in `vega-core`; and (3) shared escalation in `native-stop`. The other directories contain its supporting checks and native task completion comparison.
 
 Each directory is independently copyable and contains its own source, local support dependencies, published evidence, historical source snapshots and preparation instructions. Evidence inspection needs no model account. Fresh model runs need your own credentials and a separate Linux VPS environment.
 
@@ -14,8 +14,8 @@ Each directory is independently copyable and contains its own source, local supp
 | [native-delegation](native-delegation/README.md) | 20 native parent/worker file operations; read repair | `run*.py`, `audit.py`, `evidence` |
 | [native-stop](native-stop/README.md) | Three whole-job stop confirmations, one native-only control; shared warning versus session-local counters | `run*.py`, `heartbeat.py`, `support/registry.py`, `evidence` |
 
-The paper's appendix letters changed during drafting. Use these stable experiment names and recorded run IDs rather than an old appendix letter. Machine-readable index: [experiments.json](experiments.json).
+Machine-readable index: [experiments.json](experiments.json).
 
 **Interpretation:** replayed requests measure control decisions/effects; matched permitted controls do not generally measure benign agent task completion. DTAP measures native task completion under attack. Native permission/stop tests prescribe specific operations. Do not pool these denominators or label them a real-world incident prevention rate.
 
-Older exploratory pilots are excluded from the public export and preserved in the author's working archive. Published files and result calculations can be checked using the [root verifier](../../scripts/verify_evidence.py). See the [paper map](../../paper/README.md) for final section references and PDF export omissions.
+Check the files and result calculations with the [evidence verifier](../../scripts/verify_evidence.py). Follow the [reproduction guide](../../docs/reproduction.md) to run new experiments.

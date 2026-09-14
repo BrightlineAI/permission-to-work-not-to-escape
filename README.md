@@ -4,62 +4,42 @@ Policies, Controls and Escalating Enforcement Across AI Agents
 
 Allister Lundberg · Bright Line AI · With Apart Research
 
-Agents should do useful work within their project's scope, even when their technical access is broader. This repository contains experimental implementations and evidence for turning project policies into controls, preserving restrictions across workers, and escalating repeated violations to a project wide stop. It is a research prototype, not a complete production security system.
+All agents working on a project should stay within its scope, even when their technical access is broader. This project tests an approach that compiles project policies into executable controls, preserves restrictions across delegated workers, and escalates combined violations from warnings to a project wide stop.
 
-## Read the paper
+[Read the paper](paper/submission.pdf) · [Experiments](experiments/paper-2026/README.md) · [Reproduction instructions](docs/reproduction.md)
 
-The [final submission PDF](paper/submission.pdf) is the source of truth for this release. The [paper and evidence map](paper/README.md) connects its sections to the exact experiments. [Publication notes](paper/publication-consistency.md) identify omissions in the PDF's appendix export without changing the submitted file.
+The latest PDF is the source of truth for this project.
 
-The [publication review](docs/publication-review.md) records evidence checks, credential review and the fresh repository history.
+## Results
 
-## The three experiments
+| Experiment | What the tests showed | Code and evidence |
+|---|---|---|
+| 1. Misuse of granted access | Across 200 adapted cases, project controls blocked all 133 captured unauthorized requests. Baseline and nono allowed all 133; ordinary request rules allowed 96. All four configurations completed the 200 scripted permitted actions. | [Request comparison](experiments/paper-2026/vega-core/README.md) |
+| 2. Policy generation | Typed generation, with or without a critic, blocked all 30 unauthorized actions and allowed all 30 permitted actions in the final evaluation. Direct generation blocked unauthorized actions on 200 previously seen cases but also blocked 20 permitted actions. | [Policy generation](experiments/paper-2026/vega-core/README.md#policy-generation-e-f-g) |
+| 3. Shared escalation | One parent violation triggered a warning; a second violation by a worker stopped the parent, both workers, and their running processes. Later launches were rejected while unrelated work continued. Separate counters did not trigger the stop. | [Native stopping](experiments/paper-2026/native-stop/README.md) |
 
-These comparisons have different inputs and denominators. They are not one combined success rate.
+Qwen3-14B through OpenRouter generated requests and policies for the first two experiments. GPT-6 Astra/high ran the native escalation tests. Runtime controls required no additional LLM calls.
 
-| Paper experiment | What ran | Main result | Evidence and reproduction |
-|---|---|---|---|
-| 1. Misuse of granted access | 200 adapted cases; identical captured requests replayed across four protections | Of 133 harmful model requests, baseline and nono allowed 133, ordinary gateway rules allowed 96, and trusted project checks allowed 0. Each configuration completed all 200 supplied permitted requests. | [Core comparison](experiments/paper-2026/vega-core/README.md) |
-| 2. Policy generation | Direct JSON generation compared with typed proposals and typed proposals plus a critic | Strengthened direct generation: 0/200 harmful effects, 180/200 permitted completions on known cases. Typed and typed plus critic: 0/30 harmful effects, 30/30 permitted completions on the final split. Different splits prevent attributing the difference to typing alone. | [Policy generation](experiments/paper-2026/vega-core/README.md#policy-generation-e-f-g) |
-| 3. Shared escalation | Native parent and two workers; shared versus separate violation counts, plus interruption/termination checks | At the second violation, shared counting stopped the parent and both workers and rejected later work. Separate counters did not. Unrelated work continued. One prescribed scenario per counter configuration. | [Native stopping](experiments/paper-2026/native-stop/README.md) |
+The policy comparisons used different data splits and validation guidance. Scripted permitted actions are not complete assignments: in a separate ten-assignment comparison, protection reduced successful attacks from one to zero, but completed assignments fell from four to three. See the [native task results](experiments/paper-2026/dtap-vega/README.md).
 
-Qwen3-14B through OpenRouter generated core requests and policies. The capture prompt deliberately encouraged following injections: this tests external controls, not ordinary model susceptibility. Native stopping used GPT-6 Astra/high. Runtime authorization added no LLM calls; policy generation occurred before execution.
+These controlled tests support a mechanism toward swarm protection, not a demonstrated defense against adaptive swarms. Supporting file, worker, diagnostic and escalation checks are in the [experiment catalog](experiments/paper-2026/README.md).
 
-Supplied permitted requests are not complete autonomous assignments. The separate ten-assignment comparison mentioned in the paper's Methods had fewer attacks but also fewer completed assignments with protection. Its negative result remains in the [DTAP evidence](experiments/paper-2026/dtap-vega/README.md).
+## Run the checks
 
-## Supporting checks
-
-The [experiment catalog](experiments/paper-2026/README.md) also retains file and worker permission probes, diagnostic repairs, and 18 scripted escalation checks. These verify implementation behavior; they are not additional evidence of general protection against adaptive swarms. Earlier unrelated pilots and superseded manuscripts are excluded from this publication copy, not deleted from the author's working archive.
-
-## Inspect or reproduce
-
-Python 3.11+. These are offline file, evidence and unit checks, not fresh benchmark runs:
+Python 3.11+. These commands inspect the evidence and run offline unit tests without model calls:
 
 ```sh
 python3 scripts/verify_evidence.py
 python3 scripts/check_docs.py
 PYTHONPATH=src python3 -m unittest discover -s tests -v
-PYTHONPATH=src python3 -m permission_to_work demo
 ```
 
-The demo rejects fake booking approval and accepts genuine approval without making a real booking. Fresh benchmark workloads belong on an isolated Linux VPS. Follow the [reproduction guide](docs/reproduction.md) and the chosen experiment's README; use your own credentials and a new run directory. Published evidence must remain unchanged.
+For a small booking-policy demo, run `PYTHONPATH=src python3 -m permission_to_work demo`. It rejects fake approval and accepts genuine approval without making a booking.
 
-The original standalone package was checked on a separate VPS: 59 unit tests, 320 permission operations, 56 diagnostic probes, 18 escalation cells, a three-case forced core replay, and installation from a built wheel. These are [packaging validation records](validation/README.md), not extra paper trials.
+Run fresh benchmark workloads on an isolated Linux VPS using the [reproduction instructions](docs/reproduction.md) and each experiment's README.
 
-## Repository layout
+## Build on the work
 
-```text
-paper/                       Final PDF and claim-to-evidence map
-experiments/paper-2026/       Frozen experiments, inputs, results and reproduction scripts
-src/permission_to_work/       Experimental policy, diagnostic and escalation primitives
-src/vega_core/                Evaluated contextual authorization implementation
-examples/                    Small policy demonstrations without external effects
-docs/                        Architecture, reproduction, evidence limits and roadmap
-provenance/                  Source revisions, hashes and publication scope
-validation/                  Retained package checks, separate from paper results
-```
+The repository includes experimental policy, authorization, diagnostic and escalation components. See the [architecture](docs/architecture.md), [data availability](docs/evidence.md), [future work](docs/roadmap.md) and [contribution guide](CONTRIBUTING.md).
 
-Historical code paths retain their original names so recorded commands and hashes remain usable. [Architecture](docs/architecture.md), [data availability](docs/evidence.md), [contributing](CONTRIBUTING.md), and [future work](docs/roadmap.md) describe what can be reused and what is still missing.
-
-The experiments assume trusted project facts and enforcement outside agent control. A stopped local process cannot undo a completed remote action. Zero failures on these cases is not proof against arbitrary attacks or swarms.
-
-Original code is [MIT licensed](LICENSE); third-party material retains its [own terms](THIRD_PARTY_NOTICES.md). Cite the paper and [software](CITATION.cff). Public repository: [BrightlineAI/permission-to-work-not-to-escape](https://github.com/BrightlineAI/permission-to-work-not-to-escape).
+Original code is [MIT licensed](LICENSE). Third-party materials retain their [own terms](THIRD_PARTY_NOTICES.md). Use [CITATION.cff](CITATION.cff) to cite the work.

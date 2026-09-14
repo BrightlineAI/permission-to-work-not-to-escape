@@ -17,11 +17,11 @@ The archive preserves source, protocols, inputs, observations, summaries and fai
 
 The machine-readable [availability index](../provenance/data-availability.json) points to each experiment's files.
 
-The [final paper map](../paper/README.md) distinguishes its three main experiments from supporting checks. Older exploratory pilots and manuscript drafts are excluded from the public export; relevant failures and historical variants inside each retained experiment are preserved.
+The [experiment catalog](../experiments/paper-2026/README.md) distinguishes the paper's three main experiments from supporting checks. Each experiment retains its failures and historical variants.
 
 ## DTAP supplement
 
-The original publication was summary-only. [supplemental-native-20260914](../experiments/paper-2026/dtap-vega/evidence/supplemental-native-20260914/) adds 169 files from the original VPS run, including all 20 judges. `EXPORT.json` records source path, original SHA-256, published SHA-256 and every redacted string location.
+[supplemental-native-20260914](../experiments/paper-2026/dtap-vega/evidence/supplemental-native-20260914/) contains 169 files from the VPS run, including all 20 judges. `EXPORT.json` records source path, original SHA-256, published SHA-256 and every redacted string location.
 
 Two native trace files contain private-key-shaped benchmark fixture text. Those blocks are replaced with a visible marker. The remaining 167 files are unchanged. Do not use exported hashes as the original hashes for the two transformed files. Judge files and their recorded hashes are unchanged.
 
