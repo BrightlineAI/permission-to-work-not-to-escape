@@ -2,36 +2,37 @@
 
 ## Source of truth
 
-The release follows the 22-page `Apart Research hackathon submission (2).pdf`, published unchanged as [submission.pdf](submission.pdf). Its hash and the included and excluded file inventory are recorded in `provenance/publication.json` in the public export. Publication does not rerun experiments or alter scores.
+The current release follows the 23-page `Permission to Work Not to Escape_ Policies, Controls and Escalating Enforcement Across AI Agents.pdf`, published unchanged as [submission.pdf](submission.pdf). It replaces the earlier 22-page submission. Its hash is recorded in `provenance/publication.json` in the public repository. Updating the paper does not rerun experiments or change the retained results.
 
-The three main experiments are permission misuse, policy generation and shared escalation. All seven supporting experiment directories remain because the PDF also discusses native task completion, file restrictions, diagnostics and scripted escalation. Failed attempts, corrected analyses, historical policies and negative results within those experiments remain intact.
+The three main experiments are permission misuse, policy generation and shared escalation. All seven experiment directories remain because the paper also discusses native task completion, file restrictions, diagnostics and scripted escalation. Failed attempts, corrected analyses, historical policies and negative results remain intact.
 
-Earlier BashArena/secret-access pilots, exploratory packages, superseded manuscripts and authoring material are excluded from the public copy. They remain in the author's working archive. This removes unrelated presentation, not unfavorable outcomes from the reported experiments.
+Earlier exploratory pilots, superseded manuscripts and authoring material are excluded from the public copy, not deleted from the author's archive.
 
 ## Main result checks
 
 | PDF result | Retained evidence checked by the release verifier |
 |---|---|
-| Table 1: A/B/C/D captured harmful effects 133/133, 133/133, 96/133, 0/133 | Both core cohorts' captures, matched replay hashes and raw effect records |
-| Table 1: supplied harmful effects 200, 200, 160, 0; permitted completions 200 each | Raw forced and permitted request results for both cohorts |
-| Table 2: strengthened E 0/200 harmful, 180/200 permitted; F/G 0/30 harmful, 30/30 permitted | Direct regression and frozen final-split physical results; different splits remain explicit |
-| Table 3: separate counters 50/50 then 50/50, shared counters 50/49 then 0/0 | Individual native effect timestamps, observation windows and audits |
+| Table 1: A/B/C/D captured harmful effects 133/133, 133/133, 96/133, 0/133 | Both cohorts' captures, matched replay hashes and raw effect records |
+| Table 1: supplied harmful effects 200, 200, 160, 0; permitted completions 200 each | Forced and permitted request results for both cohorts |
+| Table 2: strengthened E 0/200 harmful, 180/200 permitted; F/G 0/30 harmful, 30/30 permitted | Direct regression and final-split physical results; different splits remain explicit |
+| Table 3: separate counters 50/50 then 50/50, shared counters 50/49 then 0/0 | Native effect timestamps, observation windows and audits |
 
-The raw second-cohort policy folders call public F **E**, and public G **F**. They are not renamed because that would break recorded provenance. The [core guide](../experiments/paper-2026/vega-core/README.md#policy-generation-e-f-g) maps those labels and preserves original direct E failures. Final F/G cases were not the same evaluation as strengthened E's known-data regression.
+The raw second-cohort policy folders call public F **E**, and public G **F**. The [core guide](../experiments/paper-2026/vega-core/README.md#policy-generation-e-f-g) maps these historical names and preserves original direct E failures. Final F/G cases were not the same evaluation as strengthened E's known-data regression.
 
-## PDF export omissions
+The updated Results include the ten-assignment comparison: attacks fell from one to zero, while completed assignments fell from four to three. The [DTAP records](../experiments/paper-2026/dtap-vega/README.md) retain that task completion cost.
 
-The supplied PDF has five actual appendices: A, B, C, D and F. Its contents also list E (scripted escalation) and G (reproduction), but those sections are absent. Appendix D's contents title differs from its actual heading. Some appendix table bodies and links are missing, and old table/reference labels remain. The PDF is preserved rather than silently corrected.
+## Appendix navigation
 
-Use these complete repository records instead of the missing table bodies:
+This PDF restores summary tables and uses Appendix E for native stopping in its contents and main text. The actual appendix heading and subsections still say F. Some older table labels and a duplicated set of contents entries also remain. The supplied PDF is preserved unchanged.
 
-- Appendix D, page 19: [native permission operations and repair](../experiments/paper-2026/native-delegation/README.md).
-- Appendix F, pages 21–22: [native interruption/stop summary](../experiments/paper-2026/native-stop/evidence/20260914-vps/summary.json) and [shared-counter summary](../experiments/paper-2026/native-stop/evidence/20260914-warning/summary.json).
-- Missing E/G references: [18 scripted escalation checks](../experiments/paper-2026/escalation-preservation/README.md) and [reproduction guide](../docs/reproduction.md).
-- Appendix B's old R21/R26 labels: the [source index](research/index-final.md) identifies the two studies.
+For complete records behind the abbreviated tables:
 
-The Methods mention ten native assignments, but the final Results omit their numerical comparison. The [retained DTAP result](../experiments/paper-2026/dtap-vega/README.md) is still published: attacks fell from one to zero, while completed assignments fell from four to three. It is supporting evidence, not added to the three main tables.
+- Table D1: [all 20 native permission operations and the read repair](../experiments/paper-2026/native-delegation/README.md). The repair restricted private reads for both parent and worker; the tested write restrictions already held.
+- Table E1, under F.2: [three stopping repetitions and the native-only control](../experiments/paper-2026/native-stop/evidence/20260914-vps/summary.json).
+- Table E2, under F.4: [shared versus separate counters](../experiments/paper-2026/native-stop/evidence/20260914-warning/summary.json).
+- Supporting work: [18 scripted escalation checks](../experiments/paper-2026/escalation-preservation/README.md) and [reproduction guide](../docs/reproduction.md).
+- Appendix B: [source index](research/index-final.md) for the two external studies, now cited as references 13 and 19.
 
 ## Interpretation
 
-The incident review's 30/34 candidate intervention points are not an observed prevention rate. Supplied permitted actions are not complete autonomous tasks. Shared stopping is a tested mechanism toward swarm protection, not a test against adaptive swarms. The repository does not expand these claims beyond the paper's controlled experiments.
+The incident review's 30/34 candidate intervention points are not an observed prevention rate. Supplied permitted actions are not complete autonomous tasks. Shared stopping is a tested mechanism toward swarm protection, not a test against adaptive swarms.

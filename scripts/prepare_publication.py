@@ -102,7 +102,7 @@ def main():
         exclusions='publication-exclusions.json',
         source_working_tree='Maintained release files are inventoried by MANIFEST.sha256; the anchor commit alone is not their full identity.',
         paper=dict(path='paper/submission.pdf', sha256=sha(output/'paper/submission.pdf'),
-                   source_filename='Apart Research hackathon submission (2).pdf', pages=22),
+                   source_filename='Permission to Work Not to Escape_ Policies, Controls and Escalating Enforcement Across AI Agents.pdf', pages=23),
         experiment_directories=sorted(p.name for p in (output/'experiments/paper-2026').iterdir() if p.is_dir()),
         preserved_source_files=len(source['files']), excluded_files=len(omitted),
         benchmark_runs_performed_by_export=0,

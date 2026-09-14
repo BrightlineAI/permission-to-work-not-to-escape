@@ -9,7 +9,7 @@ This is the unchanged PDF supplied for publication. Earlier manuscript snapshots
 | Experiment 1; Appendix C: misuse of granted access | [Core requests and controls](../experiments/paper-2026/vega-core/README.md) |
 | Experiment 2; Appendix C: direct and typed policy generation | [Policy generation, E/F/G](../experiments/paper-2026/vega-core/README.md#policy-generation-e-f-g) |
 | Methods: ten native assignments under attack | [DTAP, including the task completion cost](../experiments/paper-2026/dtap-vega/README.md) |
-| Experiment 3; Appendix F: stopping and shared escalation | [Native stopping and counters](../experiments/paper-2026/native-stop/README.md) |
+| Experiment 3; Appendix E (heading still F): stopping and shared escalation | [Native stopping and counters](../experiments/paper-2026/native-stop/README.md) |
 | Appendix D: native permission checks and repair | [Native parent/worker probes](../experiments/paper-2026/native-delegation/README.md) |
 | Supporting file controls and diagnostics | [Permission matrix](../experiments/paper-2026/permission-preservation/README.md), [diagnostics](../experiments/paper-2026/permission-diagnostics/README.md) |
 | Supporting 18 scripted escalation checks | [Scripted escalation](../experiments/paper-2026/escalation-preservation/README.md) |
