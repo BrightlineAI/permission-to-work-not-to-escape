@@ -64,6 +64,8 @@ class Store:
                 db.execute("ALTER TABLE sessions ADD COLUMN commands TEXT NOT NULL DEFAULT '[]'")
             if "closed" not in {r[1] for r in db.execute("PRAGMA table_info(sessions)")}:
                 db.execute("ALTER TABLE sessions ADD COLUMN closed INTEGER NOT NULL DEFAULT 0")
+            if "setup_pending" not in {r[1] for r in db.execute("PRAGMA table_info(projects)")}:
+                db.execute("ALTER TABLE projects ADD COLUMN setup_pending INTEGER NOT NULL DEFAULT 0")
             # Lock spans intent commit, effect and completion. A pending row visible after
             # acquiring it means the previous operator died before recording completion.
             rows = db.execute("SELECT DISTINCT s.project FROM events e JOIN sessions s ON s.id=e.session WHERE e.state=?", ("pending",)).fetchall()
@@ -87,7 +89,7 @@ class Store:
                 db.close()
             os.close(fd)
 
-    def activate(self, bundle):
+    def activate(self, bundle, *, setup_pending=False):
         checked = check_approval(bundle)
         inv = checked["inventory"]
         root = Path(inv["root"])
@@ -98,7 +100,8 @@ class Store:
             if db.execute("SELECT 1 FROM projects WHERE id=?", (project,)).fetchone():
                 raise Invalid("Project identity already exists; approval cannot reset history")
             db.execute("BEGIN IMMEDIATE")
-            db.execute("INSERT INTO projects(id,bundle) VALUES(?,?)", (project, canonical(bundle)))
+            db.execute("INSERT INTO projects(id,bundle,setup_pending) VALUES(?,?,?)",
+                       (project, canonical(bundle), int(setup_pending)))
             for task in checked["policy"]["tasks"]:
                 db.execute("INSERT INTO task_counts(project,task) VALUES(?,?)", (project, task["id"]))
             for name, resource in inv["resources"].items():
@@ -119,6 +122,18 @@ class Store:
                 db.execute("INSERT INTO bindings VALUES(?,?,?,?)", (project, "", info.st_dev, info.st_ino))
             db.commit()
         return {"project": project, "policy_sha256": bundle["approval"]["sha256"]}
+
+    def commit_setup(self, project, policy_sha256, validate_artifacts):
+        """The only onboarding launchability boundary, under the controller lock."""
+        with self.locked() as db:
+            row, bundle = self.project(db, project)
+            if row["stopped"] or bundle["approval"]["sha256"] != policy_sha256:
+                raise Invalid("Stopped or mismatched setup cannot commit")
+            check_approval(bundle)
+            from .workspace import Workspace
+            Workspace(self).integrity(db, project, bundle)
+            validate_artifacts()
+            db.execute("UPDATE projects SET setup_pending=0 WHERE id=?", (project,))
 
     @staticmethod
     def session(db, token):
@@ -156,6 +171,8 @@ class Store:
             row, bundle = self.project(db, project)
             if row["stopped"]:
                 raise Invalid("Project stopped")
+            if row["setup_pending"]:
+                raise Invalid("Project setup is pending recovery; no sessions may start")
             target = next((t for t in bundle["policy"]["tasks"] if t["id"] == task), None)
             if target is None:
                 raise Invalid("Unknown task")

@@ -427,6 +427,9 @@ if state.get("owner") != "permission-to-work-product-install-v1" or not re.fullm
 release = root / "releases" / state["active"]
 env = {k: v for k, v in os.environ.items() if not k.upper().startswith(("PYTHON", "PTW_", "NODE_"))}
 env["PYTHONDONTWRITEBYTECODE"] = "1"
+if "PTW_USER_STATE" in os.environ:
+    # Operator storage location, validated by onboarding; never a tool/runtime override.
+    env["PTW_USER_STATE"] = os.environ["PTW_USER_STATE"]
 env["PATH"] = ":".join(str(release / p) for p in ("venv/bin", "bin", "codex/node_modules/.bin")) + ":" + env.get("PATH", "")
 env["PTW_NONO"] = str(release / "bin/nono")
 target = sys.argv[1]

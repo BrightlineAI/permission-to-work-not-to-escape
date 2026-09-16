@@ -19,6 +19,8 @@ def main(argv=None):
     interactive.add_argument("--repo", default=str(Path.cwd()))
     interactive.add_argument("--goal")
     interactive.add_argument("--editable", help="Comma separated top-level editable directories")
+    interactive.add_argument("--files", help="Comma separated exact top-level editable files, including missing files")
+    interactive.add_argument("--model-proposal", action="store_true", help="Optional model proposal with additional latency; same scope constraints")
     interactive.add_argument("--language", choices=["python", "javascript", "typescript"])
     interactive.add_argument("--warn-at", type=int)
     interactive.add_argument("--stop-at", type=int)
@@ -151,6 +153,9 @@ def main(argv=None):
             raise SystemExit(1)
         if args.command == "action" and (not result.get("allowed") or result.get("exit_code", 0) != 0):
             raise SystemExit(1)
+    except (EOFError, KeyboardInterrupt):
+        print("\nCanceled. Rerun ptw codex to recover any interrupted setup.", file=sys.stderr)
+        raise SystemExit(130)
     except (Invalid, OSError, ValueError) as exc:
         print(json.dumps({"error": str(exc)}), file=sys.stderr)
         raise SystemExit(2)

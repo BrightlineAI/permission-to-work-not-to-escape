@@ -46,7 +46,10 @@ Use the [recoverable Linux installer](harness/INSTALL.md) from a compact, verifi
 application artifact. Local release building is available; an online release is
 not yet published. With the [interactive quickstart](harness/INTERACTIVE.md), run
 `ptw codex` in a new or existing repository. Review the policy, then work in
-the normal Codex terminal. Edits, packages, builds, tests and delegates use
+the normal Codex terminal. First setup uses typed templates without a model
+roundtrip. For root files, use `ptw codex --editable src,tests --files README.md,app.py`.
+The review shows warn1/stop3 and package restrictions before explicit approval;
+generated files are published recoverably afterward. Edits, packages, builds, tests and delegates use
 shared controls underneath. [Python and npm package checks](harness/ECOSYSTEMS.md)
 cover known vulnerabilities and release age. This prototype is separate from
 the paper's frozen experiments.

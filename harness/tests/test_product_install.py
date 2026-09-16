@@ -527,6 +527,18 @@ class InstallerTests(unittest.TestCase):
         self.assertIn(b"0.5.0", captured)
         self.assertIn(b'"active"', captured)
 
+    def test_launcher_preserves_operator_state_but_not_runtime_overrides(self):
+        state = self.install()
+        candidate = self.root / "releases" / state["active"]
+        # This executable fixture observes only named synthetic environment fields.
+        (candidate / "venv/bin/ptw").write_text("#!" + sys.executable + "\nimport os,json\nprint(json.dumps({k:os.environ.get(k) for k in ['PTW_USER_STATE','PTW_NONO','PTW_FAKE','PYTHONPATH']}))\n")
+        expected = str(self.base / "operator-state")
+        run = subprocess.run([self.bin / "ptw"], capture_output=True, text=True,
+            env={**os.environ, "PTW_USER_STATE": expected, "PTW_NONO": "/bad/tool", "PTW_FAKE": "bad", "PYTHONPATH": "/bad/source"})
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertEqual(json.loads(run.stdout), {"PTW_USER_STATE": expected,
+            "PTW_NONO": str(candidate / "bin/nono"), "PTW_FAKE": None, "PYTHONPATH": None})
+
     def test_bootstrap_help_and_missing_integrity_in_terminal(self):
         entry = self.base / "install.sh"
         entry.write_bytes(builder.bootstrap((SCRIPTS / "product_install.py").read_bytes(), "0" * 64, "https://example.org/v1/app.tgz"))

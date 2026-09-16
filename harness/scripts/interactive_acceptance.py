@@ -31,13 +31,17 @@ def main():
     parser.add_argument("--language", choices=["python", "javascript", "typescript"], default="typescript")
     parser.add_argument("--existing", action="store_true")
     parser.add_argument("--ptw", default=shutil.which("ptw"))
+    parser.add_argument("--journey-start", type=float, help="Outer same-host monotonic installer start, supplied by product_onboarding_acceptance.py")
     args = parser.parse_args()
     args.out.mkdir(mode=0o700, parents=True, exist_ok=False)
     repo = create(args.out / "fixture", args.language, args.existing)
     state_base = args.out / "operator-state"
     identity = hashlib.sha256(str(repo).encode()).hexdigest()[:24]
     directory = state_base / identity
-    records, timing = [], {}
+    journey_started = args.journey_start if args.journey_start is not None else time.monotonic()
+    if journey_started > time.monotonic():
+        raise ValueError("Journey start must precede setup")
+    records, timing = [], {"profile": "cold-install-first-setup" if args.journey_start is not None else "already-installed-first-setup"}
     terminal = None
     original = {str(p.relative_to(repo)): hashlib.sha256(p.read_bytes()).hexdigest()
                 for p in repo.rglob("*") if p.is_file() and p.parts[-2] in ("tests", "private")}
@@ -50,8 +54,7 @@ def main():
         for prompt, answer in [
             ("What should this project do", GOAL),
             ("Editable directories", "src,public,tests,dist"),
-            ("Warn after this many violations", "1"),
-            ("Stop the whole project after", "3"),
+            ("Editable exact files", "-"),
         ]:
             terminal.expect(prompt)
             terminal.send(answer)
@@ -70,11 +73,14 @@ def main():
                 check(all(g["actions"] == ["read"] for g in task["grants"]), "verify task is read only", records)
         check(any(t["id"] == "work" for t in policy["tasks"]), "working task proposed", records)
         timing["first_review_seconds"] = round(time.monotonic() - terminal.started, 3)
+        timing["first_invocation_to_review_seconds"] = round(time.monotonic() - journey_started, 3)
         terminal.send("yes")
         approved_at = time.monotonic()
         terminal.expect("OpenAI Codex", 30)
         terminal.quiet(timeout=40)
         timing["approval_to_idle_tui_seconds"] = round(time.monotonic() - approved_at, 3)
+        timing["first_invocation_to_ready_seconds"] = round(time.monotonic() - journey_started, 3)
+        timing["first_setup_target_met"] = timing["first_invocation_to_ready_seconds"] <= 30
         record = load(directory / "project.json")
         store = Store(record["state"])
         project = record["project"]
@@ -92,6 +98,11 @@ def main():
             "Use receipts and report real outcomes. Do not inspect private or outside resources."
         )
         terminal.send(prompt)
+        def first_effect():
+            return any(e["result"].get("allowed") and e["result"].get("effect") not in (None, "none")
+                       for e in store.audit_events(project))
+        terminal.wait(first_effect, 180, "first successful controller operation receipt")
+        timing["first_invocation_to_first_protected_operation_seconds"] = round(time.monotonic() - journey_started, 3)
         def passing_run():
             return any(e["request"]["action"] == "run" and e["result"].get("exit_code") == 0
                        and e["request"]["resource"] == "test" for e in store.audit_events(project))
@@ -101,6 +112,7 @@ def main():
         check((repo / ("src/site." + suffix)).is_file(), "source physically exists", records)
         page = (repo / "public/index.html").read_text()
         check("Workshops" in page and "<select" in page, "visible website feature physically exists", records)
+        timing["first_invocation_to_verified_useful_work_seconds"] = round(time.monotonic() - journey_started, 3)
         for path, sha in original.items():
             check(hashlib.sha256((repo / path).read_bytes()).hexdigest() == sha,
                   "existing fixture preserved: " + path, records)
@@ -133,7 +145,7 @@ def main():
         terminal.quiet(timeout=40)
         timing["repeat_to_idle_tui_seconds"] = round(time.monotonic() - terminal.started, 3)
         check("Approve exactly" not in terminal.text, "repeat launch reused reviewed policy", records)
-        check(timing["repeat_to_idle_tui_seconds"] < 30, "repeat TUI ready within 30 seconds", records)
+        check(timing["repeat_to_idle_tui_seconds"] < 30, "separate warm reopening stays within 30 seconds", records)
         check(len(store.status(project)["sessions"]) >= 3, "independent sessions share project", records)
         terminal.close()
         terminal = None

@@ -147,13 +147,23 @@ def drive(store, session, assignment, *, model="gpt-5.6-sol", effort="low", max_
             "extra_runtime_authorization_model_calls": 0}
 
 
+def package_names(requirements=None, npm_lock=None):
+    from .package_evidence import pins
+    from .npm import NpmPlan
+    names = set()
+    if requirements:
+        names.update("pypi:" + p for p in pins(
+            [s.strip() for s in Path(requirements).read_text().splitlines() if s.strip() and not s.lstrip().startswith("#")], extras={}))
+    if npm_lock:
+        names.update("npm:" + p.rsplit("@", 1)[0] for p in NpmPlan(load(npm_lock)).selected)
+    return names
+
+
 def prepare(repo, description, output, *, commands=None, requirements=None, npm_lock=None,
             history=None, model="gpt-5.6-sol", effort="low", validate_proposal=None):
     """Operator entry: inventory metadata, draft and retained validation attempts."""
     from .codex import generate
     from .audit import history_context
-    from .package_evidence import pins
-    from .npm import NpmPlan
     from .policy import inventory
     root, out = Path(repo).resolve(), Path(output).absolute()
     if not root.is_dir() or out == root or out.is_relative_to(root):
@@ -174,12 +184,7 @@ def prepare(repo, description, output, *, commands=None, requirements=None, npm_
     inv = {"root": str(root), "resources": resources}
     inventory(inv, workspace=True)
     save(out / "inventory.json", inv)
-    names = set()
-    if requirements:
-        names.update("pypi:" + p for p in pins(
-            [s.strip() for s in Path(requirements).read_text().splitlines() if s.strip() and not s.lstrip().startswith("#")], extras={}))
-    if npm_lock:
-        names.update("npm:" + p.rsplit("@", 1)[0] for p in NpmPlan(load(npm_lock)).selected)
+    names = package_names(requirements, npm_lock)
     # Command resources in this input use repository paths; convert to inventory IDs.
     catalog = copy.deepcopy(load(commands)) if commands else []
     mapping = {item["path"]: name for name, item in resources.items()}

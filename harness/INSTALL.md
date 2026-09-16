@@ -244,6 +244,11 @@ through project review and protected readiness. Installation-only measurements
 cannot establish that target. Human review, first useful action and browser/MFA
 login must also be reported. New-account OAuth is not tested here.
 
+The [onboarding measurement driver](ONBOARDING.md#measurement-and-verification)
+keeps the full installer elapsed time inside a continuous first-setup clock and
+verifies installed source identity before the real terminal journey. It needs
+manager-side native execution; offline test fixtures are not installation evidence.
+
 The legacy `bash harness/scripts/install-vps.sh [--no-codex] /absolute/new/path`
 remains compatible for source workflows. It rejects existing directories and
 requires its documented manual PATH/doctor steps. Prefer the release installer

@@ -7,14 +7,27 @@ account. Then, in your new or existing repository:
 
     ptw codex
 
-The first time, answer four short questions: what the project should do, which
-directories it may change, when to warn, and when to stop. An empty repository
-also asks whether you use Python, JavaScript or TypeScript.
+The first time, supply the goal and select editable directories and exact root
+files. Ordinary layouts are suggested from filenames and configuration. An empty
+repository also asks whether you use Python, JavaScript or TypeScript. Defaults
+warn after one violation and stop after three; no extra threshold questions are required.
 
-The tool proposes a project policy and a narrower verification task. Read the
-review: directories, commands, package names, and warning/stopping thresholds.
-Type `yes` only if it matches your intent. Nothing is automatically approved.
-For an existing project, this inventories metadata without executing its scripts.
+The tool compiles a typed project policy and a narrower verification task without
+a model call. Read the short review: files, directories, commands, package names
+and warning/stopping thresholds. Enter `details` for exact commands and generated
+configuration, or `customize` to change scope and thresholds, followed by a new
+review. Type `yes` only if it matches your intent. Blank input, `reject`, `cancel`,
+EOF and Ctrl-C never approve. Repository scripts are not executed during setup.
+
+For example, a root-file Python project can use:
+
+    ptw codex --goal "Maintain this application" --language python --editable '' --files app.py,README.md
+
+Missing exact files may be created later through protected tools. No root-directory
+write grant is needed. Metadata remains read only. New directories, generated
+locks/configuration and the review copy are staged and published only after
+approval. `--setup-only` commits setup without creating an agent session or
+claiming terminal readiness. See [transaction and recovery details](ONBOARDING.md).
 
 Codex then opens normally. For example:
 
@@ -52,8 +65,11 @@ retains their violation history. A stopped project never restarts merely because
 another agent, delegate, or terminal joins it.
 
 For selected existing-project history, add `--history /path/to/sanitized.jsonl`
-during setup or revision. Inspect the file first: proposal generation sends a
-bounded excerpt to your model. Historical access is evidence, not permission.
+during setup or revision. This does not trigger a model call or change authority.
+The explicitly optional `--model-proposal` sends a bounded excerpt to your model
+and adds model latency. Inspect the history first. The model may clarify
+descriptions but cannot change selected scope, commands, packages or safety defaults.
+Historical access is evidence, not permission.
 The separate local `ptw audit` command is described in the [audit guide](README.md#existing-project).
 
 ## What is protected

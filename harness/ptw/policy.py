@@ -140,7 +140,7 @@ def data_directory(path):
         raise Invalid("Use a data directory outside system runtime trees")
 
 
-def inventory(value, workspace=False):
+def inventory(value, workspace=False, *, planned_trees=()):
     schema = copy.deepcopy(INVENTORY_SCHEMA)
     if workspace:
         schema["properties"]["resources"]["additionalProperties"]["properties"]["kind"] = {
@@ -164,7 +164,15 @@ def inventory(value, workspace=False):
         if workspace:
             from .workspace_policy import resource_info
             name = next(k for k, v in value["resources"].items() if v is resource)
-            resource_info(value, name)
+            if path in planned_trees and resource.get("kind") == "tree":
+                from .workspace_policy import directory_fd
+                # Review can describe a missing tree; activation always validates live resources.
+                fd = directory_fd((root / path).parent)
+                os.close(fd)
+                if (root / path).exists() or (root / path).is_symlink():
+                    resource_info(value, name)
+            else:
+                resource_info(value, name)
         else:
             fd = open_resource(value, path, os.O_RDONLY)
             os.close(fd)
@@ -194,16 +202,16 @@ def open_resource(inv, relative, flags):
         os.close(fd)
 
 
-def compile_policy(proposal, inv):
+def compile_policy(proposal, inv, *, planned_trees=()):
     version = proposal.get("version") if isinstance(proposal, dict) else None
     if version == 4:
         from .workspace_policy import WORKSPACE_SCHEMA, validate_workspace
         validate(WORKSPACE_SCHEMA, proposal)
-        inventory(inv, workspace=True)
+        inventory(inv, workspace=True, planned_trees=planned_trees)
         validate_workspace(proposal, inv)
     else:
         validate({1: POLICY_SCHEMA, 2: PACKAGE_SCHEMA, 3: ECOSYSTEM_SCHEMA}.get(version, POLICY_SCHEMA), proposal)
-    inventory(inv, workspace=version == 4)
+    inventory(inv, workspace=version == 4, planned_trees=planned_trees)
     project = proposal["project"]
     if version in (3, 4) and not set(project["packages"]["build_packages"]) <= set(project["packages"]["allowed_names"]):
         raise Invalid("Build authority expands project package scope")
@@ -229,8 +237,8 @@ def compile_policy(proposal, inv):
     return {"policy": proposal, "inventory": inv}
 
 
-def approve(proposal, inv, expected_hash, reviewer):
-    compiled = compile_policy(proposal, inv)
+def approve(proposal, inv, expected_hash, reviewer, *, planned_trees=()):
+    compiled = compile_policy(proposal, inv, planned_trees=planned_trees)
     if not reviewer.strip() or digest(compiled) != expected_hash:
         raise Invalid("Approval requires reviewer and exact reviewed bundle hash")
     return {**compiled, "approval": {"reviewer": reviewer, "sha256": expected_hash}}

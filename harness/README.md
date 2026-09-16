@@ -139,7 +139,12 @@ Use new output directories on each run. The live walkthrough makes real Codex ca
 
 ## What this version does and does not cover
 
-Runtime policy decisions need no extra LLM calls. Codex still uses normal model calls to do its work. Policy drafting takes one call when valid, up to three if structural repair is needed. Drafts and validation feedback are retained; there is no automatic runtime policy widening.
+Runtime policy decisions and default interactive setup need no extra LLM calls.
+`ptw codex` compiles explicit goal/scope fields into validated templates. Optional
+`--model-proposal` may clarify descriptions with one call, under the same fixed
+authority constraints. The separate `ptw propose`/`prepare` model workflow can
+take up to three calls for structural repair. Drafts and failures are retained;
+there is no automatic runtime policy widening. See [setup and recovery](ONBOARDING.md).
 
 This is a controlled adapter, not an interceptor for arbitrary existing Codex sessions.
 Existing sessions can be audited; protected execution starts through `ptw codex`
