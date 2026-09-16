@@ -21,7 +21,7 @@ class EvidenceError(Invalid):
     """Operational uncertainty: block, but do not increment violation counts."""
 
 
-def pins(specs):
+def pins(specs, *, extras=None):
     if not isinstance(specs, list) or not 1 <= len(specs) <= 64:
         raise Invalid("Supply between 1 and 64 exact package pins")
     result = {}
@@ -31,7 +31,7 @@ def pins(specs):
         try:
             requirement = Requirement(text)
             parts = list(requirement.specifier)
-            if (requirement.url or requirement.extras or requirement.marker or len(parts) != 1
+            if (requirement.url or (requirement.extras and extras is None) or requirement.marker or len(parts) != 1
                     or parts[0].operator != "==" or "*" in parts[0].version):
                 raise ValueError()
             version = str(Version(parts[0].version))
@@ -41,6 +41,8 @@ def pins(specs):
         if name in result:
             raise Invalid("Duplicate package name")
         result[name] = version
+        if extras is not None and requirement.extras:
+            extras[name] = sorted(canonicalize_name(x) for x in requirement.extras)
     return dict(sorted(result.items()))
 
 
@@ -111,13 +113,16 @@ class NoRedirect(HTTPRedirectHandler):
 
 class PyPIEvidence:
     """Fixed public endpoints, no ambient proxy credentials or alternate index."""
-    def __init__(self):
+    hosts = ("pypi.org", "api.osv.dev", "files.pythonhosted.org")
+
+    def __init__(self, *, native=False, sources=()):
         self.http = build_opener(ProxyHandler({}), NoRedirect())
+        self.native, self.sources = native, set(sources)
 
     def fetch(self, url, data=None, limit=4 * 1024 * 1024):
         endpoint = urlsplit(url)
         if (endpoint.scheme != "https" or endpoint.hostname not in
-                ("pypi.org", "api.osv.dev", "files.pythonhosted.org")
+                self.hosts
                 or endpoint.username or endpoint.password or endpoint.port not in (None, 443)):
             raise EvidenceError("Unapproved evidence or download destination")
         request = Request(url, data=json.dumps(data).encode() if data is not None else None,
@@ -147,51 +152,64 @@ class PyPIEvidence:
                     or Version(release["info"]["version"]) != Version(version)):
                 raise ValueError()
             candidates = []
+            tags_order = None
+            if self.native:
+                from .package_install import target_tags
+                tags_order = {tag: i for i, tag in enumerate(target_tags())}
             for item in release["urls"]:
                 if item.get("packagetype") != "bdist_wheel" or item.get("yanked") is not False:
                     continue
                 wheel_name, wheel_version, _, tags = parse_wheel_filename(item["filename"])
-                if wheel_name == name and wheel_version == Version(version) and any(
-                        t.interpreter == "py3" and t.abi == "none" and t.platform == "any" for t in tags):
-                    candidates.append(item)
+                if wheel_name != name or wheel_version != Version(version):
+                    continue
+                universal = any(t.interpreter == "py3" and t.abi == "none" and t.platform == "any" for t in tags)
+                compatible = [tags_order[str(t)] for t in tags if str(t) in tags_order] if tags_order else []
+                if compatible or (not self.native and universal):
+                    candidates.append((min(compatible) if compatible else 0, item))
             if not candidates:
-                raise EvidenceError("No supported non-yanked pure Python wheel")
-            item = sorted(candidates, key=lambda item: item["filename"])[0]
+                sources = [x for x in release["urls"] if x.get("packagetype") == "sdist" and x.get("yanked") is False]
+                if name not in self.sources or not sources:
+                    raise EvidenceError("No compatible wheel; source build requires explicit build authority")
+                item = sorted(sources, key=lambda x: x["filename"])[0]
+            else:
+                item = sorted(candidates, key=lambda pair: (pair[0], pair[1]["filename"]))[0][1]
             if not re.fullmatch("[0-9a-f]{64}", item["digests"]["sha256"]):
                 raise ValueError()
             if urlsplit(item["url"]).hostname != "files.pythonhosted.org":
                 raise ValueError()
-            vulnerabilities, token, seen = [], None, set()
-            for _ in range(10):
-                query = {"package": {"name": name, "ecosystem": "PyPI"}, "version": version}
-                if token:
-                    query["page_token"] = token
-                response = self.json("https://api.osv.dev/v1/query", query)
-                if not isinstance(response, dict) or set(response) - {"vulns", "next_page_token"}:
-                    raise EvidenceError("Unexpected vulnerability response fields")
-                rows = response.get("vulns", [])
-                if not isinstance(rows, list):
-                    raise ValueError()
-                vulnerabilities.extend(rows)
-                token = response.get("next_page_token")
-                if not token:
-                    break
-                if not isinstance(token, str) or token in seen:
-                    raise EvidenceError("Invalid vulnerability pagination")
-                seen.add(token)
-            else:
-                raise EvidenceError("Incomplete vulnerability response")
             return {"name": name, "version": version, "filename": item["filename"], "url": item["url"],
                     "sha256": item["digests"]["sha256"], "published_at": item["upload_time_iso_8601"],
-                    "checked_at": checked, "vulnerabilities": vulnerabilities,
+                    "checked_at": checked, "vulnerabilities": self.advisories("PyPI", name, version),
+                    "artifact_kind": item["packagetype"],
                     "source": "PyPI release JSON and OSV exact-version query"}
         except EvidenceError:
             raise
         except (KeyError, TypeError, ValueError, AttributeError) as exc:
             raise EvidenceError("Malformed or unsupported package evidence") from exc
 
+    def advisories(self, ecosystem, name, version):
+        vulnerabilities, token, seen = [], None, set()
+        for _ in range(10):
+            query = {"package": {"name": name, "ecosystem": ecosystem}, "version": version}
+            if token:
+                query["page_token"] = token
+            response = self.json("https://api.osv.dev/v1/query", query)
+            if not isinstance(response, dict) or set(response) - {"vulns", "next_page_token"}:
+                raise EvidenceError("Unexpected vulnerability response fields")
+            rows = response.get("vulns", [])
+            if not isinstance(rows, list):
+                raise EvidenceError("Malformed advisory list")
+            vulnerabilities.extend(rows)
+            token = response.get("next_page_token")
+            if not token:
+                return vulnerabilities
+            if not isinstance(token, str) or token in seen:
+                raise EvidenceError("Invalid vulnerability pagination")
+            seen.add(token)
+        raise EvidenceError("Incomplete vulnerability response")
+
     def download(self, evidence, destination):
-        raw = self.fetch(evidence["url"], limit=MAX_DOWNLOAD)
+        raw = self.fetch(evidence["url"], limit=128 * 1024 * 1024 if self.native or self.sources else MAX_DOWNLOAD)
         if hashlib.sha256(raw).hexdigest() != evidence["sha256"]:
             raise EvidenceError("Artifact SHA256 does not match assessed metadata")
         with destination.open("xb") as handle:

@@ -46,6 +46,17 @@ PACKAGE_SCHEMA["properties"]["project"]["properties"]["packages"] = obj({
 PACKAGE_SCHEMA["properties"]["project"]["required"].append("packages")
 PACKAGE_SCHEMA["properties"]["tasks"]["items"]["properties"]["packages"] = PACKAGE_NAMES
 PACKAGE_SCHEMA["properties"]["tasks"]["items"]["required"].append("packages")
+ECOSYSTEM_SCHEMA = copy.deepcopy(PACKAGE_SCHEMA)
+ECOSYSTEM_SCHEMA["properties"]["version"]["const"] = 3
+ECOSYSTEM_NAMES = {"type": "array", "uniqueItems": True, "maxItems": 1024,
+    "items": {"type": "string", "maxLength": 230,
+              "pattern": r"^(?:pypi:[a-z0-9]+(?:-[a-z0-9]+)*|npm:(?:@[a-z0-9][a-z0-9._-]*/)?[a-z0-9][a-z0-9._-]*)$"}}
+ECOSYSTEM_RULES = ECOSYSTEM_SCHEMA["properties"]["project"]["properties"]["packages"]
+ECOSYSTEM_RULES["properties"]["allowed_names"] = ECOSYSTEM_NAMES
+ECOSYSTEM_RULES["properties"]["allow_native_wheels"] = {"type": "boolean"}
+ECOSYSTEM_RULES["properties"]["build_packages"] = ECOSYSTEM_NAMES
+ECOSYSTEM_RULES["required"] += ["allow_native_wheels", "build_packages"]
+ECOSYSTEM_SCHEMA["properties"]["tasks"]["items"]["properties"]["packages"] = ECOSYSTEM_NAMES
 INVENTORY_SCHEMA = obj({"root": {"type": "string", "minLength": 1}, "resources": {
     "type": "object", "minProperties": 1, "maxProperties": 128,
     "propertyNames": ID, "additionalProperties": obj({
@@ -171,9 +182,12 @@ def open_resource(inv, relative, flags):
 
 
 def compile_policy(proposal, inv):
-    validate(PACKAGE_SCHEMA if isinstance(proposal, dict) and proposal.get("version") == 2 else POLICY_SCHEMA, proposal)
+    version = proposal.get("version") if isinstance(proposal, dict) else None
+    validate({1: POLICY_SCHEMA, 2: PACKAGE_SCHEMA, 3: ECOSYSTEM_SCHEMA}.get(version, POLICY_SCHEMA), proposal)
     inventory(inv)
     project = proposal["project"]
+    if version == 3 and not set(project["packages"]["build_packages"]) <= set(project["packages"]["allowed_names"]):
+        raise Invalid("Build authority expands project package scope")
     parent = scope(project["grants"])
     if not set(parent) <= set(inv["resources"]):
         raise Invalid("Project names unknown resources")
@@ -183,7 +197,7 @@ def compile_policy(proposal, inv):
         if escalation["warn_at"] > escalation["stop_at"]:
             raise Invalid("Warning threshold must not exceed stop threshold")
     for task in proposal["tasks"]:
-        if proposal["version"] == 2 and not set(task["packages"]) <= set(project["packages"]["allowed_names"]):
+        if proposal["version"] >= 2 and not set(task["packages"]) <= set(project["packages"]["allowed_names"]):
             raise Invalid("Task package scope expands project scope")
         if task["id"] in ids:
             raise Invalid("Duplicate task ID")

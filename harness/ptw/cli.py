@@ -65,16 +65,22 @@ def main(argv=None):
     launch.add_argument("--session", required=True)
     launch.add_argument("--package-set", help="Approved package set returned by package-install")
     launch.add_argument("argv", nargs=argparse.REMAINDER)
-    package = commands.add_parser("package-install", help="Check and install a complete pinned Python wheel set")
+    package = commands.add_parser("package-install", help="Check and install pinned Python packages or an npm lock")
     package.add_argument("--session", required=True)
     package.add_argument("--event", required=True)
-    package.add_argument("--requirements", required=True, help="One exact name==version per line, including dependencies")
+    inputs = package.add_mutually_exclusive_group(required=True)
+    inputs.add_argument("--requirements", help="Exact Python pins, including runtime and build dependencies")
+    inputs.add_argument("--npm-lock", help="npm package-lock.json version 2 or 3")
     package.add_argument("--out", help="Optional new receipt file")
     package_draft = commands.add_parser("package-draft", help="Add package controls to a version 1 draft; never approve or activate")
     package_draft.add_argument("--policy", required=True)
     package_draft.add_argument("--project-id", required=True, help="Explicit new project version identity")
     package_draft.add_argument("--task", required=True)
-    package_draft.add_argument("--allow", action="append", required=True, help="Canonical PyPI name, repeat for each dependency")
+    package_draft.add_argument("--allow", action="append", default=[], help="Package identity, repeat for each dependency")
+    package_draft.add_argument("--ecosystems", action="store_true", help="Create version 3 qualified Python/npm policy")
+    package_draft.add_argument("--npm-lock", help="Propose all package names from this npm lock; requires operator review")
+    package_draft.add_argument("--native", action="store_true", help="Propose compatible native Python wheels")
+    package_draft.add_argument("--build", action="append", default=[], help="Explicit qualified package permitted an offline build")
     package_draft.add_argument("--min-age-days", type=int, default=3)
     package_draft.add_argument("--deny-cvss", type=float, default=9.0)
     package_draft.add_argument("--out", required=True)
@@ -110,22 +116,41 @@ def execute(args):
         from .sample import create
         return create(args.out, packages=args.packages)
     if args.command == "package-draft":
-        from .policy import PACKAGE_SCHEMA, validate
+        from .policy import PACKAGE_SCHEMA, ECOSYSTEM_SCHEMA, validate
         draft = load(args.policy)
-        if draft.get("version") != 1:
-            raise Invalid("package-draft upgrades version 1 only; edit and review version 2 directly")
+        if draft.get("version") not in (1, 2, 3):
+            raise Invalid("Unknown draft policy version")
+        extended = args.ecosystems or args.npm_lock or args.native or args.build
+        if draft.get("version") != 1 and not extended:
+            raise Invalid("Existing package policies need --ecosystems for a version 3 migration")
         if draft["project"]["id"] == args.project_id:
             raise Invalid("Use an explicit new project identity; active history cannot be reset")
         if args.task not in {task["id"] for task in draft["tasks"]}:
             raise Invalid("Unknown task")
-        draft["version"] = 2
+        names = set(args.allow)
+        if args.npm_lock:
+            from .npm import NpmPlan
+            names.update("npm:" + x.rsplit("@", 1)[0] for x in NpmPlan(load(args.npm_lock)).selected)
+        if not names:
+            raise Invalid("Provide --allow or --npm-lock for the selected task")
+        # Retain other tasks' existing scopes, but never change a live policy.
+        old_version = draft["version"]
+        existing = draft["project"].get("packages", {}).get("allowed_names", [])
+        if extended and old_version == 2:
+            existing = ["pypi:" + x for x in existing]
+        draft["version"] = 3 if extended else 2
         draft["project"]["id"] = args.project_id
-        draft["project"]["packages"] = {"allowed_names": sorted(set(args.allow)),
+        draft["project"]["packages"] = {"allowed_names": sorted(set(existing) | names),
             "min_release_age_days": args.min_age_days, "deny_cvss_at_or_above": args.deny_cvss,
             "evidence_max_age_seconds": 900}
         for task in draft["tasks"]:
-            task["packages"] = sorted(set(args.allow)) if task["id"] == args.task else []
-        validate(PACKAGE_SCHEMA, draft)
+            retained = task.get("packages", [])
+            if extended and old_version == 2:
+                retained = ["pypi:" + x for x in retained]
+            task["packages"] = sorted(names) if task["id"] == args.task else retained
+        if extended:
+            draft["project"]["packages"].update(allow_native_wheels=args.native, build_packages=sorted(set(args.build)))
+        validate(ECOSYSTEM_SCHEMA if extended else PACKAGE_SCHEMA, draft)
         save(args.out, draft)
         return {"draft": args.out, "approved": False, "note": "Review all scope before approval. Stop the old project before switching."}
     if args.command == "propose":
@@ -171,11 +196,17 @@ def execute(args):
         from .packages import PackageControl
         if args.out and Path(args.out).exists():
             raise Invalid("Receipt output already exists")
-        raw = Path(args.requirements).read_text()
-        if len(raw) > 65536:
-            raise Invalid("Requirements file too large")
-        specs = [line.strip() for line in raw.splitlines() if line.strip() and not line.lstrip().startswith("#")]
-        result = PackageControl(store).install(load(args.session)["token"], args.event, specs)
+        if args.npm_lock:
+            if Path(args.npm_lock).stat().st_size > 8 * 1024 * 1024:
+                raise Invalid("npm lock too large")
+            specs, ecosystem = load(args.npm_lock), "npm"
+        else:
+            raw = Path(args.requirements).read_text()
+            if len(raw) > 65536:
+                raise Invalid("Requirements file too large")
+            specs = [line.strip() for line in raw.splitlines() if line.strip() and not line.lstrip().startswith("#")]
+            ecosystem = "pypi"
+        result = PackageControl(store).install(load(args.session)["token"], args.event, specs, ecosystem=ecosystem)
         if args.out:
             save(args.out, result)
         return result

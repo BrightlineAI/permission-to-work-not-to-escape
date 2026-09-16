@@ -6,6 +6,8 @@ import re
 import secrets
 import tempfile
 import time
+import concurrent.futures
+import tarfile
 
 from .package_evidence import EvidenceError, PyPIEvidence, evaluate, pins, severity
 from .package_install import file_manifest, install_wheels, validate_wheels
@@ -28,16 +30,25 @@ class PackageControl:
     def __init__(self, store, *, provider=None):
         self.store = store
         # Dependency injection is for tests, not a CLI flag or agent-supplied setting.
-        self.provider = provider if provider is not None else PyPIEvidence()
+        self.provider = provider
 
-    def install(self, token, event, specs):
+    def install(self, token, event, specs, *, ecosystem="pypi"):
         if not isinstance(event, str) or not 1 <= len(event) <= 128:
             raise Invalid("Stable event ID required, 1 to 128 characters")
-        selected = pins(specs)
-        request = {"action": "package_install", "resource": "pypi", "content": canonical(selected)}
+        if ecosystem not in ("pypi", "npm"):
+            raise Invalid("Supported registries are pypi and npm")
+        plan, extras = None, {}
+        if ecosystem == "npm":
+            from .npm import NpmPlan
+            plan = NpmPlan(specs)
+            selected = plan.selected
+        else:
+            selected = pins(specs, extras=extras)
+        request = {"action": "package_install", "resource": ecosystem,
+                   "content": canonical(plan.lock if plan else {"pins": selected, "extras": extras} if extras else selected)}
         request_hash = digest(request)
         try:
-            return self._install(token, event, selected, request, request_hash)
+            return self._install(token, event, selected, request, request_hash, plan=plan, extras=extras)
         finally:
             from .supervisor import Supervisor
             Supervisor(self.store).reconcile()
@@ -56,29 +67,55 @@ class PackageControl:
             response = {"allowed": False, "effect": "none", "level": "stop", "reason": "project stopped"}
             self.store.record(db, actor["id"], event, request_hash, request, response)
             return actor, project, bundle, response
+        names = self.scope_names(selected, request["resource"], bundle["policy"]["version"])
         if (not bundle["policy"]["project"].get("packages") or
-                not set(selected) <= set(json.loads(actor["packages"]))):
+                (request["resource"] == "npm" and bundle["policy"]["version"] < 3) or
+                not names <= set(json.loads(actor["packages"]))):
             response = self.store.deny(db, actor, project, bundle, event, request_hash, request,
                                        "Package installation outside project, task or delegated scope")
             return actor, project, bundle, response
         return actor, project, bundle, None
 
-    def _install(self, token, event, selected, request, request_hash):
+    @staticmethod
+    def scope_names(selected, ecosystem, version):
+        names = {x.rsplit("@", 1)[0] for x in selected} if ecosystem == "npm" else set(selected)
+        return {ecosystem + ":" + x for x in names} if version >= 3 else names
+
+    def _install(self, token, event, selected, request, request_hash, plan=None, extras=None):
         with self.store.locked() as db:
             _, _, bundle, result = self.inspect(db, token, event, selected, request, request_hash)
             if result is not None:
                 return result
         rules = bundle["policy"]["project"]["packages"]
+        extended = bundle["policy"]["version"] >= 3
+        if extras and not extended:
+            raise Invalid("Python extras require a reviewed version 3 policy")
+        ecosystem = request["resource"]
+        if ecosystem == "npm":
+            from .npm import NpmEvidence
+            provider = self.provider or NpmEvidence()
+        else:
+            provider = self.provider or PyPIEvidence(native=rules.get("allow_native_wheels", False),
+                sources=[x[5:] for x in rules.get("build_packages", []) if x.startswith("pypi:")])
         evidence, reasons, error, target = [], [], None, None
         # Slow, fallible preparation holds neither the project lock nor a pending
         # effect. Concurrent stops can proceed, and no agent sees staging files.
         with tempfile.TemporaryDirectory(prefix="package-stage-", dir=self.store.directory) as temporary:
             staging = Path(temporary)
             try:
-                for name, version in selected.items():
-                    record = self.provider.assess(name, version)
-                    if record.get("name") != name or record.get("version") != version:
+                def assess(pair):
+                    name, version = pair
+                    actual_name = name.rsplit("@", 1)[0] if plan else name
+                    record = provider.assess(actual_name, version)
+                    if record.get("name") != actual_name or record.get("version") != version:
                         raise EvidenceError("Evidence identity mismatch")
+                    return record
+                if extended:
+                    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
+                        records = list(pool.map(assess, selected.items()))
+                else:
+                    records = map(assess, selected.items())
+                for record in records:
                     evidence.append(record)
                     reasons.extend(evaluate(record, rules))
                 if not reasons:
@@ -89,19 +126,28 @@ class PackageControl:
                     for record in evidence:
                         filename = record["filename"]
                         if (not isinstance(filename, str) or Path(filename).name != filename or
-                                not re.fullmatch(r"[A-Za-z0-9_.+-]+\.whl", filename)):
+                                not re.fullmatch(r"[A-Za-z0-9_.+-]+\.(?:whl|tgz|tar\.gz|zip)", filename)):
                             raise EvidenceError("Unsafe wheel filename")
                         destination = wheelhouse / filename
-                        self.provider.download(record, destination)
+                        provider.download(record, destination)
                         download_bytes += destination.stat().st_size
-                        if download_bytes > 100 * 1024 * 1024:
+                        if download_bytes > (512 if bundle["policy"]["version"] >= 3 else 100) * 1024 * 1024:
                             raise EvidenceError("Package set exceeds download size limit")
                         wheels[record["name"]] = destination
-                    validate_wheels(wheels, selected)
                     target = staging / "site"
-                    install_wheels(wheelhouse, target, evidence)
+                    if plan:
+                        from .package_build import run_build
+                        plan.install(wheelhouse, target, evidence,
+                            {x[4:] for x in rules.get("build_packages", []) if x.startswith("npm:")},
+                            lambda cmd: run_build(self.store, token, cmd, target))
+                    else:
+                        from .python_build import build_sources
+                        install_evidence = build_sources(self.store, token, wheelhouse, evidence, selected)
+                        wheels = {e["name"]: wheelhouse / e["filename"] for e in install_evidence}
+                        validate_wheels(wheels, selected, extended=extended, extras=extras)
+                        install_wheels(wheelhouse, target, install_evidence, **({"extended": True} if extended else {}))
                     manifest = file_manifest(target)
-            except (EvidenceError, OSError, ValueError) as exc:
+            except (EvidenceError, OSError, ValueError, tarfile.TarError) as exc:
                 error = str(exc)
             with self.store.locked() as db:
                 actor, project, current, result = self.inspect(db, token, event, selected, request, request_hash)
@@ -131,18 +177,22 @@ class PackageControl:
                     os.rename(target, sets / identity)
                     # Mounts are read only. Make accidental operator writes difficult too.
                     for path in (sets / identity).rglob("*"):
-                        path.chmod(0o555 if path.is_dir() else 0o444)
+                        if not path.is_symlink():
+                            path.chmod(0o555 if path.is_dir() or path.stat().st_mode & 0o111 else 0o444)
                     (sets / identity).chmod(0o555)
                     response = {"allowed": True, "effect": "installed", "level": "allow",
-                                "package_set": identity, "packages": selected,
+                                "package_set": identity, "packages": selected, "ecosystem": ecosystem,
                                 "manifest_sha256": digest(manifest), "policy_sha256": current["approval"]["sha256"],
                                 "evidence": [{**{k: e[k] for k in ("name", "version", "sha256", "published_at", "checked_at")},
+                                    **({"built_wheel": e["built_wheel"]} if "built_wheel" in e else {}),
                                     "advisories": [{"id": v["id"], "cvss_base": severity(v),
                                                    "withdrawn": v.get("withdrawn")} for v in e["vulnerabilities"]]}
                                     for e in evidence]}
                     db.execute("BEGIN IMMEDIATE")
-                    db.execute("INSERT INTO package_sets VALUES(?,?,?,?,?)",
-                               (identity, actor["project"], canonical(sorted(selected)), canonical(manifest), time.time()))
+                    db.execute("INSERT INTO package_sets(id,project,names,manifest,created,ecosystem) VALUES(?,?,?,?,?,?)",
+                               (identity, actor["project"],
+                                canonical(sorted(self.scope_names(selected, ecosystem, current["policy"]["version"]))),
+                                canonical(manifest), time.time(), ecosystem))
                     db.execute("UPDATE events SET response=?,state='complete' WHERE session=? AND event=?",
                                (canonical(response), actor["id"], event))
                     db.commit()

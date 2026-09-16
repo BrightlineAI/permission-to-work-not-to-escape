@@ -14,6 +14,7 @@ from packaging.requirements import Requirement
 from packaging.specifiers import SpecifierSet
 from packaging.utils import canonicalize_name
 from packaging.version import Version
+import packaging
 
 from .package_evidence import EvidenceError
 from .supervisor import runtime_namespace
@@ -24,6 +25,17 @@ def target_environment():
         return _target_environment()
     except (OSError, subprocess.SubprocessError, ValueError, KeyError) as exc:
         raise EvidenceError("Cannot identify the confined Python interpreter") from exc
+
+
+def target_tags():
+    try:
+        result = subprocess.run(["/usr/bin/python3", "-I", "-S", "-c",
+            "import sys,json; sys.path.insert(0,sys.argv[1]); from packaging.tags import sys_tags; "
+            "print(json.dumps([str(t) for t in sys_tags()]))", str(Path(packaging.__file__).parent.parent)],
+            capture_output=True, text=True, timeout=10, check=True)
+        return json.loads(result.stdout)
+    except (OSError, subprocess.SubprocessError, ValueError) as exc:
+        raise EvidenceError("Cannot identify compatible Python wheel tags") from exc
 
 
 def _target_environment():
@@ -41,18 +53,18 @@ def _target_environment():
     return env
 
 
-def validate_wheels(wheels, selected, environment=None):
+def validate_wheels(wheels, selected, environment=None, *, extended=False, extras=None):
     """No resolver, imports or build backend: the input must close its dependencies."""
     env = environment or target_environment()
-    occupied, expanded = set(), 0
+    occupied, expanded, metadata_by_name = set(), 0, {}
     for name, path in wheels.items():
         try:
             with zipfile.ZipFile(path) as wheel:
                 members = wheel.infolist()
                 expanded += sum(x.file_size for x in members)
-                if expanded > 200 * 1024 * 1024:
+                if expanded > (512 if extended else 200) * 1024 * 1024:
                     raise EvidenceError("Package set exceeds expanded size limit")
-                if len(members) > 5000 or sum(x.file_size for x in members) > 100 * 1024 * 1024:
+                if len(members) > (50000 if extended else 5000) or sum(x.file_size for x in members) > (400 if extended else 100) * 1024 * 1024:
                     raise EvidenceError("Wheel exceeds expanded size limit")
                 seen, metadata = set(), []
                 for item in members:
@@ -67,14 +79,24 @@ def validate_wheels(wheels, selected, environment=None):
                         if (len(identity) != 2 or canonicalize_name(identity[0]) != name or
                                 Version(identity[1]) != Version(selected[name])):
                             raise EvidenceError("Foreign distribution metadata in wheel")
-                    # This narrow first version excludes relocation and startup hooks.
-                    if (p.parts[0].endswith(".data") or p.suffix == ".pth" or
+                    if ((not extended and (p.parts[0].endswith(".data") or p.suffix == ".pth")) or
                             p.name in ("sitecustomize.py", "usercustomize.py")):
                         raise EvidenceError("Wheel uses unsupported relocation or startup hooks")
+                    installed = item.filename
+                    if p.parts[0].endswith(".data"):
+                        identity = p.parts[0][:-5].rsplit("-", 1)
+                        if (len(identity) != 2 or canonicalize_name(identity[0]) != name or
+                                Version(identity[1]) != Version(selected[name])):
+                            raise EvidenceError("Foreign wheel data directory")
+                        if len(p.parts) > 2:
+                            scheme = {"purelib": "", "platlib": "", "scripts": "bin/", "data": "", "headers": "include/"}
+                            if p.parts[1] not in scheme:
+                                raise EvidenceError("Unknown wheel installation scheme")
+                            installed = scheme[p.parts[1]] + "/".join(p.parts[2:])
                     if not item.is_dir():
-                        if item.filename in occupied:
+                        if installed in occupied:
                             raise EvidenceError("Package files collide")
-                        occupied.add(item.filename)
+                        occupied.add(installed)
                     if len(p.parts) == 2 and p.parts[0].endswith(".dist-info") and p.name == "METADATA":
                         metadata.append(item)
                 if len(metadata) != 1 or metadata[0].file_size > 1024 * 1024:
@@ -87,7 +109,8 @@ def validate_wheels(wheels, selected, environment=None):
                 if len(requires_python) > 1 or (requires_python and
                         not SpecifierSet(requires_python[0]).contains(env["python_full_version"])):
                     raise EvidenceError("Wheel does not support the confined Python interpreter")
-                for raw in meta.get_all("Requires-Dist", []):
+                metadata_by_name[name] = meta
+                for raw in ([] if extended else meta.get_all("Requires-Dist", [])):
                     dep = Requirement(raw)
                     if dep.marker and not dep.marker.evaluate(env):
                         continue
@@ -100,9 +123,33 @@ def validate_wheels(wheels, selected, environment=None):
             if isinstance(exc, EvidenceError):
                 raise
             raise EvidenceError("Invalid wheel metadata") from exc
+    if extended:
+        # Resolve extras to a fixed point, including extras requested transitively.
+        active = {name: set((extras or {}).get(name, [])) for name in metadata_by_name}
+        for _ in range(1024):
+            changed = False
+            for name, meta in metadata_by_name.items():
+                available = {canonicalize_name(x) for x in meta.get_all("Provides-Extra", [])}
+                if not active[name] <= available:
+                    raise EvidenceError("Unknown requested extra for " + name)
+                for raw in meta.get_all("Requires-Dist", []):
+                    dep = Requirement(raw)
+                    if dep.marker and not any(dep.marker.evaluate({**env, "extra": e}) for e in ["", *active[name]]):
+                        continue
+                    dependency = canonicalize_name(dep.name)
+                    if dep.url or dependency not in selected or not dep.specifier.contains(selected[dependency], prereleases=True):
+                        raise EvidenceError("Missing, incompatible or nonregistry dependency: " + dependency)
+                    requested = {canonicalize_name(x) for x in dep.extras}
+                    if dependency in active and not requested <= active[dependency]:
+                        active[dependency].update(requested)
+                        changed = True
+            if not changed:
+                break
+        else:
+            raise EvidenceError("Python extras did not converge")
 
 
-def install_wheels(wheelhouse, target, evidence):
+def install_wheels(wheelhouse, target, evidence, *, extended=False):
     uv = os.environ.get("PTW_UV") or shutil.which("uv")
     if not uv or not Path(uv).is_file():
         raise EvidenceError("uv is required; no installation fallback")
@@ -124,6 +171,10 @@ def install_wheels(wheelhouse, target, evidence):
         raise EvidenceError("Confined installer failed: " + type(exc).__name__) from exc
     if result.returncode:
         raise EvidenceError("Confined uv installation failed: " + result.stderr[-1200:])
+    if extended:
+        # Executed by the workload's Python, never by the controller. Supports
+        # ordinary .pth packages while retaining the same filesystem boundary.
+        (target / "sitecustomize.py").write_text("import site\nsite.addsitedir('/packages')\n")
 
 
 def file_manifest(directory):
@@ -132,6 +183,14 @@ def file_manifest(directory):
     result = {}
     for path in sorted(directory.rglob("*")):
         info = path.lstat()
+        if stat.S_ISLNK(info.st_mode):
+            try:
+                if not path.resolve(strict=True).is_relative_to(directory.resolve()):
+                    raise EvidenceError("Installed link escapes package set")
+            except (OSError, RuntimeError) as exc:
+                raise EvidenceError("Installed link is broken or cyclic") from exc
+            result[str(path.relative_to(directory))] = "symlink:" + os.readlink(path)
+            continue
         if stat.S_ISDIR(info.st_mode):
             continue
         if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:

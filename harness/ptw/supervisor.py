@@ -57,7 +57,7 @@ def runtime_namespace():
                       "--tmpfs", "/tmp", "--tmpfs", "/work", "--chdir", "/work"]
 
 
-def sandbox_command(inv, grants, argv, nono=None, resource_fds=None, package_mount=None):
+def sandbox_command(inv, grants, argv, nono=None, resource_fds=None, package_mount=None, package_ecosystem="pypi"):
     if not argv or not all(isinstance(v, str) and "\x00" not in v for v in argv):
         raise Invalid("Nonempty argument list required")
     nono = nono or os.environ.get("PTW_NONO") or shutil.which("nono")
@@ -72,6 +72,10 @@ def sandbox_command(inv, grants, argv, nono=None, resource_fds=None, package_mou
         # nono intentionally scrubs PYTHONPATH. Set this fixed, trusted path only
         # after entering its sandbox; never forward an operator/model value.
         argv = ["/usr/bin/env", "PYTHONPATH=/packages", "PYTHONNOUSERSITE=1", *argv]
+        if package_ecosystem == "npm":
+            command += ["--chdir", "/packages"]
+            argv = ["/usr/bin/env", "NODE_PATH=/packages/node_modules",
+                    "PATH=/packages/node_modules/.bin:/usr/bin:/bin", *argv]
     for resource, actions in scope(grants).items():
         path = str(Path(inv["root"]) / inv["resources"][resource]["path"])
         target = "/resources/" + resource
@@ -97,18 +101,21 @@ class Supervisor:
             if project["stopped"]:
                 raise Invalid("Project stopped")
             package_mount = None
+            package_ecosystem = "pypi"
             if package_set:
                 from .packages import mounted_set
                 package_mount = mounted_set(self.store, db, actor, package_set)
+                package_ecosystem = db.execute("SELECT ecosystem FROM package_sets WHERE id=?", (package_set,)).fetchone()[0]
             unit = "ptw-" + secrets.token_hex(12) + ".service"
             # Validate dependencies now. The trusted worker pins and revalidates
             # resource descriptors immediately before mounting them.
-            sandbox_command(bundle["inventory"], json.loads(actor["grants"]), argv, self.nono, package_mount=package_mount)
+            sandbox_command(bundle["inventory"], json.loads(actor["grants"]), argv, self.nono,
+                            package_mount=package_mount, package_ecosystem=package_ecosystem)
             bindings = {r["resource"]: [r["device"], r["inode"]] for r in db.execute(
                 "SELECT resource,device,inode FROM bindings WHERE project=?", (actor["project"],))}
             config = {"inventory": bundle["inventory"], "grants": json.loads(actor["grants"]),
                       "bindings": bindings, "nono": self.nono or os.environ.get("PTW_NONO") or shutil.which("nono"),
-                      "package_mount": str(package_mount) if package_mount else None}
+                      "package_mount": str(package_mount) if package_mount else None, "package_ecosystem": package_ecosystem}
             command = [sys.executable, "-m", "ptw.worker", json.dumps(config), *argv]
             db.execute("INSERT INTO workloads(unit,project,session) VALUES(?,?,?)", (unit, actor["project"], actor["id"]))
             result = run(manager("systemd-run") + ["--quiet", "--collect", "--unit=" + unit, *service_identity(),
@@ -121,8 +128,8 @@ class Supervisor:
                 raise Invalid("Sandbox launch failed: " + result.stderr[:500])
             return unit
 
-    def engine(self, token, command):
-        """Trusted adapter only: start the configured Codex runtime, not model argv.
+    def engine(self, token, command, *, stderr=None):
+        """Trusted adapter only: start a fixed model runtime or confined build.
 
         Native tool permissions are fixed by codex.generate. The model cannot call
         this API, choose flags or gain a general host command tool.
@@ -137,8 +144,9 @@ class Supervisor:
             process = subprocess.Popen(manager("systemd-run") + ["--quiet", "--collect", "--pipe", "--wait", "--unit=" + unit,
                 *service_identity(), "--property=KillMode=control-group",
                 "--property=MemoryMax=768M", "--property=CPUQuota=100%", "--property=TasksMax=128",
+                "--property=NoNewPrivileges=yes", "--property=LimitFSIZE=536870912",
                 "--property=RuntimeMaxSec=200", "--property=TimeoutStopSec=2", "--", *command],
-                stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=stderr or subprocess.PIPE, text=stderr is None)
             # Do not release the admission lock until systemd has created the unit.
             # Otherwise a concurrent stop could miss a launch still in flight.
             for _ in range(100):

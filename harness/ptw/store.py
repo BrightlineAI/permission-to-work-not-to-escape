@@ -56,6 +56,8 @@ class Store:
             """)
             if "packages" not in {r[1] for r in db.execute("PRAGMA table_info(sessions)")}:
                 db.execute("ALTER TABLE sessions ADD COLUMN packages TEXT NOT NULL DEFAULT '[]'")
+            if "ecosystem" not in {r[1] for r in db.execute("PRAGMA table_info(package_sets)")}:
+                db.execute("ALTER TABLE package_sets ADD COLUMN ecosystem TEXT NOT NULL DEFAULT 'pypi'")
             # Lock spans intent commit, effect and completion. A pending row visible after
             # acquiring it means the previous operator died before recording completion.
             rows = db.execute("SELECT DISTINCT s.project FROM events e JOIN sessions s ON s.id=e.session WHERE e.state=?", ("pending",)).fetchall()
