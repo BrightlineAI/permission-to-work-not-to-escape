@@ -73,7 +73,7 @@ def sandbox_command(inv, grants, argv, nono=None, resource_fds=None, package_mou
         # after entering its sandbox; never forward an operator/model value.
         argv = ["/usr/bin/env", "PYTHONPATH=/packages", "PYTHONNOUSERSITE=1", *argv]
         if package_ecosystem == "npm":
-            command += ["--chdir", "/packages"]
+            command += ["--chdir", "/packages", "--symlink", "/packages/node_modules", "/node_modules"]
             argv = ["/usr/bin/env", "NODE_PATH=/packages/node_modules",
                     "PATH=/packages/node_modules/.bin:/usr/bin:/bin", *argv]
     for resource, actions in scope(grants).items():

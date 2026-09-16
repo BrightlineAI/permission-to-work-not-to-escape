@@ -2,7 +2,7 @@
 
 A small working extension of the [paper](../paper/submission.pdf). Describe a project, review its proposed policy, and run agents through shared controls.
 
-The first usable prototype handles existing text files and [controlled Python package installation](PACKAGES.md). It supports multiple independent agents, narrower tasks and delegates, shared escalation, and review of existing Codex logs. Project differences are JSON configuration, not custom code.
+The usable prototype handles existing text files and [controlled Python and npm package installation](ECOSYSTEMS.md), including native Python libraries and JavaScript/TypeScript. It supports multiple independent agents, narrower tasks and delegates, shared escalation, and review of existing Codex logs. Project differences are JSON configuration, not custom code.
 
 ## Install on a Linux VPS
 

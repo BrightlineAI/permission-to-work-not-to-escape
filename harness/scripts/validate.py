@@ -32,7 +32,8 @@ def main():
     versions = {"python": platform.python_version(), "kernel": platform.release()}
     for key, command in {"codex": ["codex", "--version"], "bubblewrap": ["bwrap", "--version"],
                          "uv": [os.environ.get("PTW_UV", "uv"), "--version"],
-                         "nono": [os.environ.get("PTW_NONO", "nono"), "--version"]}.items():
+                         "nono": [os.environ.get("PTW_NONO", "nono"), "--version"],
+                         "node": ["node", "--version"], "npm": ["npm", "--version"]}.items():
         try:
             process = subprocess.run(command, text=True, capture_output=True, timeout=10)
             versions[key] = (process.stdout or process.stderr).strip()

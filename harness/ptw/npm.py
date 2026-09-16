@@ -39,8 +39,8 @@ const fs = require('node:fs');
 const semver = require('node:module').createRequire(process.argv[1])('semver');
 const pairs = JSON.parse(fs.readFileSync(0, 'utf8'));
 console.log(JSON.stringify(pairs.map(([v,r]) =>
-  semver.valid(v) === v && typeof r === 'string' && semver.validRange(r) !== null &&
-  semver.satisfies(v,r))));
+  typeof r === 'string' && semver.validRange(r) !== null &&
+  (v === null || (semver.valid(v) === v && semver.satisfies(v,r))))));
 """
     try:
         result = subprocess.run(["/usr/bin/node", "-e", script, str(npm_root() / "bin/npm-cli.js")],
@@ -96,6 +96,9 @@ class NpmPlan:
     def validate_graph(self):
         checks = []
         for path, entry in self.nodes.items():
+            peer_meta = entry.get("peerDependenciesMeta", {})
+            if not isinstance(peer_meta, dict) or any(not isinstance(v, dict) for v in peer_meta.values()):
+                raise Invalid("Malformed npm peer metadata")
             for field in DEPENDENCIES:
                 if path and field == "devDependencies":
                     continue  # A registry dependency's own development tools are not installed.
@@ -105,6 +108,7 @@ class NpmPlan:
                 for name, constraint in dependencies.items():
                     if not re.fullmatch(NAME, name) or not isinstance(constraint, str) or len(constraint) > 1000:
                         raise Invalid("Malformed npm dependency")
+                    checks.append((None, constraint))
                     if field == "dependencies" and name in entry.get("optionalDependencies", {}):
                         continue
                     # Peers resolve beside the package, not inside its own node_modules.
@@ -143,13 +147,12 @@ class NpmPlan:
         scripts = set()
         expanded = 0
         for e in evidence:
-            with tarfile.open(artifacts / e["filename"], "r:gz") as archive:
-                members = archive.getmembers()
-                expanded += sum(m.size for m in members)
-                if len(members) > 20000 or expanded > 1024 * 1024 * 1024:
-                    raise EvidenceError("npm archive set exceeds expansion limit")
+            with tarfile.open(artifacts / e["filename"], "r|gz") as archive:
                 seen, manifest = set(), None
-                for member in members:
+                for member in archive:
+                    expanded += member.size
+                    if len(seen) >= 20000 or expanded > 512 * 1024 * 1024:
+                        raise EvidenceError("npm archive set exceeds expansion limit")
                     p = PurePosixPath(member.name)
                     if (not p.parts or p.parts[0] != "package" or p.is_absolute() or
                             any(x in ("", ".", "..") for x in member.name.rstrip("/").split("/")) or
@@ -225,6 +228,14 @@ for (const name of plan.builds) {
         for path, entry in self.nodes.items():
             if path and path not in actual and not entry.get("optional"):
                 raise EvidenceError("npm omitted a required package: " + path)
+        # Do not let a forged optional flag hide a required dependency omitted by
+        # platform selection or a failing lifecycle script.
+        full_nodes = self.nodes
+        try:
+            self.nodes = {p: e for p, e in full_nodes.items() if not p or p in actual}
+            self.validate_graph()
+        finally:
+            self.nodes = full_nodes
 
 
 class NpmEvidence(PyPIEvidence):

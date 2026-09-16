@@ -38,6 +38,26 @@ Work through up to 20 review/fix cycles as needed, recording actual failures and
 
 Prepare a support matrix and concrete next steps for remaining limits. Do not claim that one sample proves compatibility with every library, operating system, private registry or application.
 
+## Review and correction log
+
+All implementation and execution below were on Algol, in a separate working directory. The original paper evidence was not changed.
+
+1. Preserve the original 139 tests before expanding scope. Version 1/2 policies must not acquire npm, extras or source-build authority.
+2. Add qualified identities and reject task/delegate expansion. Reuse the existing controller rather than add another policy engine.
+3. Test real npm installation. Fix npm rejecting the same null file for both user and global configuration.
+4. Test actual lifecycle effects, not only an installation exit code. Fix npm's reliance on a lockfile install-script hint by deriving it from the verified archive.
+5. Add native Python selection using the workload interpreter. Verify a real NumPy extension, not just wheel extraction.
+6. Add offline PEP 517 source builds using uv, checked build dependencies and the existing shared supervisor. Record source and generated-wheel hashes.
+7. Validate Python extras to a fixed point and account for relocated wheel files. Test missing extras, missing dependencies and path collisions.
+8. Challenge npm lock metadata: hidden dependencies, optional flags, peers, registry/integrity mismatches and aliases. Recheck dependency closure after installation.
+9. Run builds on bounded tmpfs, not a writable host staging bind. Test failed builds, external links and stopping an active build before publication.
+10. Live evidence correctly rejected urllib3 2.8.0 because it was uploaded the previous day. Retain that result; use older 2.7.0 for the positive example without lowering the three-day rule.
+11. Real esbuild exposed legitimate hard links in its build output. Export independent bytes, retain symbolic-link validation, and add a regression test.
+12. Verify ESM resolution from application scratch space, not only a Node expression launched in the dependency directory.
+13. Preserve existing package thresholds and build permissions during a reviewed draft migration. Add draft generation from exact Python pins as well as npm locks.
+
+Release gates still require fresh-user installation, interactive documentation checks, full regression, credential scan, publication and fresh public-clone reproduction. Results belong in a separate validation record, not in the paper's experimental results.
+
 ## Primary references
 
 - https://packaging.pypa.io/en/stable/tags.html

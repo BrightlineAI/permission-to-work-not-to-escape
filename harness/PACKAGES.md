@@ -1,5 +1,7 @@
 # Python package control
 
+This guide retains the version 2 universal-wheel workflow. For version 3 native Python libraries, extras, source builds, npm and TypeScript, use the [current package guide](ECOSYSTEMS.md). Existing version 2 policies retain their narrower meaning.
+
 This is the first usable prototype of the package control, separate from the paper's experiments. It installs reviewed Python wheel sets for confined project workloads. It is not a replacement for pip everywhere on your machine.
 
 One approved project policy controls:
@@ -74,7 +76,7 @@ The requirements file is deliberately small: one exact name==version per line, i
 
 The broker checks each pinned version, verifies downloaded SHA256 values, inspects wheel metadata and validates dependency closure. uv installs those exact local wheels offline, without dependency resolution or source builds, inside bubblewrap. Publication rechecks session scope, evidence freshness and project stop state. Package code runs only later in a confined workload, not during installation in the controller.
 
-This release accepts universal py3-none-any wheels, including py2.py3 tags. It rejects source distributions, native platform wheels, extras, URL dependencies, editable installs, startup hooks and wheel relocation data. Dependency markers are evaluated for /usr/bin/python3 on the execution host, not the installer's private Python. Incomplete dependency pins block rather than fetching anything else.
+Version 2 accepts universal py3-none-any wheels, including py2.py3 tags. It rejects source distributions, native platform wheels, extras, URL dependencies, editable installs, startup hooks and wheel relocation data. Dependency markers are evaluated for /usr/bin/python3 on the execution host, not the installer's private Python. Incomplete dependency pins block rather than fetching anything else.
 
 For another agent adapter, call PackageControl(store).install(token, event_id, exact_pins) from the trusted adapter. Keep the token and controller outside the model's access. This is a separate broker operation, not an unrestricted shell command. The existing ptw run model loop remains a file-task adapter; it does not yet generate package requests.
 

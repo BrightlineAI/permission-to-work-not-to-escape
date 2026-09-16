@@ -79,10 +79,11 @@ def main(argv=None):
     package_draft.add_argument("--allow", action="append", default=[], help="Package identity, repeat for each dependency")
     package_draft.add_argument("--ecosystems", action="store_true", help="Create version 3 qualified Python/npm policy")
     package_draft.add_argument("--npm-lock", help="Propose all package names from this npm lock; requires operator review")
+    package_draft.add_argument("--requirements", help="Propose all names from exact Python pins; requires operator review")
     package_draft.add_argument("--native", action="store_true", help="Propose compatible native Python wheels")
     package_draft.add_argument("--build", action="append", default=[], help="Explicit qualified package permitted an offline build")
-    package_draft.add_argument("--min-age-days", type=int, default=3)
-    package_draft.add_argument("--deny-cvss", type=float, default=9.0)
+    package_draft.add_argument("--min-age-days", type=int)
+    package_draft.add_argument("--deny-cvss", type=float)
     package_draft.add_argument("--out", required=True)
     watch = commands.add_parser("watch", help="Retry and verify pending project terminations")
     watch.add_argument("--once", action="store_true")
@@ -120,7 +121,7 @@ def execute(args):
         draft = load(args.policy)
         if draft.get("version") not in (1, 2, 3):
             raise Invalid("Unknown draft policy version")
-        extended = args.ecosystems or args.npm_lock or args.native or args.build
+        extended = args.ecosystems or args.npm_lock or args.requirements or args.native or args.build
         if draft.get("version") != 1 and not extended:
             raise Invalid("Existing package policies need --ecosystems for a version 3 migration")
         if draft["project"]["id"] == args.project_id:
@@ -128,6 +129,13 @@ def execute(args):
         if args.task not in {task["id"] for task in draft["tasks"]}:
             raise Invalid("Unknown task")
         names = set(args.allow)
+        if args.requirements:
+            from .package_evidence import pins
+            raw = Path(args.requirements).read_text()
+            if len(raw) > 65536:
+                raise Invalid("Requirements file too large")
+            names.update("pypi:" + n for n in pins(
+                [line.strip() for line in raw.splitlines() if line.strip() and not line.lstrip().startswith("#")], extras={}))
         if args.npm_lock:
             from .npm import NpmPlan
             names.update("npm:" + x.rsplit("@", 1)[0] for x in NpmPlan(load(args.npm_lock)).selected)
@@ -135,21 +143,25 @@ def execute(args):
             raise Invalid("Provide --allow or --npm-lock for the selected task")
         # Retain other tasks' existing scopes, but never change a live policy.
         old_version = draft["version"]
+        old_rules = draft["project"].get("packages", {})
         existing = draft["project"].get("packages", {}).get("allowed_names", [])
         if extended and old_version == 2:
             existing = ["pypi:" + x for x in existing]
         draft["version"] = 3 if extended else 2
         draft["project"]["id"] = args.project_id
         draft["project"]["packages"] = {"allowed_names": sorted(set(existing) | names),
-            "min_release_age_days": args.min_age_days, "deny_cvss_at_or_above": args.deny_cvss,
-            "evidence_max_age_seconds": 900}
+            "min_release_age_days": args.min_age_days if args.min_age_days is not None else old_rules.get("min_release_age_days", 3),
+            "deny_cvss_at_or_above": args.deny_cvss if args.deny_cvss is not None else old_rules.get("deny_cvss_at_or_above", 9.0),
+            "evidence_max_age_seconds": old_rules.get("evidence_max_age_seconds", 900)}
         for task in draft["tasks"]:
             retained = task.get("packages", [])
             if extended and old_version == 2:
                 retained = ["pypi:" + x for x in retained]
             task["packages"] = sorted(names) if task["id"] == args.task else retained
         if extended:
-            draft["project"]["packages"].update(allow_native_wheels=args.native, build_packages=sorted(set(args.build)))
+            draft["project"]["packages"].update(
+                allow_native_wheels=args.native or old_rules.get("allow_native_wheels", False),
+                build_packages=sorted(set(args.build) | set(old_rules.get("build_packages", []))))
         validate(ECOSYSTEM_SCHEMA if extended else PACKAGE_SCHEMA, draft)
         save(args.out, draft)
         return {"draft": args.out, "approved": False, "note": "Review all scope before approval. Stop the old project before switching."}

@@ -142,7 +142,11 @@ class PackageControl:
                             lambda cmd: run_build(self.store, token, cmd, target))
                     else:
                         from .python_build import build_sources
-                        install_evidence = build_sources(self.store, token, wheelhouse, evidence, selected)
+                        if any(e.get("artifact_kind") == "sdist" and "pypi:" + e["name"] not in rules.get("build_packages", [])
+                               for e in evidence):
+                            raise EvidenceError("Python source build needs explicit policy authority")
+                        install_evidence = build_sources(self.store, token, wheelhouse, evidence, selected,
+                            allow_native=rules.get("allow_native_wheels", False))
                         wheels = {e["name"]: wheelhouse / e["filename"] for e in install_evidence}
                         validate_wheels(wheels, selected, extended=extended, extras=extras)
                         install_wheels(wheelhouse, target, install_evidence, **({"extended": True} if extended else {}))

@@ -13,7 +13,7 @@ from .package_install import target_tags, validate_wheels
 from .supervisor import runtime_namespace
 
 
-def build_sources(store, token, artifacts, evidence, selected):
+def build_sources(store, token, artifacts, evidence, selected, *, allow_native=False):
     sources = [e for e in evidence if e.get("artifact_kind") == "sdist"]
     if not sources:
         return evidence
@@ -46,6 +46,8 @@ def build_sources(store, token, artifacts, evidence, selected):
         name, version, _, tags = parse_wheel_filename(wheel.name)
         if name != source["name"] or version != Version(source["version"]) or not any(str(t) in compatible for t in tags):
             raise EvidenceError("Source build produced a different identity or incompatible wheel")
+        if not allow_native and not any(t.interpreter == "py3" and t.abi == "none" and t.platform == "any" for t in tags):
+            raise EvidenceError("Built native wheel needs explicit native-wheel policy authority")
         validate_wheels({name: wheel}, selected, extended=True)
         destination = artifacts / wheel.name
         with wheel.open("rb") as reader, destination.open("xb") as writer:

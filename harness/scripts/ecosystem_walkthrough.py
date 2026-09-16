@@ -69,7 +69,9 @@ def main():
         cli("package-draft", "--policy", root / "project/policy.json", "--project-id", "python-packages",
             "--task", "frontend", "--ecosystems", "--native", "--allow", "pypi:numpy",
             "--allow", "pypi:stopit", "--allow", "pypi:setuptools", "--allow", "pypi:wheel",
-            "--allow", "pypi:packaging", "--build", "pypi:stopit", "--out", draft)
+            "--allow", "pypi:packaging", "--allow", "pypi:requests", "--allow", "pypi:idna",
+            "--allow", "pypi:urllib3", "--allow", "pypi:certifi", "--allow", "pypi:charset-normalizer",
+            "--allow", "pypi:pysocks", "--build", "pypi:stopit", "--out", draft)
         session = activate(draft, "python-packages")
         native = root / "native.txt"
         native.write_text("numpy==2.2.6\n")
@@ -82,11 +84,17 @@ def main():
         check("source_wheel_provenance", any("built_wheel" in e for e in receipt["evidence"]))
         launch(session, receipt, "import stopit; assert stopit.ThreadingTimeout; "
             "open('/resources/ui','w').write('SOURCE_PYTHON_OK')", "SOURCE_PYTHON_OK")
+        extras = root / "extras.txt"
+        extras.write_text("requests[socks]==2.34.2\nidna==3.11\nurllib3==2.7.0\ncertifi==2026.7.22\n"
+            "charset-normalizer==3.5.1\nPySocks==1.7.1\n")
+        receipt = install(session, "extras", extras)
+        launch(session, receipt, "import requests,socks; assert requests.Session; "
+            "open('/resources/ui','w').write('PYTHON_EXTRAS_OK')", "PYTHON_EXTRAS_OK")
 
         node = root / "node"
         node.mkdir()
         save(node / "package.json", {"name": "ptw-typescript-example", "version": "1.0.0", "private": True,
-            "dependencies": {"typescript": "5.8.3", "is-number": "7.0.0"}})
+            "dependencies": {"typescript": "5.8.3", "is-number": "7.0.0", "esbuild": "0.28.2"}})
         # Operator preparation only; lock creation runs no package lifecycle code.
         proc = subprocess.run(["npm", "install", "--package-lock-only", "--ignore-scripts", "--no-audit",
             "--no-fund", "--registry=https://registry.npmjs.org", "--userconfig=/dev/null",
@@ -96,7 +104,8 @@ def main():
         check("operator_lock_only_no_install", proc.returncode == 0 and not (node / "node_modules").exists())
         draft = root / "node-policy.json"
         cli("package-draft", "--policy", root / "project/policy.json", "--project-id", "node-packages",
-            "--task", "frontend", "--npm-lock", node / "package-lock.json", "--out", draft)
+            "--task", "frontend", "--npm-lock", node / "package-lock.json", "--build", "npm:esbuild",
+            "--allow", "npm:lodash", "--out", draft)
         session = activate(draft, "node-packages")
         receipt = install(session, "typescript", node / "package-lock.json", npm=True)
         program = """const ts=require('typescript'),fs=require('fs'),vm=require('vm');
@@ -104,11 +113,24 @@ const code=ts.transpileModule('const answer: number = 42; answer;', {compilerOpt
 if(vm.runInNewContext(code)!==42 || !require('is-number')(42)) throw Error('wrong result');
 fs.writeFileSync('/resources/ui','TYPESCRIPT_OK');"""
         launch(session, receipt, program, "TYPESCRIPT_OK", python=False)
+        launch(session, receipt, "const e=require('esbuild'); const result=e.transformSync('const x: number=3;',"
+            "{loader:'ts'}); if(!result.code.includes('3'))throw Error('bad');"
+            "require('fs').writeFileSync('/resources/ui','NPM_NATIVE_BUILD_OK')", "NPM_NATIVE_BUILD_OK", python=False)
         launch(session, receipt, "import('is-number').then(m=>{if(!m.default(42))throw Error('bad');"
             "require('fs').writeFileSync('/resources/ui','ESM_OK')})", "ESM_OK", python=False)
         launch(session, receipt, "const p=require('child_process');"
             "if(!p.execFileSync('/packages/node_modules/.bin/tsc',['--version'],{encoding:'utf8'}).includes('5.8.3'))throw Error('bad');"
             "require('fs').writeFileSync('/resources/ui','TSC_BIN_OK')", "TSC_BIN_OK", python=False)
+        from ptw.npm import NpmEvidence
+        # Public metadata supplies the negative fixture's artifact identity.
+        # package-install independently fetches and checks it again.
+        bad = NpmEvidence().assess("lodash", "4.17.11")
+        negative = root / "vulnerable-lock.json"
+        save(negative, {"lockfileVersion": 3, "packages": {
+            "": {"dependencies": {"lodash": "4.17.11"}},
+            "node_modules/lodash": {"version": "4.17.11", "resolved": bad["url"], "integrity": bad["integrity"]}}})
+        denied = install(session, "critical-npm", negative, npm=True, exit_code=1)
+        check("real_npm_critical_denied", not denied["allowed"] and "CVSS 9." in denied["reason"] and denied["level"] == "warn")
         # Existing-project migration preserves resources and prior history.
         before = {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in (root / "project/resources").iterdir()}
         cli("stop", "--state", root / "controller", "--project", "node-packages")
@@ -121,6 +143,8 @@ fs.writeFileSync('/resources/ui','TYPESCRIPT_OK');"""
             for p in (root / "project/resources").iterdir()})
         check("old_history_retained", bool(cli("events", "--state", root / "controller", "--project", "node-packages")))
         check("old_project_stopped", cli("status", "--state", root / "controller", "--project", "node-packages")["stopped"])
+        check("existing_security_thresholds_preserved", load(draft)["project"]["packages"]["deny_cvss_at_or_above"] ==
+            load(migrated)["project"]["packages"]["deny_cvss_at_or_above"])
     except Exception as exc:
         error = str(exc)
     finally:
