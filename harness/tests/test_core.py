@@ -312,6 +312,28 @@ class Fixture(unittest.TestCase):
         data = audit.history_context(self.root / "project/history.jsonl")
         self.assertIn("UNTRUSTED", data["trust"])
 
+    def test_history_skips_native_boilerplate(self):
+        file = self.root / "native.jsonl"
+        file.write_text(json.dumps({"type": "session_meta", "payload": {"base_instructions": "X" * 30000}}) + "\n" +
+                        json.dumps({"type": "response_item", "payload": {"type": "message", "role": "user", "content": "Important project goal"}}) + "\n")
+        context = audit.history_context(file)
+        self.assertIn("Important project goal", context["excerpt"])
+        self.assertNotIn("XXXXX", context["excerpt"])
+
+    def test_literal_code_mode_call(self):
+        args = audit.literal_exec_arguments('const r = await tools.exec_command({cmd:"cat /tmp/a",workdir:"/tmp",yield_time_ms:10000});text(r.output);')
+        self.assertEqual(args["cmd"], "cat /tmp/a")
+        args = audit.literal_exec_arguments('text(await tools.exec_command({"cmd":"cat /tmp/a"}));')
+        self.assertEqual(args["cmd"], "cat /tmp/a")
+
+    def test_nonliteral_code_mode_stays_unknown(self):
+        for source in ['const r = await tools.exec_command({cmd:"cat /tmp/a"+evil});text(r.output);',
+                       'text(await tools.exec_command({cmd:"cat /tmp/a"}));doSomethingElse();',
+                       'text(await tools.exec_command({cmd:"cat /tmp/a",cmd:"cat /tmp/b"}));',
+                       'text(await tools.exec_command({cmd:secret}));']:
+            with self.assertRaises(ValueError):
+                audit.literal_exec_arguments(source)
+
     def test_event_export_has_no_contents_or_token(self):
         self.request()
         serialized = json.dumps(self.store.audit_events("website"))

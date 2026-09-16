@@ -28,4 +28,10 @@ All runs in this directory were made on algol-box-2-1, in the isolated `ptw-buil
 
 13. Separate account acceptance used a fresh unprivileged Linux account and a Git bundle of the committed source. Direct access to the private development directory was correctly unavailable; the bundle needed an explicit main branch checkout. The first install then found an inherited working directory/config discovery issue in uv. The installer now changes to its source directory and disables ambient uv configuration. A second, fresh installation is used for retesting.
 
-Checkpoints: 9d54bcb and 079974a. Development environments and failed validation outputs are retained on the VPS.
+14. The separate account installed successfully and passed all 66 checks plus both live workflows (52.86 seconds). Its installation uses Python 3.12.14, distinct from development's 3.12.13.
+
+15. An additional native Codex history check exposed the code-mode wrapper format. The first diagnostic had that runtime disabled and therefore did not read its positive canary; it was correctly not counted as a passing test. Added a conservative literal-only parser for two exact wrappers; all other programs remain unknown. The proposer now selects actual messages and tool records instead of letting large native session boilerplate crowd them out.
+
+16. An expanded test run found a timing assumption in startup verification: a fixed 300 ms wait was too short under load. Changed this to bounded readiness/termination polling and actual marker observation, not a longer assumed sleep.
+
+Checkpoints: 9d54bcb, 079974a, 1614da7 and d2f334f. Development environments and failed validation outputs are retained on the VPS.

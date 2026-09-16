@@ -43,7 +43,7 @@ def main():
                "-c", 'approval_policy="never"', "-c", "project_doc_max_bytes=0", "-c", 'web_search="disabled"',
                "-c", 'default_permissions="ptw-history"', "-c", "permissions.ptw-history.filesystem=" + filesystem,
                "--json"]
-    for feature in ["multi_agent", "apps", "plugins", "code_mode", "code_mode_host", "unified_exec", "shell_snapshot"]:
+    for feature in ["multi_agent", "apps", "plugins", "unified_exec", "shell_snapshot"]:
         command += ["--disable", feature]
     command += ["-"]
     start = time.monotonic()

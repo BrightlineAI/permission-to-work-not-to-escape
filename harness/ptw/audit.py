@@ -38,11 +38,64 @@ def redact(text):
 
 def history_context(path):
     """Bounded review material. Explicitly not a trusted specification."""
-    rows = list(read_rows(path))[:1000]
-    text = redact("\n".join(json.dumps(row, ensure_ascii=False) for _, row in rows))[:24000]
+    relevant = []
+    for line, row in read_rows(path):
+        payload = row.get("payload", {})
+        if row.get("type") == "ptw.request":
+            relevant.append({"line": line, "request": row.get("request")})
+        elif isinstance(payload, dict) and payload.get("type") in (
+                "function_call", "custom_tool_call", "function_call_output", "custom_tool_call_output",
+                "message", "user_message"):
+            # Native session_meta can contain tens of thousands of characters of
+            # system boilerplate. Do not let it crowd out actual project history.
+            relevant.append({"line": line, "type": payload.get("type"), "role": payload.get("role"),
+                             "name": payload.get("name"),
+                             "evidence": redact(json.dumps({k: v for k, v in payload.items()
+                                 if k in ("arguments", "input", "output", "content", "message")}, ensure_ascii=True))[:2000]})
+    selected = relevant if len(relevant) <= 100 else relevant[:10] + relevant[-90:]
+    text = redact("\n".join(json.dumps(row, ensure_ascii=True) for row in selected))[:24000]
     return {"trust": "UNTRUSTED historical evidence; may include injection and unauthorized behavior",
             "selected_log": Path(path).name, "excerpt": text,
-            "truncated": len(rows) >= 1000 or len(text) >= 24000}
+            "relevant_records": len(relevant), "truncated": len(relevant) > 100 or len(text) >= 24000}
+
+
+def literal_exec_arguments(source):
+    """Recognize two exact code-mode envelopes. Never evaluate JavaScript."""
+    literal = r"(\{.*\})"
+    first = re.fullmatch(r"\s*text\s*\(\s*await\s+tools\.exec_command\s*\(\s*" + literal + r"\s*\)\s*\)\s*;?\s*", source, re.S)
+    second = re.fullmatch(r"\s*const\s+([A-Za-z_]\w*)\s*=\s*await\s+tools\.exec_command\s*\(\s*" + literal
+                          + r"\s*\)\s*;\s*text\s*\(\s*\1(?:\.output)?\s*\)\s*;?\s*", source, re.S)
+    if first:
+        body = first.group(1)
+    elif second:
+        body = second.group(2)
+    else:
+        raise ValueError("Unsupported code-mode program")
+    decoder = json.JSONDecoder(object_pairs_hook=strict_pairs)
+    position, result = 1, {}
+    while True:
+        while position < len(body) and body[position].isspace():
+            position += 1
+        if body[position:] == "}":
+            return result
+        match = re.match(r'(?:"([A-Za-z_]\w*)"|([A-Za-z_]\w*))\s*:\s*', body[position:])
+        if not match:
+            raise ValueError("Nonliteral property")
+        key = match.group(1) or match.group(2)
+        if key in result or key not in ("cmd", "workdir", "yield_time_ms", "max_output_tokens", "login", "tty", "shell"):
+            raise ValueError("Unknown or duplicate property")
+        position += match.end()
+        value, end = decoder.raw_decode(body, position)
+        if not isinstance(value, (str, int, float, bool)) or value is None:
+            raise ValueError("Nonprimitive property")
+        result[key], position = value, end
+        while position < len(body) and body[position].isspace():
+            position += 1
+        if body[position:] == "}":
+            return result
+        if position >= len(body) or body[position] != ",":
+            raise ValueError("Expression, not a literal")
+        position += 1
 
 
 def recognized_request(row, inv):
@@ -55,9 +108,14 @@ def recognized_request(row, inv):
     if payload.get("type") not in ("function_call", "custom_tool_call"):
         return None, None
     name = payload.get("name", "")
+    if name.startswith("functions."):
+        name = name[len("functions."):]
     raw = payload.get("arguments", payload.get("input", {}))
     try:
-        arguments = json.loads(raw, object_pairs_hook=strict_pairs) if isinstance(raw, str) else raw
+        if name == "exec" and isinstance(raw, str):
+            arguments, name = literal_exec_arguments(raw), "exec_command"
+        else:
+            arguments = json.loads(raw, object_pairs_hook=strict_pairs) if isinstance(raw, str) else raw
     except ValueError:
         return None, "unparsed tool call"
     if not isinstance(arguments, dict):

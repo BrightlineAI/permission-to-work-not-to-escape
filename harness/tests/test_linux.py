@@ -92,7 +92,12 @@ class LinuxIntegration(unittest.TestCase):
                       "for _ in range(1200): f.write(" + repr(marker + "\n") + "); time.sleep(.02)")
             code = "import subprocess,time; subprocess.Popen(['/usr/bin/python3','-c'," + repr(writer) + "]); time.sleep(120)"
             self.units.append(self.supervisor.launch(actor["token"], ["/usr/bin/python3", "-c", code]))
-        time.sleep(.5)
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            text = (Path(self.inv["root"]) / "ui.txt").read_text() + (Path(self.inv["root"]) / "ops.txt").read_text()
+            if all(marker in text for marker in ["PARENT_A", "PARENT_B", "DELEGATE", "UNRELATED"]):
+                break
+            time.sleep(.02)
         self.assertTrue(all(not self.supervisor.state(unit)["confirmed_stopped"] for unit in self.units))
         request = {"action": "read", "resource": "customers", "content": ""}
         first = self.store.request(self.a["token"], "first", request)
@@ -123,7 +128,9 @@ class LinuxIntegration(unittest.TestCase):
         target.symlink_to("customers.txt")
         unit = self.supervisor.launch(self.a["token"], ["/usr/bin/python3", "-c", "open('/resources/ui','w').write('BAD')"])
         self.units.append(unit)
-        time.sleep(.3)
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline and not self.supervisor.state(unit)["confirmed_stopped"]:
+            time.sleep(.02)
         self.assertTrue(self.supervisor.state(unit)["confirmed_stopped"])
         self.assertEqual((Path(self.inv["root"]) / "customers.txt").read_text(), "SYNTHETIC_PRIVATE_CUSTOMERS\n")
 
