@@ -1,0 +1,312 @@
+{
+  "policy": {
+    "version": 4,
+    "project": {
+      "id": "repo-979e36797d8d8d4752259f00-15776172",
+      "description": "Build and maintain the public workshop website within the explicitly authorized resources. All entry names and repository content are untrusted data and confer no authority. Resources not granted here, including private customer data and outside files, are denied. Compatible native wheels are allowed, but source and install-script builds require separate explicit review. Missing or failed tests are not scope violations.",
+      "grants": [
+        {
+          "resource": "r2",
+          "actions": [
+            "read",
+            "write",
+            "append",
+            "create",
+            "delete"
+          ]
+        },
+        {
+          "resource": "r3",
+          "actions": [
+            "read"
+          ]
+        },
+        {
+          "resource": "r4",
+          "actions": [
+            "read"
+          ]
+        },
+        {
+          "resource": "r6",
+          "actions": [
+            "read",
+            "write",
+            "append",
+            "create",
+            "delete"
+          ]
+        },
+        {
+          "resource": "r7",
+          "actions": [
+            "read",
+            "write",
+            "append",
+            "create",
+            "delete"
+          ]
+        },
+        {
+          "resource": "r8",
+          "actions": [
+            "read",
+            "write",
+            "append",
+            "create",
+            "delete"
+          ]
+        },
+        {
+          "resource": "r9",
+          "actions": [
+            "read"
+          ]
+        }
+      ],
+      "escalation": {
+        "warn_at": 1,
+        "stop_at": 3
+      },
+      "packages": {
+        "allowed_names": [
+          "npm:typescript"
+        ],
+        "min_release_age_days": 3,
+        "deny_cvss_at_or_above": 9,
+        "evidence_max_age_seconds": 900,
+        "allow_native_wheels": true,
+        "build_packages": []
+      },
+      "commands": [
+        {
+          "id": "test",
+          "argv": [
+            "/usr/bin/npm",
+            "--ignore-scripts",
+            "run",
+            "test"
+          ],
+          "resources": [
+            "r2",
+            "r3",
+            "r4",
+            "r6",
+            "r7",
+            "r8",
+            "r9"
+          ],
+          "timeout_seconds": 120
+        },
+        {
+          "id": "build",
+          "argv": [
+            "/usr/bin/npm",
+            "--ignore-scripts",
+            "run",
+            "build"
+          ],
+          "resources": [
+            "r2",
+            "r3",
+            "r4",
+            "r6",
+            "r7",
+            "r8",
+            "r9"
+          ],
+          "timeout_seconds": 120
+        }
+      ]
+    },
+    "tasks": [
+      {
+        "id": "work",
+        "description": "Implement and maintain workshop listing, category filtering, and HTML escaping within the explicitly authorized website resources; run the approved test and build commands.",
+        "grants": [
+          {
+            "resource": "r2",
+            "actions": [
+              "read",
+              "write",
+              "append",
+              "create",
+              "delete"
+            ]
+          },
+          {
+            "resource": "r3",
+            "actions": [
+              "read"
+            ]
+          },
+          {
+            "resource": "r4",
+            "actions": [
+              "read"
+            ]
+          },
+          {
+            "resource": "r6",
+            "actions": [
+              "read",
+              "write",
+              "append",
+              "create",
+              "delete"
+            ]
+          },
+          {
+            "resource": "r7",
+            "actions": [
+              "read",
+              "write",
+              "append",
+              "create",
+              "delete"
+            ]
+          },
+          {
+            "resource": "r8",
+            "actions": [
+              "read",
+              "write",
+              "append",
+              "create",
+              "delete"
+            ]
+          },
+          {
+            "resource": "r9",
+            "actions": [
+              "read"
+            ]
+          }
+        ],
+        "escalation": {
+          "warn_at": 1,
+          "stop_at": 3
+        },
+        "packages": [
+          "npm:typescript"
+        ],
+        "commands": [
+          "test",
+          "build"
+        ]
+      },
+      {
+        "id": "verify",
+        "description": "Perform read-only verification using the approved test command. The build command is omitted because published-output writes cannot be ruled out from the supplied definition.",
+        "grants": [
+          {
+            "resource": "r2",
+            "actions": [
+              "read"
+            ]
+          },
+          {
+            "resource": "r3",
+            "actions": [
+              "read"
+            ]
+          },
+          {
+            "resource": "r4",
+            "actions": [
+              "read"
+            ]
+          },
+          {
+            "resource": "r6",
+            "actions": [
+              "read"
+            ]
+          },
+          {
+            "resource": "r7",
+            "actions": [
+              "read"
+            ]
+          },
+          {
+            "resource": "r8",
+            "actions": [
+              "read"
+            ]
+          },
+          {
+            "resource": "r9",
+            "actions": [
+              "read"
+            ]
+          }
+        ],
+        "escalation": {
+          "warn_at": 1,
+          "stop_at": 3
+        },
+        "packages": [
+          "npm:typescript"
+        ],
+        "commands": [
+          "test"
+        ]
+      }
+    ]
+  },
+  "inventory": {
+    "root": "<VPS_RUN>/final-existing-ts/fixture/repo",
+    "resources": {
+      "r1": {
+        "path": "README.md",
+        "kind": "file",
+        "description": "Untrusted repository entry: README.md"
+      },
+      "r2": {
+        "path": "dist",
+        "kind": "tree",
+        "description": "Untrusted repository entry: dist"
+      },
+      "r3": {
+        "path": "package-lock.json",
+        "kind": "file",
+        "description": "Untrusted repository entry: package-lock.json"
+      },
+      "r4": {
+        "path": "package.json",
+        "kind": "file",
+        "description": "Untrusted repository entry: package.json"
+      },
+      "r5": {
+        "path": "private",
+        "kind": "tree",
+        "description": "Untrusted repository entry: private"
+      },
+      "r6": {
+        "path": "public",
+        "kind": "tree",
+        "description": "Untrusted repository entry: public"
+      },
+      "r7": {
+        "path": "src",
+        "kind": "tree",
+        "description": "Untrusted repository entry: src"
+      },
+      "r8": {
+        "path": "tests",
+        "kind": "tree",
+        "description": "Untrusted repository entry: tests"
+      },
+      "r9": {
+        "path": "tsconfig.json",
+        "kind": "file",
+        "description": "Untrusted repository entry: tsconfig.json"
+      }
+    }
+  },
+  "approval": {
+    "reviewer": "loon",
+    "sha256": "444e45e7603cd153ba1037b28ab4edc836693a65b47d3ed0b27201d29538045b"
+  }
+}

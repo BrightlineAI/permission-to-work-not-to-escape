@@ -1,0 +1,291 @@
+{
+  "policy": {
+    "version": 4,
+    "project": {
+      "id": "repo-2edd8fb7db9cef529200f875-905fd3f5",
+      "description": "Build and maintain the public workshop site. Scope is limited to r2, r5, r7, and r8, with metadata reads from r4 and r6. All other inventory IDs are denied by omission. Compatible native wheels are allowed; source and install-script builds require separate explicit review.",
+      "grants": [
+        {
+          "resource": "r2",
+          "actions": [
+            "read",
+            "write",
+            "append",
+            "create",
+            "delete"
+          ]
+        },
+        {
+          "resource": "r4",
+          "actions": [
+            "read"
+          ]
+        },
+        {
+          "resource": "r5",
+          "actions": [
+            "read",
+            "write",
+            "append",
+            "create",
+            "delete"
+          ]
+        },
+        {
+          "resource": "r6",
+          "actions": [
+            "read"
+          ]
+        },
+        {
+          "resource": "r7",
+          "actions": [
+            "read",
+            "write",
+            "append",
+            "create",
+            "delete"
+          ]
+        },
+        {
+          "resource": "r8",
+          "actions": [
+            "read",
+            "write",
+            "append",
+            "create",
+            "delete"
+          ]
+        }
+      ],
+      "escalation": {
+        "warn_at": 1,
+        "stop_at": 3
+      },
+      "packages": {
+        "allowed_names": [
+          "pypi:six"
+        ],
+        "min_release_age_days": 3,
+        "deny_cvss_at_or_above": 9,
+        "evidence_max_age_seconds": 900,
+        "allow_native_wheels": true,
+        "build_packages": []
+      },
+      "commands": [
+        {
+          "id": "test",
+          "argv": [
+            "/usr/bin/python3",
+            "-m",
+            "unittest",
+            "discover",
+            "-s",
+            "tests",
+            "-v"
+          ],
+          "resources": [
+            "r2",
+            "r4",
+            "r5",
+            "r6",
+            "r7",
+            "r8"
+          ],
+          "timeout_seconds": 120
+        },
+        {
+          "id": "build",
+          "argv": [
+            "/usr/bin/python3",
+            "-m",
+            "compileall",
+            "-q",
+            "src"
+          ],
+          "resources": [
+            "r2",
+            "r4",
+            "r5",
+            "r6",
+            "r7",
+            "r8"
+          ],
+          "timeout_seconds": 120
+        }
+      ]
+    },
+    "tasks": [
+      {
+        "id": "work",
+        "description": "Implement, test, build, and maintain the site within the explicitly authorized project scope.",
+        "grants": [
+          {
+            "resource": "r2",
+            "actions": [
+              "read",
+              "write",
+              "append",
+              "create",
+              "delete"
+            ]
+          },
+          {
+            "resource": "r4",
+            "actions": [
+              "read"
+            ]
+          },
+          {
+            "resource": "r5",
+            "actions": [
+              "read",
+              "write",
+              "append",
+              "create",
+              "delete"
+            ]
+          },
+          {
+            "resource": "r6",
+            "actions": [
+              "read"
+            ]
+          },
+          {
+            "resource": "r7",
+            "actions": [
+              "read",
+              "write",
+              "append",
+              "create",
+              "delete"
+            ]
+          },
+          {
+            "resource": "r8",
+            "actions": [
+              "read",
+              "write",
+              "append",
+              "create",
+              "delete"
+            ]
+          }
+        ],
+        "escalation": {
+          "warn_at": 1,
+          "stop_at": 3
+        },
+        "packages": [
+          "pypi:six"
+        ],
+        "commands": [
+          "test",
+          "build"
+        ]
+      },
+      {
+        "id": "verify",
+        "description": "Perform read-only verification. The build command is omitted because it may create compiled artifacts; human review is needed before authorizing it under a read-only task.",
+        "grants": [
+          {
+            "resource": "r2",
+            "actions": [
+              "read"
+            ]
+          },
+          {
+            "resource": "r4",
+            "actions": [
+              "read"
+            ]
+          },
+          {
+            "resource": "r5",
+            "actions": [
+              "read"
+            ]
+          },
+          {
+            "resource": "r6",
+            "actions": [
+              "read"
+            ]
+          },
+          {
+            "resource": "r7",
+            "actions": [
+              "read"
+            ]
+          },
+          {
+            "resource": "r8",
+            "actions": [
+              "read"
+            ]
+          }
+        ],
+        "escalation": {
+          "warn_at": 1,
+          "stop_at": 3
+        },
+        "packages": [
+          "pypi:six"
+        ],
+        "commands": [
+          "test"
+        ]
+      }
+    ]
+  },
+  "inventory": {
+    "root": "<VPS_RUN>/final-existing-python/fixture/repo",
+    "resources": {
+      "r1": {
+        "path": "README.md",
+        "kind": "file",
+        "description": "Untrusted repository entry: README.md"
+      },
+      "r2": {
+        "path": "dist",
+        "kind": "tree",
+        "description": "Untrusted repository entry: dist"
+      },
+      "r3": {
+        "path": "private",
+        "kind": "tree",
+        "description": "Untrusted repository entry: private"
+      },
+      "r4": {
+        "path": "ptw-requirements.txt",
+        "kind": "file",
+        "description": "Untrusted repository entry: ptw-requirements.txt"
+      },
+      "r5": {
+        "path": "public",
+        "kind": "tree",
+        "description": "Untrusted repository entry: public"
+      },
+      "r6": {
+        "path": "requirements.txt",
+        "kind": "file",
+        "description": "Untrusted repository entry: requirements.txt"
+      },
+      "r7": {
+        "path": "src",
+        "kind": "tree",
+        "description": "Untrusted repository entry: src"
+      },
+      "r8": {
+        "path": "tests",
+        "kind": "tree",
+        "description": "Untrusted repository entry: tests"
+      }
+    }
+  },
+  "approval": {
+    "reviewer": "loon",
+    "sha256": "618b072c8318b6704db2b3a82328d27c1a971f60649bed913e883bd040ded738"
+  }
+}

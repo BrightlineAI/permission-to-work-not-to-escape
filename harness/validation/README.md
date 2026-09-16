@@ -1,6 +1,10 @@
 # VPS validation
 
-The latest [repository workflow acceptance](practical-20260916/README.md) covers version 0.4: 221 distinct tests, fresh user installation, Python/TypeScript work, generated policies, real multi-agent execution and automatic monitoring. Earlier [ecosystem results](ecosystems-20260916/README.md) and the original records below remain available.
+The latest [interactive Codex acceptance](interactive-20260916/README.md) covers
+version 0.5: 242 Linux tests, four real terminal website workflows, shared stopping,
+fresh installation and measured 6–7 second repeat startup.
+The earlier [repository workflow](practical-20260916/README.md), [ecosystem results](ecosystems-20260916/README.md)
+and original records below remain available.
 
 The [package control validation](packages-20260916/README.md) adds 67 package tests, repeated clean installation acceptance and live new/existing project walkthroughs. The original file-only acceptance below remains unchanged.
 

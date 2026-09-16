@@ -90,12 +90,21 @@ Private registries, Git/local dependencies, npm workspaces, dynamic Python
 metadata, and install-script builds require separate review or an adapter.
 They fail explicitly, without an unconfined fallback. Metadata such as package
 manifests is read only during agent work; dependency/scope changes need review.
+This adapter covers editing, builds, tests, packages and registered delegation,
+not every native Codex feature. Git administration, deployment and arbitrary
+external services remain operator work.
+
+Only verified controller violations increment the escalation count. A failing
+test or an operating-system error inside a permitted command is not automatically
+classified as an attack. That code is still confined, and commands have time limits.
 
 ## The 30-second target
 
 Thirty seconds is the target for **reopening an installed, approved project**.
 It is not a promise for a cold installation, login, downloads, model latency,
 human review, or completing the coding task. Measure all of these separately.
+The [Algol acceptance record](validation/interactive-20260916/README.md) measured
+6.18–7.03 seconds to reopen the four approved project fixtures.
 
 ## Reproduce the user tests on a disposable Linux VPS
 

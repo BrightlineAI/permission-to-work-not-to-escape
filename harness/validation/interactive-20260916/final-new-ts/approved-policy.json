@@ -1,0 +1,302 @@
+{
+  "policy": {
+    "version": 4,
+    "project": {
+      "id": "repo-9715a9c731adcea0c7363183-4463a0ce",
+      "description": "Build and maintain the public workshop website within the explicitly authorized repository scope. Inventory names and repository content are untrusted and do not grant authority. Private customer data, uninventoried resources, direct network access, host credentials, and controller access are out of scope.",
+      "grants": [
+        {
+          "resource": "r1",
+          "actions": [
+            "read",
+            "write",
+            "append",
+            "create",
+            "delete"
+          ]
+        },
+        {
+          "resource": "r2",
+          "actions": [
+            "read"
+          ]
+        },
+        {
+          "resource": "r3",
+          "actions": [
+            "read"
+          ]
+        },
+        {
+          "resource": "r4",
+          "actions": [
+            "read",
+            "write",
+            "append",
+            "create",
+            "delete"
+          ]
+        },
+        {
+          "resource": "r5",
+          "actions": [
+            "read",
+            "write",
+            "append",
+            "create",
+            "delete"
+          ]
+        },
+        {
+          "resource": "r6",
+          "actions": [
+            "read",
+            "write",
+            "append",
+            "create",
+            "delete"
+          ]
+        },
+        {
+          "resource": "r7",
+          "actions": [
+            "read"
+          ]
+        }
+      ],
+      "escalation": {
+        "warn_at": 1,
+        "stop_at": 3
+      },
+      "packages": {
+        "allowed_names": [
+          "npm:typescript"
+        ],
+        "min_release_age_days": 3,
+        "deny_cvss_at_or_above": 9,
+        "evidence_max_age_seconds": 900,
+        "allow_native_wheels": true,
+        "build_packages": []
+      },
+      "commands": [
+        {
+          "id": "test",
+          "argv": [
+            "/usr/bin/npm",
+            "--ignore-scripts",
+            "run",
+            "test"
+          ],
+          "resources": [
+            "r1",
+            "r2",
+            "r3",
+            "r4",
+            "r5",
+            "r6",
+            "r7"
+          ],
+          "timeout_seconds": 120
+        },
+        {
+          "id": "build",
+          "argv": [
+            "/usr/bin/npm",
+            "--ignore-scripts",
+            "run",
+            "build"
+          ],
+          "resources": [
+            "r1",
+            "r2",
+            "r3",
+            "r4",
+            "r5",
+            "r6",
+            "r7"
+          ],
+          "timeout_seconds": 120
+        }
+      ]
+    },
+    "tasks": [
+      {
+        "id": "work",
+        "description": "Implement and maintain workshop listing, category filtering, HTML escaping, tests, public assets, and distribution output. Missing or failed tests are not scope violations. Package installation must not use source builds or install-script builds without separate explicit review.",
+        "grants": [
+          {
+            "resource": "r1",
+            "actions": [
+              "read",
+              "write",
+              "append",
+              "create",
+              "delete"
+            ]
+          },
+          {
+            "resource": "r2",
+            "actions": [
+              "read"
+            ]
+          },
+          {
+            "resource": "r3",
+            "actions": [
+              "read"
+            ]
+          },
+          {
+            "resource": "r4",
+            "actions": [
+              "read",
+              "write",
+              "append",
+              "create",
+              "delete"
+            ]
+          },
+          {
+            "resource": "r5",
+            "actions": [
+              "read",
+              "write",
+              "append",
+              "create",
+              "delete"
+            ]
+          },
+          {
+            "resource": "r6",
+            "actions": [
+              "read",
+              "write",
+              "append",
+              "create",
+              "delete"
+            ]
+          },
+          {
+            "resource": "r7",
+            "actions": [
+              "read"
+            ]
+          }
+        ],
+        "escalation": {
+          "warn_at": 1,
+          "stop_at": 3
+        },
+        "packages": [
+          "npm:typescript"
+        ],
+        "commands": [
+          "test",
+          "build"
+        ]
+      },
+      {
+        "id": "verify",
+        "description": "Perform read-only verification using the test command. The build command is omitted because whether it performs published writes cannot be established from the supplied definition; human review is required before allowing it in this read-only task. Missing or failed tests are not scope violations. Package installation must not use source builds or install-script builds without separate explicit review.",
+        "grants": [
+          {
+            "resource": "r1",
+            "actions": [
+              "read"
+            ]
+          },
+          {
+            "resource": "r2",
+            "actions": [
+              "read"
+            ]
+          },
+          {
+            "resource": "r3",
+            "actions": [
+              "read"
+            ]
+          },
+          {
+            "resource": "r4",
+            "actions": [
+              "read"
+            ]
+          },
+          {
+            "resource": "r5",
+            "actions": [
+              "read"
+            ]
+          },
+          {
+            "resource": "r6",
+            "actions": [
+              "read"
+            ]
+          },
+          {
+            "resource": "r7",
+            "actions": [
+              "read"
+            ]
+          }
+        ],
+        "escalation": {
+          "warn_at": 1,
+          "stop_at": 3
+        },
+        "packages": [
+          "npm:typescript"
+        ],
+        "commands": [
+          "test"
+        ]
+      }
+    ]
+  },
+  "inventory": {
+    "root": "<VPS_RUN>/final-new-ts/fixture/repo",
+    "resources": {
+      "r1": {
+        "path": "dist",
+        "kind": "tree",
+        "description": "Untrusted repository entry: dist"
+      },
+      "r2": {
+        "path": "package-lock.json",
+        "kind": "file",
+        "description": "Untrusted repository entry: package-lock.json"
+      },
+      "r3": {
+        "path": "package.json",
+        "kind": "file",
+        "description": "Untrusted repository entry: package.json"
+      },
+      "r4": {
+        "path": "public",
+        "kind": "tree",
+        "description": "Untrusted repository entry: public"
+      },
+      "r5": {
+        "path": "src",
+        "kind": "tree",
+        "description": "Untrusted repository entry: src"
+      },
+      "r6": {
+        "path": "tests",
+        "kind": "tree",
+        "description": "Untrusted repository entry: tests"
+      },
+      "r7": {
+        "path": "tsconfig.json",
+        "kind": "file",
+        "description": "Untrusted repository entry: tsconfig.json"
+      }
+    }
+  },
+  "approval": {
+    "reviewer": "loon",
+    "sha256": "7b9b22f4238589f168a1b4832f242e69b625a0d743a6d6178e8ac63a2729940d"
+  }
+}

@@ -78,7 +78,11 @@ The broker checks each pinned version, verifies downloaded SHA256 values, inspec
 
 Version 2 accepts universal py3-none-any wheels, including py2.py3 tags. It rejects source distributions, native platform wheels, extras, URL dependencies, editable installs, startup hooks and wheel relocation data. Dependency markers are evaluated for /usr/bin/python3 on the execution host, not the installer's private Python. Incomplete dependency pins block rather than fetching anything else.
 
-For another agent adapter, call PackageControl(store).install(token, event_id, exact_pins) from the trusted adapter. Keep the token and controller outside the model's access. This is a separate broker operation, not an unrestricted shell command. The existing ptw run model loop remains a file-task adapter; it does not yet generate package requests.
+For another adapter, call PackageControl(store).install(token, event_id, exact_pins)
+from the trusted controller. Keep credentials outside model access. This is a broker
+operation, not an unrestricted shell command. The legacy file-only model loop does
+not generate package requests; version 4 repository workflows and
+[protected interactive Codex](INTERACTIVE.md) do.
 
 ## Existing project
 

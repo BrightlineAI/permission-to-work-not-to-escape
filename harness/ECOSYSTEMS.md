@@ -105,7 +105,11 @@ Register independent agents against the same project, and delegates with --paren
 
 Use a stable event ID for a retry of the same request, and a new ID for a genuinely new attempt. Exit 1 means denied or operationally blocked; exit 2 means invalid input. Never bypass an age or vulnerability rejection just to make a demo pass.
 
-For agent integration, the trusted adapter calls PackageControl(store).install(session_token, event_id, pins_or_lock, ecosystem="pypi" or "npm"), then launches the approved set through Supervisor. Keep the token outside the model. The existing ptw run model loop remains a file-task adapter; package installation is a separate broker operation, not an unrestricted shell hook.
+The trusted adapter calls PackageControl(store).install(session_token, event_id,
+pins_or_lock, ecosystem="pypi" or "npm"), then mounts the approved package set for
+execution. Keep the token outside the model. Version 4 repository workflows and
+[protected interactive Codex](INTERACTIVE.md) use this operation directly; the
+legacy file-only model loop does not. It is not an unrestricted shell hook.
 
 ## Verify the installation
 

@@ -1,6 +1,9 @@
 # Use the harness on a repository
 
-Version 0.4 adds repository editing, Python/TypeScript commands, checked packages,
+This is the explicit automation/operator guide. For the one-command Codex terminal
+experience, use the [interactive quickstart](INTERACTIVE.md).
+
+Version 0.4 added repository editing, Python/TypeScript commands, checked packages,
 multiple agents and automatic monitoring. Start on a Linux VPS, using the
 [installation instructions](README.md#install-on-a-linux-vps). Run ptw doctor
 and proceed only when it reports ready=true.

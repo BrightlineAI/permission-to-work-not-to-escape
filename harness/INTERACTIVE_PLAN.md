@@ -1,6 +1,6 @@
 # Interactive Codex onboarding and acceptance
 
-Status: implementation and acceptance in progress, September 16, 2026. All implementation, builds, model calls,
+Status: implementation and VPS acceptance complete, September 16, 2026. All implementation, builds, model calls,
 security probes and terminal acceptance run in a new directory on Algol 2-1.
 The paper and historical experiment evidence remain unchanged.
 
@@ -56,10 +56,10 @@ introducing another policy engine. Do not replace the Codex terminal with a mock
 - [x] Implement the MCP adapter and registered child path over existing controls.
 - [x] Add realistic new/existing website fixtures, Python/JavaScript/TypeScript
   compatibility, protocol/unit tests and real Linux negative tests.
-- [ ] Iterate on failures, retain each attempt, run the complete regression suite.
-- [ ] Install from committed source as a fresh user and follow only the published
+- [x] Iterate on failures, retain each attempt, run the complete regression suite.
+- [x] Install from committed source as a fresh user and follow only the published
   quickstart in real terminals, including policy review and continued conversation.
-- [ ] Commit reproducible scripts, sanitized evidence, documentation and final
+- [x] Commit reproducible scripts, sanitized evidence, documentation and final
   implementation. Publish only after credential and evidence checks.
 
 ## Acceptance matrix
@@ -134,4 +134,10 @@ JavaScript and TypeScript. Separate post-generation functional tests also passed
 Repeated TUI startup was 6.6 to 7.1 seconds. A real two-terminal/delegate test
 passed 15 checks, including combined warnings, denied access and process-group
 termination. The revised full Linux suite passed 240 tests with no skips.
-Fresh installation, lifecycle recovery and final publication checks remain.
+Final acceptance subsequently passed 242 Linux tests, four installed-package
+website workflows, 15 multi-session security checks and 12 lifecycle checks.
+A separate unprivileged account verified installation and all Linux tests
+without receiving copied credentials; real model workflows used a fresh install
+under the authenticated operator. New OAuth login was not simulated.
+See the [final record](validation/interactive-20260916/README.md) for timings,
+positive/negative checks, retained failures and reproduction commands.

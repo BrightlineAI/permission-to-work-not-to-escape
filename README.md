@@ -40,7 +40,14 @@ Run fresh benchmark workloads on an isolated Linux VPS using the [reproduction i
 
 ## Build on the work
 
-The [project safety harness](harness/README.md) adds reviewed policy drafting, narrower task scopes, shared controls across independent agents, and auditing of selected Codex logs. The [repository workflow](harness/PRACTICAL.md) connects edits, package installation, build/test commands, delegation and automatic monitoring. Its [Python and npm package control](harness/ECOSYSTEMS.md) checks vulnerabilities and release age and supports native libraries and confined builds. This usable prototype is separate from the paper's frozen experiments.
+The [project safety harness](harness/README.md) adds reviewed policies, narrower tasks,
+shared controls across agents, and auditing of selected Codex logs.
+With the [interactive quickstart](harness/INTERACTIVE.md), install once and run
+`ptw codex` in a new or existing repository. Review the policy, then work in
+the normal Codex terminal. Edits, packages, builds, tests and delegates use
+shared controls underneath. [Python and npm package checks](harness/ECOSYSTEMS.md)
+cover known vulnerabilities and release age. This prototype is separate from
+the paper's frozen experiments.
 
 The repository includes experimental policy, authorization, diagnostic and escalation components. See the [architecture](docs/architecture.md), [data availability](docs/evidence.md), [future work](docs/roadmap.md) and [contribution guide](CONTRIBUTING.md).
 

@@ -22,6 +22,24 @@ One project identity spans all tasks and sessions. Task scope is a subset of pro
 
 ## Small components
 
+The [interactive launcher](INTERACTIVE.md) adds a thin transport over these same
+controls. It runs pinned Codex in an empty control workspace with an isolated
+configuration and a catalog that removes native patching. Shells, external tools
+and unregistered delegation are disabled; a deny filesystem profile is additional
+protection. The model's isolated JavaScript host only orchestrates registered tools.
+
+The official MCP SDK exposes context and action tools. A stdio relay connects to
+a separately supervised broker, so neither repository configuration nor the
+client's namespace can alter its launch environment. The broker reuses the existing
+policy checks, package admission and nono/bubblewrap execution boundary. It does
+not offer an arbitrary host shell or require a new network service.
+
+Each Codex session and broker is registered before launch. Normal exit revokes
+that session and its descendants; project stopping reaches all parents. The
+launcher also stops work when the independent monitor's heartbeat becomes unavailable.
+Policy revision requires operator approval, terminates the old project first,
+and preserves its history. No runtime authorization step calls an LLM.
+
 | Component | Responsibility |
 |---|---|
 | policy.py + JSON Schema | Typed proposal, subset checks, resource inventory, content bound approval |
