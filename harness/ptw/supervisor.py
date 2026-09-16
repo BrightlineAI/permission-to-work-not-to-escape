@@ -188,7 +188,9 @@ class Supervisor:
     def reconcile(self):
         outcomes = []
         with self.store.locked() as db:
-            rows = db.execute("SELECT w.unit FROM workloads w JOIN projects p ON p.id=w.project WHERE p.stopped=1 AND w.stopped=0").fetchall()
+            rows = db.execute("""SELECT w.unit FROM workloads w
+                JOIN projects p ON p.id=w.project JOIN sessions s ON s.id=w.session
+                WHERE (p.stopped=1 OR s.closed=1) AND w.stopped=0""").fetchall()
             for row in rows:
                 state = self.terminate(row["unit"])
                 if state["confirmed_stopped"]:

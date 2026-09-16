@@ -4,7 +4,10 @@ A small working extension of the [paper](../paper/submission.pdf). Describe a pr
 
 The usable prototype handles [repository editing and reviewed build/test commands](PRACTICAL.md) and [controlled Python and npm package installation](ECOSYSTEMS.md), including native Python libraries and JavaScript/TypeScript. It supports multiple independent agents, narrower tasks and delegates, shared escalation, automatic monitoring, and review of existing Codex logs. Project differences are JSON configuration, not custom code.
 
-For ordinary Python or TypeScript repositories, start with the [version 0.4 walkthrough](PRACTICAL.md). The exact-file workflow below remains supported for older policies.
+For ordinary Python, JavaScript or TypeScript repositories, start with the
+[interactive quickstart](INTERACTIVE.md): install once, run `ptw codex`, review
+the policy, then work in the normal Codex terminal. The [automation workflow](PRACTICAL.md)
+and exact-file workflow below remain supported.
 
 ## Install on a Linux VPS
 
@@ -132,7 +135,10 @@ Use new output directories on each run. The live walkthrough makes real Codex ca
 
 Runtime policy decisions need no extra LLM calls. Codex still uses normal model calls to do its work. Policy drafting takes one call when valid, up to three if structural repair is needed. Drafts and validation feedback are retained; there is no automatic runtime policy widening.
 
-This is a controlled adapter, not a drop in interceptor for every tool in an arbitrary existing Codex session. Existing sessions can be audited; protected execution starts through ptw run. Native tools are disabled or denied access to controlled resources. Delegation is registered through the trusted adapter, not arbitrary unregistered model subprocesses.
+This is a controlled adapter, not an interceptor for arbitrary existing Codex sessions.
+Existing sessions can be audited; protected execution starts through `ptw codex`
+or the noninteractive `ptw run` adapter. Native tools are disabled or denied access
+to controlled resources. Delegation is registered through the trusted adapter.
 
 The host, operator, Codex runtime and supervisor are trusted. Keep policy state away from unconfined programs running as your operator. A typed policy may still misunderstand your intent. Approval is a content bound operator workflow, not a cryptographic signature or proof that prose was translated correctly.
 

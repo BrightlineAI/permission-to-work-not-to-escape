@@ -75,7 +75,8 @@ def resolve_python(repo, stage):
         raise Invalid("uv is required to resolve Python dependencies.")
     env = {k: v for k, v in os.environ.items() if not k.startswith(("UV_", "PIP_"))}
     result = subprocess.run([uv, "--no-config", "--cache-dir", str(stage / "cache"), "pip", "compile",
-                             "--no-build", "--no-sources", "--index-url", "https://pypi.org/simple",
+                             "--no-build", "--no-sources", "--python", "/usr/bin/python3",
+                             "--index-url", "https://pypi.org/simple",
                              "--no-annotate", "--no-header", str(source), "--output-file", str(output)],
                             capture_output=True, text=True, timeout=180, env=env)
     if result.returncode:
@@ -95,6 +96,8 @@ def resolve_python(repo, stage):
 def resolve_npm(repo, stage):
     lock = repo / "package-lock.json"
     manifest = json.loads(data(repo / "package.json"))
+    if manifest.get("workspaces"):
+        raise Invalid("npm workspaces require the separate workspace adapter; no unsafe fallback.")
     has_dependencies = any(manifest.get(k) for k in
                            ("dependencies", "devDependencies", "optionalDependencies", "peerDependencies"))
     if lock.exists():
@@ -107,8 +110,6 @@ def resolve_npm(repo, stage):
         from .npm import NpmPlan
         NpmPlan(resolved)
         return lock
-    if manifest.get("workspaces"):
-        raise Invalid("npm workspaces require the separate workspace adapter; no unsafe fallback.")
     if not has_dependencies:
         return None
     cleaned = {"name": "ptw-resolution", "version": "1.0.0", "private": True}
@@ -208,7 +209,7 @@ def private_directory(repo):
     return directory
 
 
-def setup(repo, directory, args):
+def setup(repo, directory, args, previous=None):
     from .workflow import prepare
     display = repo / ".ptw"
     if display.is_symlink() or (display.exists() and not display.is_dir()):
@@ -273,7 +274,7 @@ def setup(repo, directory, args):
             requirements=requirements, npm_lock=npm_lock, history=args.history)
     proposal, inv = load(stage / "draft/draft.json"), load(stage / "draft/inventory.json")
     # Identity is supplied by the trusted launcher, not chosen by repository/model.
-    proposal["project"]["id"] = "repo-" + directory.name
+    proposal["project"]["id"] = "repo-" + directory.name + "-" + secrets.token_hex(4)
     for grant in proposal["project"]["grants"]:
         path = inv["resources"][grant["resource"]]["path"]
         permitted = set(FILE_ACTIONS) if path in editable else ({"read"} if path in metadata else set())
@@ -290,15 +291,26 @@ def setup(repo, directory, args):
     save(stage / "approved.json", bundle)
     store = Store(directory / "controller")
     ensure(store)
+    if previous:
+        old_status = store.status(previous["project"])
+        save(stage / "previous.json", {"registration": previous, "status_before_revision": old_status})
+        store.stop(previous["project"], "Operator approved replacement policy " + proposal["project"]["id"])
+        outcomes = Supervisor(store).reconcile()
+        if any(not item["confirmed_stopped"] for item in outcomes):
+            raise Invalid("Old work has not stopped. Revision was not activated; inspect status.")
     store.activate(bundle)
     record = {"repo": str(repo), "project": proposal["project"]["id"], "state": str(store.directory),
               "bundle": str(stage / "approved.json"), "language": language,
               "task": "work" if any(t["id"] == "work" for t in proposal["tasks"]) else proposal["tasks"][0]["id"],
               "policy_sha256": bundle["approval"]["sha256"]}
-    save(directory / "project.json", record)
+    save(stage / "registration.json", record)
+    pending = directory / ("registration-" + secrets.token_hex(6) + ".json")
+    save(pending, record)
+    os.replace(pending, directory / "project.json")
     display.mkdir(exist_ok=True)
-    if not (display / "policy.json").exists():
-        save(display / "policy.json", proposal)
+    review_copy = display / ("review-" + secrets.token_hex(6) + ".json")
+    save(review_copy, proposal)
+    os.replace(review_copy, display / "policy.json")
     print("Approved. Repository policy is a review copy; only the protected approval is active.", flush=True)
     return record
 
@@ -317,6 +329,12 @@ def start(args):
             if args.status or args.stop or args.review:
                 raise Invalid("This repository has not been set up. Run ptw codex.")
             record = setup(repo, directory, args)
+        elif args.revise:
+            print("Current project history:", Store(record["state"]).status(record["project"]), flush=True)
+            print("A new approval will stop all current project sessions. Existing history is retained.", flush=True)
+            record = setup(repo, directory, args, previous=record)
+        elif any(getattr(args, name) is not None for name in ("goal", "editable", "language", "warn_at", "stop_at", "history")):
+            raise Invalid("This project already has an approved policy. Use ptw codex --revise to change it.")
     finally:
         os.close(fd)
     if record["repo"] != str(repo):
@@ -330,7 +348,7 @@ def start(args):
     if args.review:
         return load(record["bundle"])
     if store.status(record["project"])["stopped"]:
-        raise Invalid("Project is stopped. Starting another Codex cannot reset it; review an explicit new policy version.")
+        raise Invalid("Project is stopped. Starting another Codex cannot reset it. The operator may review a new version with ptw codex --revise.")
     ensure(store)
     session = store.register(record["project"], args.task or record["task"])
     run_dir = directory / "sessions" / session["session"]
@@ -340,5 +358,9 @@ def start(args):
     if args.setup_only:
         return {"project": record["project"], "ready_seconds": readiness, "setup_only": True}
     from .terminal import launch
-    result = launch(store, session, run_dir / "session.json", run_dir, prompt=args.prompt)
+    try:
+        result = launch(store, session, run_dir / "session.json", run_dir, prompt=args.prompt)
+    finally:
+        store.close_session(session["token"])
+        Supervisor(store).reconcile()
     return {**result, "launcher_ready_seconds": readiness}

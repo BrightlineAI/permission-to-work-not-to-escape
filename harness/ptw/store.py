@@ -62,6 +62,8 @@ class Store:
                 db.execute("ALTER TABLE package_sets ADD COLUMN ecosystem TEXT NOT NULL DEFAULT 'pypi'")
             if "commands" not in {r[1] for r in db.execute("PRAGMA table_info(sessions)")}:
                 db.execute("ALTER TABLE sessions ADD COLUMN commands TEXT NOT NULL DEFAULT '[]'")
+            if "closed" not in {r[1] for r in db.execute("PRAGMA table_info(sessions)")}:
+                db.execute("ALTER TABLE sessions ADD COLUMN closed INTEGER NOT NULL DEFAULT 0")
             # Lock spans intent commit, effect and completion. A pending row visible after
             # acquiring it means the previous operator died before recording completion.
             rows = db.execute("SELECT DISTINCT s.project FROM events e JOIN sessions s ON s.id=e.session WHERE e.state=?", ("pending",)).fetchall()
@@ -125,7 +127,21 @@ class Store:
         row = db.execute("SELECT * FROM sessions WHERE token_hash=?", (hashlib.sha256(token.encode()).hexdigest(),)).fetchone()
         if row is None:
             raise Invalid("Unknown session credential")
+        if row["closed"]:
+            raise Invalid("Session ended; its credential and descendants are no longer active")
         return row
+
+    def close_session(self, token):
+        """Revoke one session and its descendants without stopping other parents."""
+        with self.locked() as db:
+            row = db.execute("SELECT id FROM sessions WHERE token_hash=?",
+                             (hashlib.sha256(token.encode()).hexdigest(),)).fetchone()
+            if row is None:
+                raise Invalid("Unknown session credential")
+            db.execute("""WITH RECURSIVE tree(id) AS (
+                SELECT id FROM sessions WHERE id=?
+                UNION ALL SELECT s.id FROM sessions s JOIN tree t ON s.parent=t.id
+                ) UPDATE sessions SET closed=1 WHERE id IN (SELECT id FROM tree)""", (row["id"],))
 
     @staticmethod
     def project(db, project):
@@ -333,7 +349,7 @@ class Store:
             row, bundle = self.project(db, project)
             result = {k: row[k] for k in ["id", "stopped", "violations", "reason"]}
             result["policy_sha256"] = bundle["approval"]["sha256"]
-            result["sessions"] = [dict(r) for r in db.execute("SELECT id,task,parent,depth FROM sessions WHERE project=?", (project,))]
+            result["sessions"] = [dict(r) for r in db.execute("SELECT id,task,parent,depth,closed FROM sessions WHERE project=?", (project,))]
             result["workloads"] = [dict(r) for r in db.execute("SELECT unit,stopped FROM workloads WHERE project=?", (project,))]
             result["tasks"] = [dict(r) for r in db.execute("SELECT task,violations FROM task_counts WHERE project=?", (project,))]
             return result

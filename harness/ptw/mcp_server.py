@@ -41,6 +41,8 @@ class Adapter:
         self.delegates = 0
 
     def ready(self):
+        with self.store.locked() as db:
+            self.store.session(db, self.session["token"])
         if self.store.status(self.session["project"])["stopped"]:
             raise Invalid("Project stopped. New sessions and delegates cannot reset it.")
         if not health(self.store)["healthy"]:

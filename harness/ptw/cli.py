@@ -30,6 +30,7 @@ def main(argv=None):
     operations.add_argument("--stop", action="store_true")
     operations.add_argument("--review", action="store_true")
     operations.add_argument("--setup-only", action="store_true")
+    operations.add_argument("--revise", action="store_true", help="Review a new policy version; stop old work before switching")
     sample = commands.add_parser("sample", help="Create a fresh synthetic project")
     sample.add_argument("--out", required=True)
     sample.add_argument("--packages", action="store_true", help="Include reviewed Python package control example")

@@ -50,11 +50,11 @@ introducing another policy engine. Do not replace the Codex terminal with a mock
 ## Implementation sequence and commits
 
 - [x] Commit this reviewed plan before runtime changes.
-- [ ] Verify a pinned real Codex terminal can use the local adapter under fixed
+- [x] Verify a pinned real Codex terminal can use the local adapter under fixed
   restrictions. Inspect actual tool calls and effects, not model claims.
-- [ ] Implement safe startup/discovery/review/reuse/status/stop and supervised PTY.
-- [ ] Implement the MCP adapter and registered child path over existing controls.
-- [ ] Add realistic new/existing website fixtures, Python/JavaScript/TypeScript
+- [x] Implement safe startup/discovery/review/reuse/status/stop and supervised PTY.
+- [x] Implement the MCP adapter and registered child path over existing controls.
+- [x] Add realistic new/existing website fixtures, Python/JavaScript/TypeScript
   compatibility, protocol/unit tests and real Linux negative tests.
 - [ ] Iterate on failures, retain each attempt, run the complete regression suite.
 - [ ] Install from committed source as a fresh user and follow only the published
@@ -117,3 +117,21 @@ configuration file now contains the trusted empty control workspace; the host
 configuration and credentials remain unchanged. The bundled V8 host is enabled
 while native effectful routes remain disabled. Probe 04 read the actual fixture
 through MCP. This does not yet satisfy full onboarding or security acceptance.
+
+Subsequent real TUI tests found missing user-manager environment variables and
+uv interpreter failures inside the CLI's nested configuration namespace. MCP
+now relays to a separately registered systemd broker with only explicitly
+forwarded runtime variables. Its effects still use the same confined executor.
+
+The first tool-surface test found native apply_patch remained registered despite
+shell_tool=false. Codex 0.154.0 selects that tool using model metadata. The
+supported model-catalog override now removes it, without changing the model.
+The second tool-surface test exposed only the two controlled project tools and
+empty MCP resource discovery; JavaScript process/require/fetch were undefined.
+
+Four real website workflows passed: fresh TypeScript, existing Python,
+JavaScript and TypeScript. Separate post-generation functional tests also passed.
+Repeated TUI startup was 6.6 to 7.1 seconds. A real two-terminal/delegate test
+passed 15 checks, including combined warnings, denied access and process-group
+termination. The revised full Linux suite passed 240 tests with no skips.
+Fresh installation, lifecycle recovery and final publication checks remain.

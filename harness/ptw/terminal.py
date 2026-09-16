@@ -9,7 +9,7 @@ import time
 
 from .codex import DISABLED
 from .monitor import health
-from .policy import Invalid, save
+from .policy import Invalid, load, save
 from .supervisor import Supervisor
 
 
@@ -29,6 +29,18 @@ def codex_command(store, session_path, work, prompt=None, *, interactive=True):
     # configuration without editing/copying it or changing HOME/CODEX_HOME.
     # This view is configuration isolation, not the workload execution sandbox.
     config_root = Path(os.environ.get("CODEX_HOME", str(Path.home() / ".codex"))).resolve()
+    cache = config_root / "models_cache.json"
+    if cache.is_symlink() or not cache.is_file() or cache.stat().st_size > 16 * 1024 * 1024:
+        raise Invalid("Codex model metadata is unavailable. Authenticate Codex and complete project setup first.")
+    models = [m for m in load(cache).get("models", []) if m.get("slug") == "gpt-5.6-sol"]
+    if len(models) != 1:
+        raise Invalid("The authenticated Codex catalog does not contain the required gpt-5.6-sol model.")
+    # In 0.154.0 apply_patch is selected by model metadata, independently of
+    # shell_tool. The supported catalog override removes that native path.
+    # Keep the same real model and its capabilities; no model substitution.
+    model = {**models[0], "apply_patch_tool_type": None, "experimental_supported_tools": []}
+    catalog = work / "model-catalog.json"
+    save(catalog, {"models": [model]})
     empty_config = work / "empty-config.toml"
     if not empty_config.exists():
         fd = os.open(empty_config, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
@@ -36,6 +48,11 @@ def codex_command(store, session_path, work, prompt=None, *, interactive=True):
             handle.write("[projects." + json.dumps(str(work)) + ']\ntrust_level = "trusted"\n')
     wrapper = [bwrap, "--die-with-parent", "--bind", "/", "/"]
     config = config_root / "config.toml"
+    if not config.exists():
+        # Codex normally creates this on first use. Never overwrite an existing
+        # operator configuration; the private view is mounted only in the child.
+        fd = os.open(config, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+        os.close(fd)
     if config.exists():
         if not config.is_file() or config.is_symlink():
             raise Invalid("Codex configuration must be a regular file for isolated launch.")
@@ -49,6 +66,7 @@ def codex_command(store, session_path, work, prompt=None, *, interactive=True):
     base += ["-C", str(work), "-m", "gpt-5.6-sol", "-a", "never"]
     values = {
         "model_reasoning_effort": '"low"',
+        "model_catalog_json": json.dumps(str(catalog)),
         "project_doc_max_bytes": "0",
         "web_search": '"disabled"',
         "features.skip_host_skill_discovery": "true",
@@ -126,7 +144,9 @@ def launch(store, session, session_path, run_dir, *, prompt=None):
         supervisor.terminate(unit)
         code = process.wait(timeout=10)
     finally:
+        store.close_session(session["token"])
         supervisor.terminate(unit)
+        supervisor.reconcile()
     status = store.status(session["project"])
     result = {"exit_code": code, "seconds": round(time.monotonic() - started, 3),
               "stopped": bool(status["stopped"]), "reason": status["reason"], "unit": unit}
