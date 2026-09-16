@@ -14,6 +14,9 @@ runtime. The paper and its frozen experiments were not changed.
 | Documented Python and TypeScript CLI workflows | 37/37 checks | 32.3 seconds |
 | Description → generated policy → review → real model work | 58/58 checks | 301.2 seconds |
 | Existing ecosystem acceptance, including native/source Python and npm builds | 15/15 checks | 51.9 seconds |
+| Fresh installation from the published GitHub repository | 221/221, zero skips | 37.2 seconds |
+| Published installation, documented CLI workflows | 37/37 checks | 38.6 seconds |
+| Published installation including Codex, real Python/TypeScript agents | 46/46 checks | 266.4 seconds |
 
 The live run generated one policy per language and reviewed it against the
 explicit synthetic operator intent before activation. Each project used two
@@ -50,6 +53,20 @@ the committed source using install-vps.sh --no-codex. It did not reuse the
 developer environment or receive copied model credentials. Its final environment
 ran the entire Linux suite and the documented CLI workflow for both languages.
 Real model runs used the existing authenticated operator account on the same VPS.
+
+After publication, the separate account cloned GitHub revision afc1622 and repeated
+the full installation, Linux suite and CLI walkthrough in new directories. All 23
+installed Python modules matched the published source byte for byte. The account
+was then locked, its user manager stopped and lingering disabled; private evidence
+was retained. System prerequisites were already installed on the VPS.
+
+A second fresh GitHub clone and isolated installation used the full installer,
+including pinned Codex 0.154.0, under the authenticated operator account. All 23
+installed Python modules matched that source too. Its real agent walkthrough
+passed all 46 checks using the supplied reviewed sample policies, including
+independent parents and model-requested delegates in both languages. This
+separately verifies the published installation; the 58-check run above also
+verifies policy generation. Neither installation copied authentication files.
 
 An additional interactive terminal session followed review, exact-hash approval,
 activation, registration, checked installation, read/write, passing Python test,
@@ -92,6 +109,7 @@ From the repository root, using fresh output directories:
 
     python harness/scripts/validate.py --linux --out /outside/unit
     python harness/scripts/repository_walkthrough.py --out /outside/cli
+    python harness/scripts/repository_walkthrough.py --live --out /outside/installed-live
     python harness/scripts/repository_walkthrough.py --live --propose --out /outside/live
     python harness/scripts/ecosystem_walkthrough.py --out /outside/ecosystems
 
