@@ -1,16 +1,19 @@
 # Python and npm validation on Algol
 
-Validated implementation: 96c48ae, harness 0.3.0. All development, builds, tests and interactive user checks ran on algol-box-2-1. These are prototype engineering tests, not new paper benchmark results.
+Final validated implementation: 6b54824, harness 0.3.0, cloned from public GitHub and installed into a new environment on Algol. Earlier acceptance records use 96c48ae. All development, builds, full Linux tests and interactive user checks ran on algol-box-2-1. GitHub additionally ran its portable checks. These are prototype engineering tests, not new paper benchmark results.
 
 | Check | Result | Record |
 |---|---|---|
+| Final public checkout, fresh installation | 177/177, zero skips; 26.1 seconds | [Final tests](public-final-tests.json) |
+| Final public live ecosystem walkthrough | 15/15 checks; 48.8 seconds | [Final commands and receipts](public-final-live.json) |
+| Final public legacy workflow | 16/16 checks; 8.9 seconds | [Final legacy checks](public-final-legacy.json) |
 | Development regression | 176/176, zero skips; 27.6 seconds | [Tests](development-tests.json) |
 | Fresh ordinary account, installed package | 176/176, zero skips; 26.9 seconds | [Tests](fresh-tests.json) |
 | Live ecosystem walkthrough | 15/15 checks; 57.1 seconds | [Commands, receipts and effects](fresh-live.json) |
 | Legacy new/existing Python workflow | 16/16 checks; 16.2 seconds | [Commands, receipts and effects](fresh-legacy.json) |
 | Interactive documentation | Native Python, TypeScript and existing-project migration passed | Details below |
 
-The suite retains all 139 previous checks and adds 37 ecosystem checks. It includes real offline npm installation, lifecycle effects, scope inheritance, shared Python/npm/file escalation, stopping an active build, unsafe links, malformed locks, dependency mismatches, extras and wheel data. Tests use synthetic attacks; the walkthrough uses live PyPI, npm and OSV without fixture substitution.
+The final suite retains all 139 previous checks and adds 38 ecosystem checks. It includes real offline npm installation, lifecycle effects, scope inheritance, shared Python/npm/file escalation, stopping an active build, unsafe links, malformed locks, dependency mismatches, extras and wheel data. Tests use synthetic attacks; the walkthrough uses live PyPI, npm and OSV without fixture substitution.
 
 ## Real packages and effects
 
@@ -33,6 +36,8 @@ The [initial esbuild walkthrough](development-hardlink-block.json) exposed legit
 
 Earlier synthetic tests also exposed npm's conflicting empty configuration paths and its reliance on a lockfile install-script flag. Both were corrected before acceptance. The [review log](../../ECOSYSTEM_PLAN.md#review-and-correction-log) records the sequence.
 
+The first GitHub CI run exposed a hard-coded Node path in metadata validation. The fix discovers Node on PATH; a regression test verifies execution through a different path. [CI passed on the final code](https://github.com/BrightlineAI/permission-to-work-not-to-escape/actions/runs/35127929202). CI skips 31 Linux integration tests; the VPS ran all 177 with zero skips. Do not confuse the two levels of coverage.
+
 ## Interactive user check
 
 A fresh, unprivileged account ran the complete installer from an exported copy of the committed source, following the [user guide](../../ECOSYSTEMS.md) in an interactive terminal. Doctor reported ready, with Codex not installed.
@@ -47,6 +52,8 @@ The operator reviewed each displayed policy, pasted its review hash into approva
 | Cleanup | Project stops confirmed registered build and workload processes were stopped |
 
 The private terminal transcript is retained on the VPS with SHA256 2df1ec7e1415c88f0788947c8c0efed27c7e4ff93987474cd1b363333c6d9d72. Published reports contain synthetic policy data and receipts, not session tokens, environment credentials or controller databases. Credential scans of the changes and selected evidence found no leaks.
+
+After final verification, no harness services remained running under the temporary acceptance account. Its password was locked, login shell disabled and lingering user services stopped. Private test evidence was retained.
 
 ## Reproduce
 
