@@ -108,7 +108,8 @@ class PackageControl:
                 if result is not None:
                     return result
                 try:
-                    reasons = [r for e in evidence for r in evaluate(e, current["policy"]["project"]["packages"])]
+                    reasons = [e["name"] + "==" + e["version"] + ": " + r
+                               for e in evidence for r in evaluate(e, current["policy"]["project"]["packages"])]
                 except EvidenceError as exc:
                     error = str(exc)
                 if error:
@@ -126,22 +127,30 @@ class PackageControl:
                 sets.mkdir(mode=0o700, exist_ok=True)
                 db.execute("INSERT INTO events VALUES(?,?,?,?,?,?,?)",
                            (actor["id"], event, request_hash, self.store.metadata(request), None, "pending", time.time()))
-                os.rename(target, sets / identity)
-                # Mounts are read only. Make accidental operator writes difficult too.
-                for path in (sets / identity).rglob("*"):
-                    path.chmod(0o555 if path.is_dir() else 0o444)
-                (sets / identity).chmod(0o555)
-                response = {"allowed": True, "effect": "installed", "level": "allow",
-                            "package_set": identity, "packages": selected,
-                            "manifest_sha256": digest(manifest), "policy_sha256": current["approval"]["sha256"],
-                            "evidence": [{**{k: e[k] for k in ("name", "version", "sha256", "published_at", "checked_at")},
-                                "advisories": [{"id": v["id"], "cvss_base": severity(v),
-                                               "withdrawn": v.get("withdrawn")} for v in e["vulnerabilities"]]}
-                                for e in evidence]}
-                db.execute("BEGIN IMMEDIATE")
-                db.execute("INSERT INTO package_sets VALUES(?,?,?,?,?)",
-                           (identity, actor["project"], canonical(sorted(selected)), canonical(manifest), time.time()))
-                db.execute("UPDATE events SET response=?,state='complete' WHERE session=? AND event=?",
-                           (canonical(response), actor["id"], event))
-                db.commit()
-                return response
+                try:
+                    os.rename(target, sets / identity)
+                    # Mounts are read only. Make accidental operator writes difficult too.
+                    for path in (sets / identity).rglob("*"):
+                        path.chmod(0o555 if path.is_dir() else 0o444)
+                    (sets / identity).chmod(0o555)
+                    response = {"allowed": True, "effect": "installed", "level": "allow",
+                                "package_set": identity, "packages": selected,
+                                "manifest_sha256": digest(manifest), "policy_sha256": current["approval"]["sha256"],
+                                "evidence": [{**{k: e[k] for k in ("name", "version", "sha256", "published_at", "checked_at")},
+                                    "advisories": [{"id": v["id"], "cvss_base": severity(v),
+                                                   "withdrawn": v.get("withdrawn")} for v in e["vulnerabilities"]]}
+                                    for e in evidence]}
+                    db.execute("BEGIN IMMEDIATE")
+                    db.execute("INSERT INTO package_sets VALUES(?,?,?,?,?)",
+                               (identity, actor["project"], canonical(sorted(selected)), canonical(manifest), time.time()))
+                    db.execute("UPDATE events SET response=?,state='complete' WHERE session=? AND event=?",
+                               (canonical(response), actor["id"], event))
+                    db.commit()
+                    return response
+                except Exception:
+                    db.rollback()
+                    db.execute("UPDATE projects SET stopped=1,reason=? WHERE id=?",
+                               ("uncertain package publication; operator review required", actor["project"]))
+                    db.execute("UPDATE events SET state='uncertain' WHERE session=? AND event=?", (actor["id"], event))
+                    return {"allowed": False, "effect": "unknown", "level": "stop",
+                            "reason": "Package publication failed; project stopped for review"}

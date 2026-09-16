@@ -30,8 +30,15 @@ One project identity spans all tasks and sessions. Task scope is a subset of pro
 | bubblewrap + nono | Kernel file restrictions inherited by subprocesses; hidden host resources, process and network namespaces |
 | codex.py | Pinned Codex proposer and bounded JSON resource request loop |
 | audit.py | Read selected logs without execution; classify supported requests and flag unknown routes |
+| packages.py | Reuse approved scope, identity and denial counters; privately prepare and atomically admit package sets |
+| package_evidence.py + packaging + cvss | Fixed PyPI/OSV endpoints, artifact age, exact versions and CVSS base scores |
+| package_install.py + uv | Validate complete wheel dependencies; install hash checked local artifacts offline inside bubblewrap |
 
 OPA and agentgateway remain useful for richer API deployments, but would add services without helping the first three file operations. The frozen booking controls and existing experiment adapters remain available separately. New harness results do not revise the paper.
+
+Package version 2 policies add one project rule block and task name subsets. The same rules decide package admission for all agents; uv never makes an independent security policy decision. Slow evidence collection and installation occur in private staging without holding the controller lock. Admission rechecks the stopped state and evidence before publishing. Missing evidence blocks without punishment; uncertain publication stops the project for operator review.
+
+The package backend is Python first, not a generic command interceptor. Future ecosystems should supply metadata, artifact and installation adapters behind this same identity and admission boundary. No additional policy service or vulnerability database is maintained locally. See the [package design review](PACKAGES_PLAN.md).
 
 ## Consistency and failure behavior
 

@@ -20,6 +20,13 @@ from .supervisor import runtime_namespace
 
 
 def target_environment():
+    try:
+        return _target_environment()
+    except (OSError, subprocess.SubprocessError, ValueError, KeyError) as exc:
+        raise EvidenceError("Cannot identify the confined Python interpreter") from exc
+
+
+def _target_environment():
     result = subprocess.run(["/usr/bin/python3", "-I", "-S", "-c",
         "import json,sys,platform; v=sys.implementation.version; "
         "iv=f'{v.major}.{v.minor}.{v.micro}'; "

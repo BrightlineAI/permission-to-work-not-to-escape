@@ -101,6 +101,10 @@ class PackageFixture:
 
 
 class PackagePolicyTests(PackageFixture, unittest.TestCase):
+    def test_interpreter_failure_is_operational_block(self):
+        with patch("ptw.package_install.subprocess.run", side_effect=subprocess.TimeoutExpired("python", 5)):
+            self.no_effect(self.install())
+
     def test_all_interpreter_markers_use_runtime_not_controller(self):
         env = target_environment()
         expected = json.loads(subprocess.check_output(["/usr/bin/python3", "-I", "-S", "-c",
@@ -418,6 +422,16 @@ class PackagePolicyTests(PackageFixture, unittest.TestCase):
 
 @unittest.skipUnless(os.environ.get("PTW_LINUX_TESTS") == "1", "Real isolated Linux installer opt in required")
 class PackageLinuxTests(PackageFixture, unittest.TestCase):
+    def test_publication_failure_stops_existing_controller_instance(self):
+        with patch("ptw.packages.os.rename", side_effect=OSError("synthetic disk failure")):
+            result = self.install()
+        self.assertFalse(result["allowed"])
+        self.assertEqual(result["effect"], "unknown")
+        self.assertEqual(result["level"], "stop")
+        self.assertTrue(self.store.status("website")["stopped"])
+        self.assertEqual(self.store.status("website")["violations"], 0)
+        self.assertFalse(self.install(event="later")["allowed"])
+
     def test_install_failure_no_partial_publication(self):
         self.provider.wheels["idna"] = b"not a wheel"
         self.no_effect(self.install())

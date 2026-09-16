@@ -45,7 +45,7 @@ PY
 download_binary uv https://github.com/astral-sh/uv/releases/download/0.12.15/uv-x86_64-unknown-linux-gnu.tar.gz f97935763c04be3e692460a7aaeaaab8fc3b78fcf8b389da820b38ae7423a638
 download_binary nono https://github.com/nolabs-ai/nono/releases/download/v0.77.0/nono-v0.77.0-x86_64-unknown-linux-gnu.tar.gz 86bcf7a134d6f47e064ad0f2561f1be02b9fffc643708c3ec2dd4070e82b798e
 UV_CACHE_DIR="$ptw_install/cache" "$ptw_install/bin/uv" --no-config venv --python 3.12 "$ptw_install/venv"
-UV_CACHE_DIR="$ptw_install/cache" "$ptw_install/bin/uv" --no-config pip install --python "$ptw_install/venv/bin/python" -r "$ptw_source/requirements.lock"
+UV_CACHE_DIR="$ptw_install/cache" "$ptw_install/bin/uv" --no-config pip install --python "$ptw_install/venv/bin/python" --require-hashes -r "$ptw_source/requirements.lock"
 UV_CACHE_DIR="$ptw_install/cache" "$ptw_install/bin/uv" --no-config pip install --python "$ptw_install/venv/bin/python" --no-deps "$ptw_source"
 if [ "$ptw_codex" = 1 ]; then
   npm install --prefix "$ptw_install/codex" --no-audit --no-fund @openai/codex@0.154.0
