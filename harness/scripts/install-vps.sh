@@ -2,7 +2,7 @@
 # Fresh, private installation. No global packages or existing environments changed.
 set -euo pipefail
 if [ "$(uname -s)" != Linux ] || [ "$(uname -m)" != x86_64 ]; then
-  echo "This first installer targets x86_64 Linux. Use the documented manual setup elsewhere." >&2
+  echo "This first installer targets x86_64 Linux; other platforms are not supported yet." >&2
   exit 2
 fi
 if [ "$#" != 1 ]; then

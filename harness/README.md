@@ -12,14 +12,17 @@ On a fresh Debian or Ubuntu host, an administrator may first need:
 
     sudo apt-get install git curl python3 bubblewrap nodejs npm
 
-Then, from the repository root:
+Get the source, then install:
+
+    git clone https://github.com/BrightlineAI/permission-to-work-not-to-escape.git
+    cd permission-to-work-not-to-escape
 
     PTW_INSTALL="$PWD/../ptw-install"
     bash harness/scripts/install-vps.sh "$PTW_INSTALL"
     export PATH="$PTW_INSTALL/venv/bin:$PTW_INSTALL/bin:$PTW_INSTALL/codex/node_modules/.bin:$PATH"
     ptw doctor
 
-Use a new installation directory. Doctor checks an actual permitted read, blocked private read, running workload and confirmed stop. Do not proceed if it reports ready=false.
+Use a new installation directory. Run from a normal login session with an active systemd user manager. Doctor checks an actual permitted read, blocked private read, running workload and confirmed stop. Do not proceed if it reports ready=false.
 
 For model calls, authenticate your own Codex installation:
 

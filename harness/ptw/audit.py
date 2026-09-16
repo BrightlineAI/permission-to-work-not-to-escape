@@ -108,6 +108,8 @@ def recognized_request(row, inv):
     if payload.get("type") not in ("function_call", "custom_tool_call"):
         return None, None
     name = payload.get("name", "")
+    if not isinstance(name, str):
+        return None, "malformed tool name"
     if name.startswith("functions."):
         name = name[len("functions."):]
     raw = payload.get("arguments", payload.get("input", {}))
@@ -126,9 +128,11 @@ def recognized_request(row, inv):
         command = arguments.get("cmd", arguments.get("command"))
         # Deliberately narrow. Never infer that an arbitrary shell program is safe.
         if isinstance(command, list):
+            if not all(isinstance(word, str) for word in command):
+                return None, "malformed shell arguments"
             words = command
         elif isinstance(command, str):
-            if any(char in command for char in [";", "|", "&", "$", "`", "\n", ">", "<"]):
+            if any(char in command for char in [";", "|", "&", "$", "`", "\n", ">", "<", "*", "?", "[", "]", "{", "}", "~"]):
                 return None, "shell syntax requires manual review"
             try:
                 words = shlex.split(command)

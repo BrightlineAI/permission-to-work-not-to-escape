@@ -320,6 +320,15 @@ class Fixture(unittest.TestCase):
         file.write_text('{"payload":{},"payload":{}}\n')
         self.assertEqual(audit.audit(file, self.policy, self.inv, "frontend")["counts"]["unknown"], 1)
 
+    def test_audit_malformed_tool_fields_unknown(self):
+        for name, arguments in [(None, {}), (42, {}), ("exec_command", {"cmd": ["cat", 42]}),
+                                ("exec_command", {"cmd": "cat /tmp/*"})]:
+            with self.subTest(name=name, arguments=arguments):
+                row = {"payload": {"type": "function_call", "name": name, "arguments": arguments}}
+                request, reason = audit.recognized_request(row, self.inv)
+                self.assertIsNone(request)
+                self.assertIsNotNone(reason)
+
     def test_history_is_untrusted(self):
         data = audit.history_context(self.root / "project/history.jsonl")
         self.assertIn("UNTRUSTED", data["trust"])

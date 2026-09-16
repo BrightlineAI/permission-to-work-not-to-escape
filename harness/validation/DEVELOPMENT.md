@@ -40,4 +40,6 @@ All runs in this directory were made on algol-box-2-1, in the isolated `ptw-buil
 
 19. The next clean installation passed 71 tests, both offline workflows and both live workflows. The additional native history diagnostic still could not start dynamic shell binaries with its custom filesystem profile. That recording now uses Codex's standard read-only sandbox, as an existing session would. This changes only historical data collection; the protected adapter keeps its deny profile and disabled native tools.
 
-Checkpoints: 9d54bcb, 079974a, 1614da7, d2f334f, 6d1d684 and e8b2ce9. Development environments and failed validation outputs are retained on the VPS.
+20. Adversarial log review found that malformed tool names or argument arrays could crash the importer. They now produce unknown findings, as do shell globs. Doctor also uses bounded startup polling instead of assuming a fixed scheduling delay.
+
+Checkpoints: 9d54bcb, 079974a, 1614da7, d2f334f, 6d1d684, e8b2ce9 and 4ba0e29. Development environments and failed validation outputs are retained on the VPS.

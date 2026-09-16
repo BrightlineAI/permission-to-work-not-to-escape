@@ -46,8 +46,12 @@ def check():
             result = subprocess.run(denied, capture_output=True, timeout=15)
             report["checks"]["private_read_blocked"] = result.returncode != 0 and report["checks"]["permitted_read"]
             unit = supervisor.launch(actor["token"], ["/usr/bin/sleep", "30"])
-            time.sleep(.25)
-            state = supervisor.state(unit)
+            deadline = time.monotonic() + 5
+            while True:
+                state = supervisor.state(unit)
+                if state.get("ActiveState") == "active" or state["confirmed_stopped"] or time.monotonic() >= deadline:
+                    break
+                time.sleep(.02)
             report["checks"]["supervised_work_running"] = state.get("ActiveState") == "active"
             store.stop("website")
             supervisor.reconcile()
