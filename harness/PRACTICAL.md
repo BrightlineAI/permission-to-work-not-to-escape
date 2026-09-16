@@ -68,6 +68,10 @@ and escalation. Supply candidate commands as JSON, for example:
     [{"id":"test","argv":["/usr/bin/python3","-m","unittest","discover","-s","tests"],
       "resources":["src","tests"],"timeout_seconds":30}]
 
+Be explicit about file lifecycle permissions. "Modify existing files" need not
+authorize creating, renaming or deleting them. Say which directories permit those
+operations. Review omissions as carefully as excessive permissions.
+
 Resource names here are top-level repository paths. Include output directories
 such as dist in the inventory and command inputs when builds need them; create
 those directories yourself before preparing the project. Use exact Python pins
