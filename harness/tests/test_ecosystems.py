@@ -138,9 +138,11 @@ class EcosystemTests(EcosystemFixture, unittest.TestCase):
     def test_metadata_node_can_live_outside_usr_bin(self):
         node, npm = shutil.which("node"), shutil.which("npm")
         link = self.root / "custom-node"
-        link.symlink_to(node)
-        with patch("ptw.npm.shutil.which", side_effect=lambda name: str(link) if name == "node" else npm):
+        shutil.copy2(node, link)
+        with patch("ptw.npm.shutil.which", side_effect=lambda name: str(link) if name == "node" else npm), \
+             patch("ptw.npm.subprocess.run", wraps=subprocess.run) as run:
             self.assertEqual(semver_check([("1.2.3", "^1"), ("1.2.3", "^2")]), [True, False])
+            self.assertEqual(run.call_args.args[0][0], str(link))
 
     def test_optional_missing_peer_accepted(self):
         fixture = NpmFixture(fields={"peerDependencies": {"optional": "^1"},
