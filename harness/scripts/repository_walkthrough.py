@@ -155,6 +155,13 @@ def main():
                     language + "-child")
                 check(language + "_real_delegated_task", any(
                     s["request"]["action"] == "run" and s["result"].get("exit_code") == 0 for s in child_run["steps"]))
+                delegated = run_model(example, parent,
+                    "Delegate exactly once to task readcheck. Ask that child to install the declared dependencies "
+                    "and run the reviewed test command, without editing any files. Do not do that work yourself. "
+                    "When the child's result returns, finish with its outcome.", language + "-model-delegation")
+                check(language + "_model_requested_delegate", len(delegated["delegates"]) == 1 and
+                      any(s["request"]["action"] == "run" and s["result"].get("exit_code") == 0
+                          for s in delegated["delegates"][0]["steps"]))
             else:
                 installed = action(parent, request("install", "dependencies", content="pypi" if language == "python" else "npm"))
                 check(language + "_checked_install", installed["allowed"])
