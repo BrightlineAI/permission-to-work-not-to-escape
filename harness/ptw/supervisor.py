@@ -130,12 +130,14 @@ class Supervisor:
                 raise Invalid("Sandbox launch failed: " + result.stderr[:500])
             return unit
 
-    def engine(self, token, command, *, stderr=None):
+    def engine(self, token, command, *, stderr=None, terminal=False, service_seconds=200):
         """Trusted adapter only: start a fixed model runtime or confined build.
 
         Native tool permissions are fixed by codex.generate. The model cannot call
         this API, choose flags or gain a general host command tool.
         """
+        if not isinstance(service_seconds, int) or not 1 <= service_seconds <= 28800:
+            raise Invalid("Trusted service lifetime must be 1 to 28800 seconds")
         with self.store.locked() as db:
             actor = self.store.session(db, token)
             project, _ = self.store.project(db, actor["project"])
@@ -143,12 +145,13 @@ class Supervisor:
                 raise Invalid("Project stopped")
             unit = "ptw-" + secrets.token_hex(12) + ".service"
             db.execute("INSERT INTO workloads(unit,project,session) VALUES(?,?,?)", (unit, actor["project"], actor["id"]))
-            process = subprocess.Popen(manager("systemd-run") + ["--quiet", "--collect", "--pipe", "--wait", "--unit=" + unit,
+            process = subprocess.Popen(manager("systemd-run") + ["--quiet", "--collect", "--pty" if terminal else "--pipe", "--wait", "--unit=" + unit,
                 *service_identity(), "--property=KillMode=control-group",
                 "--property=MemoryMax=768M", "--property=CPUQuota=100%", "--property=TasksMax=128",
                 "--property=NoNewPrivileges=yes", "--property=LimitFSIZE=536870912",
-                "--property=RuntimeMaxSec=200", "--property=TimeoutStopSec=2", "--", *command],
-                stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=stderr or subprocess.PIPE, text=stderr is None)
+                "--property=RuntimeMaxSec=" + ("28800" if terminal else str(service_seconds)), "--property=TimeoutStopSec=2", "--", *command],
+                stdin=None if terminal else subprocess.PIPE, stdout=None if terminal else subprocess.PIPE,
+                stderr=None if terminal else (stderr or subprocess.PIPE), text=stderr is None)
             # Do not release the admission lock until systemd has created the unit.
             # Otherwise a concurrent stop could miss a launch still in flight.
             for _ in range(100):

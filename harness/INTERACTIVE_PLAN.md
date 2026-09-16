@@ -1,6 +1,6 @@
 # Interactive Codex onboarding and acceptance
 
-Status: planned, September 16, 2026. All implementation, builds, model calls,
+Status: implementation and acceptance in progress, September 16, 2026. All implementation, builds, model calls,
 security probes and terminal acceptance run in a new directory on Algol 2-1.
 The paper and historical experiment evidence remain unchanged.
 
@@ -25,9 +25,11 @@ downloads, model latency, building packages or complex policy review.
    resources. Repository edits cannot silently activate policy changes. Historical
    logs are optional untrusted evidence, never authority.
 3. Real Codex CLI uses a small local MCP adapter over the existing deterministic
-   dispatch. Native uncontrolled shell, tools, plugins, search, code mode and
+   dispatch. Native uncontrolled shell, tools, plugins, search and
    unregistered delegation are unavailable. A deny filesystem profile is additional
    protection, not the sole control. The model never receives controller tokens.
+   Codex 0.154.0's bundled isolated V8 host is required to dispatch MCP calls;
+   it provides registered tools, not Node, filesystem or network APIs.
 4. File/command/package effects reuse the existing broker and confined executor.
    Linux hides host resources, controller state and credentials from executed code.
    There is no unrestricted network or direct host write fallback. Codex's trusted
@@ -47,7 +49,7 @@ introducing another policy engine. Do not replace the Codex terminal with a mock
 
 ## Implementation sequence and commits
 
-- [ ] Commit this reviewed plan before runtime changes.
+- [x] Commit this reviewed plan before runtime changes.
 - [ ] Verify a pinned real Codex terminal can use the local adapter under fixed
   restrictions. Inspect actual tool calls and effects, not model claims.
 - [ ] Implement safe startup/discovery/review/reuse/status/stop and supervised PTY.
@@ -107,3 +109,11 @@ installation. Any incomplete gate must be reported explicitly.
 The host user manager initially reports degraded because of an existing failed
 unit. Inspect that unit read-only; do not reset unrelated services. The new
 controller must independently prove healthy before activation.
+
+The first real TUI probes caught two integration failures: CLI trust overrides
+alone did not prevent the startup trust dialog from trying to edit a read-only
+configuration, and disabling the code-mode host prevented MCP calls. An isolated
+configuration file now contains the trusted empty control workspace; the host
+configuration and credentials remain unchanged. The bundled V8 host is enabled
+while native effectful routes remain disabled. Probe 04 read the actual fixture
+through MCP. This does not yet satisfy full onboarding or security acceptance.

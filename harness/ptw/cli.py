@@ -15,6 +15,21 @@ def main(argv=None):
     parser.add_argument("--version", action="version", version=__version__)
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("doctor", help="Check installation with real permitted, forbidden and stop probes")
+    interactive = commands.add_parser("codex", help="Set up once, then open protected interactive Codex")
+    interactive.add_argument("--repo", default=str(Path.cwd()))
+    interactive.add_argument("--goal")
+    interactive.add_argument("--editable", help="Comma separated top-level editable directories")
+    interactive.add_argument("--language", choices=["python", "javascript", "typescript"])
+    interactive.add_argument("--warn-at", type=int)
+    interactive.add_argument("--stop-at", type=int)
+    interactive.add_argument("--history", help="Optional selected, sanitized history as untrusted evidence")
+    interactive.add_argument("--task")
+    interactive.add_argument("--prompt", help="Optional first message in the genuine Codex terminal")
+    operations = interactive.add_mutually_exclusive_group()
+    operations.add_argument("--status", action="store_true")
+    operations.add_argument("--stop", action="store_true")
+    operations.add_argument("--review", action="store_true")
+    operations.add_argument("--setup-only", action="store_true")
     sample = commands.add_parser("sample", help="Create a fresh synthetic project")
     sample.add_argument("--out", required=True)
     sample.add_argument("--packages", action="store_true", help="Include reviewed Python package control example")
@@ -141,6 +156,9 @@ def main(argv=None):
 
 
 def execute(args):
+    if args.command == "codex":
+        from .onboarding import start
+        return start(args)
     if args.command == "doctor":
         from .doctor import check
         return check()
