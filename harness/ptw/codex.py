@@ -33,6 +33,9 @@ def generate(prompt, schema, *, model="gpt-5.6-sol", effort="low", timeout=180, 
     executable = shutil.which("codex")
     if executable is None:
         raise Invalid("Install and authenticate Codex first; no substitute model or offline success")
+    version = subprocess.run([executable, "--version"], capture_output=True, text=True, timeout=10).stdout.strip()
+    if version != "codex-cli 0.154.0":
+        raise Invalid("This adapter is verified for Codex CLI 0.154.0; install the pinned version or verify a new adapter")
     with tempfile.TemporaryDirectory(prefix="ptw-codex-") as directory:
         root = Path(directory)
         save(root / "schema.json", provider_schema(schema))
@@ -73,7 +76,7 @@ def generate(prompt, schema, *, model="gpt-5.6-sol", effort="low", timeout=180, 
             except json.JSONDecodeError:
                 pass
         # Metadata only; do not export auth, arbitrary environment or raw runtime stderr.
-        metadata = {"model": model, "effort": effort, "wall_seconds": elapsed,
+        metadata = {"model": model, "effort": effort, "wall_seconds": elapsed, "codex_version": version,
                     "exit_code": result.returncode, "usage": [r.get("usage") for r in events if r.get("usage")],
                     "native_items": [r.get("item", {}).get("type") for r in events if r.get("item")]}
         if result.returncode or not (root / "answer.json").exists():

@@ -1,6 +1,6 @@
 # Roadmap
 
-The first release is a research prototype and an inspectable experiment archive. Proposed work below is not implemented functionality.
+The first release is a research prototype and an inspectable experiment archive. The newer [local harness](../harness/README.md) implements a small part of the roadmap: reviewed policy proposals, a Codex file adapter, narrower tasks, durable shared counters, local stopping and retrospective log review. Broader deliverables below remain research and extension work.
 
 | Stage | Deliverable | Acceptance evidence |
 |---|---|---|

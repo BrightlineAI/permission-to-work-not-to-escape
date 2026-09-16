@@ -1,0 +1,135 @@
+# Project safety harness
+
+A small working extension of the [paper](../paper/submission.pdf). Describe a project, review its proposed policy, and run agents through shared controls.
+
+The first version handles existing text files. It supports multiple independent agents, narrower tasks and delegates, shared escalation, and review of existing Codex logs. Project differences are JSON configuration, not custom code.
+
+## Install on a Linux VPS
+
+Use an ordinary operator account, not root. The tested platform is x86_64 Linux with systemd, bubblewrap 0.12.0, Node 22 and Python 3.12. The installer downloads pinned, checksum verified nono and uv releases, an isolated Python environment, and Codex CLI 0.154.0. It does not modify global packages.
+
+On a fresh Debian or Ubuntu host, an administrator may first need:
+
+    sudo apt-get install git curl python3 bubblewrap nodejs npm
+
+Then, from the repository root:
+
+    PTW_INSTALL="$PWD/../ptw-install"
+    bash harness/scripts/install-vps.sh "$PTW_INSTALL"
+    export PATH="$PTW_INSTALL/venv/bin:$PTW_INSTALL/bin:$PTW_INSTALL/codex/node_modules/.bin:$PATH"
+    ptw doctor
+
+Use a new installation directory. Doctor checks an actual permitted read, blocked private read, running workload and confirmed stop. Do not proceed if it reports ready=false.
+
+For model calls, authenticate your own Codex installation:
+
+    codex login
+    codex login status
+
+The default model is GPT-5.6 Sol with low effort. No model is silently substituted. The file broker and audit do not need an API key or a model.
+
+## New project
+
+Start with a tiny example:
+
+    PTW_PROJECT="$PWD/../ptw-example"
+    ptw sample --out "$PTW_PROJECT"
+    ptw propose --description "$PTW_PROJECT/project.md" \
+      --inventory "$PTW_PROJECT/inventory.json" --out "$PTW_PROJECT/draft.json"
+    ptw review --policy "$PTW_PROJECT/draft.json" --inventory "$PTW_PROJECT/inventory.json"
+
+Read the review output. Check which resources each task can read or change, and the warning and stopping thresholds. Inventory means a resource exists, not that it is allowed. Edit the draft if needed, then review again.
+
+Approve the exact review hash, not an earlier version:
+
+    ptw approve --policy "$PTW_PROJECT/draft.json" --inventory "$PTW_PROJECT/inventory.json" \
+      --sha256 PASTE_THE_REVIEW_HASH --reviewer "Your name" --out "$PTW_PROJECT/approved.json"
+    ptw activate --bundle "$PTW_PROJECT/approved.json" --state "$PTW_PROJECT/controller"
+    ptw run --state "$PTW_PROJECT/controller" --project website --task frontend \
+      --assignment "$PTW_PROJECT/task.md" --out "$PTW_PROJECT/run.json"
+
+The UI file should contain Hello followed by a newline. Customer records must remain unchanged. Inspect the files, not just the model's completion message.
+
+To test without model calls, use the supplied policy.json in place of draft.json, skip propose, and use the manual request commands below. Do not call this a model generated policy.
+
+For your project, replace project.md and inventory.json. Give every resource an ID and an existing relative file path under one canonical resource directory. The controller directory must be outside that directory. Version 1 does not create/delete resources or grant arbitrary directory, credential or network access.
+
+## Existing project
+
+Write the intended project scope and inventory first. Select a relevant Codex rollout JSONL file; do not upload your entire history. Codex commonly stores these under its sessions directory.
+
+    ptw propose --description "$PTW_PROJECT/project.md" \
+      --inventory "$PTW_PROJECT/inventory.json" \
+      --history "$PTW_PROJECT/history.jsonl" --out "$PTW_PROJECT/existing-draft.json"
+    ptw review --policy "$PTW_PROJECT/existing-draft.json" --inventory "$PTW_PROJECT/inventory.json"
+
+Review and approve this draft using the new review hash. Then compare the selected log with it:
+
+    ptw approve --policy "$PTW_PROJECT/existing-draft.json" --inventory "$PTW_PROJECT/inventory.json" \
+      --sha256 PASTE_THE_NEW_REVIEW_HASH --reviewer "Your name" --out "$PTW_PROJECT/existing-approved.json"
+
+    ptw audit --bundle "$PTW_PROJECT/existing-approved.json" \
+      --history "$PTW_PROJECT/history.jsonl" --task frontend --out "$PTW_PROJECT/audit.json"
+
+For the sample log, expect one allowed request, one denied request and one unknown command. The audit does not execute commands, change permissions, or change live violation counts.
+
+Past access does not grant permission. A denied request might reveal excessive access or an overly narrow draft. Resolve that against the operator's intent; do not automatically allow everything the logs contain. Unknown means the tool or command needs manual review, not that it was safe.
+
+The proposer sends a bounded excerpt of your selected log to your configured model. Pattern redaction is only a convenience, not guaranteed secret removal. Inspect or sanitize real logs before using --history. The audit command itself stays local.
+
+## Multiple agents, tasks and delegates
+
+Register every agent with the same controller state and project ID. These are operator commands; do not give unconfined agents access to the controller, session files or these administration commands.
+
+    ptw register --state "$PTW_PROJECT/controller" --project website --task frontend \
+      --out "$PTW_PROJECT/parent.json"
+    ptw register --state "$PTW_PROJECT/controller" --project website --task operations \
+      --out "$PTW_PROJECT/second-parent.json"
+    ptw register --state "$PTW_PROJECT/controller" --project website --task frontend \
+      --parent "$PTW_PROJECT/parent.json" --out "$PTW_PROJECT/child.json"
+
+Private session files hold credentials for trusted adapters. The model receives grants and tool results, not those credentials. Delegates can narrow further with --grants, but cannot exceed their parent or task. Their violations also count against ancestor tasks, so delegation cannot reset a stricter threshold.
+
+For a manual permitted request:
+
+    ptw request --state "$PTW_PROJECT/controller" --session "$PTW_PROJECT/parent.json" \
+      --event ui-edit-1 --action write --resource ui --content "Hello"
+
+For a forbidden request:
+
+    ptw request --state "$PTW_PROJECT/controller" --session "$PTW_PROJECT/parent.json" \
+      --event forbidden-1 --action read --resource customers
+
+Use distinct event IDs for distinct attempts. A transport retry must reuse the same ID and body. With the sample policy, three denied requests across any parents or delegates stop the project. The first triggers a warning. New requests and launches are rejected; registered workloads are terminated. Warnings are returned to the acting adapter and visible through shared status.
+
+    ptw status --state "$PTW_PROJECT/controller" --project website
+    ptw events --state "$PTW_PROJECT/controller" --project website
+    ptw stop --state "$PTW_PROJECT/controller" --project website
+
+For long running local workloads, keep termination reconciliation active in another operator terminal:
+
+    ptw watch --state "$PTW_PROJECT/controller"
+
+The operator can launch a confined workload with ptw launch --state STATE --session SESSION -- COMMAND ARGUMENTS. It sees only its mounted resources under /resources/ID, scratch space and system runtimes. It cannot access the controller, other resource files, the host process namespace or the network. This is an operator API, not an unrestricted Codex shell tool.
+
+## Run the tests
+
+From the repository root, with the installed environment on PATH:
+
+    python harness/scripts/validate.py --linux --out ../ptw-validation
+    python harness/scripts/walkthrough.py --out ../ptw-walkthrough
+    python harness/scripts/walkthrough.py --live --out ../ptw-live-walkthrough
+
+Use new output directories on each run. The last command makes real Codex calls and exercises both new and existing project workflows. The walkthrough approves only its known synthetic fixtures; real project approval remains your responsibility.
+
+## What this version does and does not cover
+
+Runtime policy decisions need no extra LLM calls. Codex still uses normal model calls to do its work. Policy drafting takes one call when valid, up to three if structural repair is needed. Drafts and validation feedback are retained; there is no automatic runtime policy widening.
+
+This is a bounded file resource adapter, not a drop in interceptor for every tool in an arbitrary existing Codex session. Existing sessions can be audited; protected execution starts through ptw run. Native tools are disabled or denied access to controlled resources. Delegation is registered through the trusted adapter, not arbitrary unregistered model subprocesses.
+
+The host, operator, Codex runtime and supervisor are trusted. Keep policy state away from unconfined programs running as your operator. A typed policy may still misunderstand your intent. Approval is a content bound operator workflow, not a cryptographic signature or proof that prose was translated correctly.
+
+Stop covers registered local work, not remote services or already completed effects. A failed termination remains pending and visible for retry. Resource failures stop the project conservatively and are not labeled malicious violations. Never reset a stopped project by reusing its ID; review and start an explicit new version.
+
+See [the plan and design review](PLAN.md), [technical details](DESIGN.md) and [validation record](validation/README.md).

@@ -154,7 +154,11 @@ class Store:
             return "outside task or delegated scope"
         if action == "read" and content:
             return "read must not carry write content"
-        if len(content.encode()) > MAX_BYTES:
+        try:
+            size = len(content.encode())
+        except UnicodeError:
+            return "invalid text encoding"
+        if size > MAX_BYTES:
             return "request too large"
         return None
 
@@ -189,13 +193,25 @@ class Store:
             elif reason:
                 db.execute("BEGIN IMMEDIATE")
                 db.execute("UPDATE projects SET violations=violations+1 WHERE id=?", (actor["project"],))
-                db.execute("UPDATE task_counts SET violations=violations+1 WHERE project=? AND task=?", (actor["project"], actor["task"]))
+                # A delegate also contributes to every ancestor task. Switching
+                # to a narrower task cannot reset its parent's stricter threshold.
+                tasks = {actor["task"]}
+                parent_id = actor["parent"]
+                while parent_id:
+                    ancestor = db.execute("SELECT task,parent FROM sessions WHERE id=?", (parent_id,)).fetchone()
+                    tasks.add(ancestor["task"])
+                    parent_id = ancestor["parent"]
+                for task_id in tasks:
+                    db.execute("UPDATE task_counts SET violations=violations+1 WHERE project=? AND task=?", (actor["project"], task_id))
                 total = project["violations"] + 1
                 task_count = db.execute("SELECT violations FROM task_counts WHERE project=? AND task=?", (actor["project"], actor["task"])).fetchone()[0]
-                task = next(t for t in bundle["policy"]["tasks"] if t["id"] == actor["task"])
-                pe, te = bundle["policy"]["project"]["escalation"], task["escalation"]
-                stop = total >= pe["stop_at"] or task_count >= te["stop_at"]
-                warn = total >= pe["warn_at"] or task_count >= te["warn_at"]
+                pe = bundle["policy"]["project"]["escalation"]
+                stop, warn = total >= pe["stop_at"], total >= pe["warn_at"]
+                for task in bundle["policy"]["tasks"]:
+                    if task["id"] in tasks:
+                        count = db.execute("SELECT violations FROM task_counts WHERE project=? AND task=?", (actor["project"], task["id"])).fetchone()[0]
+                        stop = stop or count >= task["escalation"]["stop_at"]
+                        warn = warn or count >= task["escalation"]["warn_at"]
                 if stop:
                     db.execute("UPDATE projects SET stopped=1, reason=? WHERE id=?", ("violation threshold", actor["project"]))
                 response = {"allowed": False, "effect": "none", "level": "stop" if stop else "warn" if warn else "deny",

@@ -8,15 +8,24 @@ from .policy import Invalid, scope
 from .store import Store
 
 
+def strict_pairs(items):
+    value = {}
+    for key, item in items:
+        if key in value:
+            raise ValueError("Ambiguous duplicate field")
+        value[key] = item
+    return value
+
+
 def read_rows(path):
     if Path(path).stat().st_size > 10_000_000:
         raise Invalid("Select a log smaller than 10 MB")
     with Path(path).open() as handle:
         for number, line in enumerate(handle, 1):
             try:
-                row = json.loads(line)
+                row = json.loads(line, object_pairs_hook=strict_pairs)
                 yield number, row if isinstance(row, dict) else {"_invalid": True}
-            except json.JSONDecodeError:
+            except ValueError:
                 yield number, {"_invalid": True}
 
 
@@ -48,8 +57,8 @@ def recognized_request(row, inv):
     name = payload.get("name", "")
     raw = payload.get("arguments", payload.get("input", {}))
     try:
-        arguments = json.loads(raw) if isinstance(raw, str) else raw
-    except json.JSONDecodeError:
+        arguments = json.loads(raw, object_pairs_hook=strict_pairs) if isinstance(raw, str) else raw
+    except ValueError:
         return None, "unparsed tool call"
     if not isinstance(arguments, dict):
         return None, "unparsed tool call"
@@ -107,4 +116,3 @@ def audit(path, policy, inv, task):
             "recommendations": ["Review denied requests against the operator goal; do not automatically grant them.",
                                 "Review unknown tools and routes before claiming coverage.",
                                 "Apply a reviewed new policy as a new project version; do not reset a stopped project."]}
-

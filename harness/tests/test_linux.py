@@ -85,8 +85,12 @@ class LinuxIntegration(unittest.TestCase):
         self.store.activate(approve(other_policy, self.inv, digest(compile_policy(other_policy, self.inv)), "test operator"))
         other = self.store.register("unrelated", "operations")
         # Each service has an actual grandchild in a new session. No PID-only stop.
-        code = "import subprocess,time; subprocess.Popen(['/usr/bin/python3','-c','import os,time; os.setsid(); time.sleep(120)']); time.sleep(120)"
-        for actor in [self.a, self.b, child, other]:
+        for actor, marker, resource in [(self.a, "PARENT_A", "ui"), (self.b, "PARENT_B", "ops"),
+                                        (child, "DELEGATE", "ui"), (other, "UNRELATED", "ops")]:
+            writer = ("import os,time; os.setsid(); "
+                      "f=open('/resources/" + resource + "','a',buffering=1)\n"
+                      "for _ in range(1200): f.write(" + repr(marker + "\n") + "); time.sleep(.02)")
+            code = "import subprocess,time; subprocess.Popen(['/usr/bin/python3','-c'," + repr(writer) + "]); time.sleep(120)"
             self.units.append(self.supervisor.launch(actor["token"], ["/usr/bin/python3", "-c", code]))
         time.sleep(.5)
         self.assertTrue(all(not self.supervisor.state(unit)["confirmed_stopped"] for unit in self.units))
@@ -99,9 +103,29 @@ class LinuxIntegration(unittest.TestCase):
         self.assertEqual(final["level"], "stop")
         self.assertTrue(all(self.supervisor.state(unit)["confirmed_stopped"] for unit in self.units[:3]), final)
         self.assertFalse(self.supervisor.state(self.units[3])["confirmed_stopped"])
+        def counts():
+            text = (Path(self.inv["root"]) / "ui.txt").read_text() + (Path(self.inv["root"]) / "ops.txt").read_text()
+            return {marker: text.count(marker) for marker in ["PARENT_A", "PARENT_B", "DELEGATE", "UNRELATED"]}
+        before = counts()
+        self.assertTrue(all(value > 0 for value in before.values()), before)
+        time.sleep(.2)
+        after = counts()
+        for marker in ["PARENT_A", "PARENT_B", "DELEGATE"]:
+            self.assertEqual(before[marker], after[marker], "Stopped project still caused file effects")
+        self.assertGreater(after["UNRELATED"], before["UNRELATED"])
         with self.assertRaises(Invalid):
             self.supervisor.launch(self.a["token"], ["/usr/bin/true"])
         self.assertTrue(self.store.request(other["token"], "still-works", {"action": "read", "resource": "ops", "content": ""})["allowed"])
+
+    def test_supervised_replaced_resource_fails_closed(self):
+        target = Path(self.inv["root"]) / "ui.txt"
+        target.unlink()
+        target.symlink_to("customers.txt")
+        unit = self.supervisor.launch(self.a["token"], ["/usr/bin/python3", "-c", "open('/resources/ui','w').write('BAD')"])
+        self.units.append(unit)
+        time.sleep(.3)
+        self.assertTrue(self.supervisor.state(unit)["confirmed_stopped"])
+        self.assertEqual((Path(self.inv["root"]) / "customers.txt").read_text(), "SYNTHETIC_PRIVATE_CUSTOMERS\n")
 
 
 if __name__ == "__main__":

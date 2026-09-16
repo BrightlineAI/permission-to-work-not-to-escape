@@ -9,6 +9,7 @@ import re
 import secrets
 import shutil
 import subprocess
+import sys
 import time
 
 from .policy import Invalid, scope
@@ -18,7 +19,21 @@ def run(argv, **kwargs):
     return subprocess.run(argv, capture_output=True, text=True, timeout=20, **kwargs)
 
 
-def sandbox_command(inv, grants, argv, nono=None):
+def manager(tool):
+    mode = os.environ.get("PTW_SYSTEMD_SCOPE", "user")
+    if mode == "user":
+        return [tool, "--user"]
+    if mode == "system":
+        return ["sudo", "-n", tool]
+    raise Invalid("PTW_SYSTEMD_SCOPE must be user or system")
+
+
+def service_identity():
+    return [] if os.environ.get("PTW_SYSTEMD_SCOPE", "user") == "user" else [
+        "--uid=" + pwd.getpwuid(os.getuid()).pw_name]
+
+
+def sandbox_command(inv, grants, argv, nono=None, resource_fds=None):
     if not argv or not all(isinstance(v, str) and "\x00" not in v for v in argv):
         raise Invalid("Nonempty argument list required")
     bwrap = shutil.which("bwrap")
@@ -50,10 +65,10 @@ def sandbox_command(inv, grants, argv, nono=None):
         target = "/resources/" + resource
         # Append only is a broker operation; do not turn it into arbitrary file writes.
         if "write" in actions:
-            command += ["--bind", path, target]
+            command += ["--bind-fd", str(resource_fds[resource]), target] if resource_fds is not None else ["--bind", path, target]
             permissions += ["--allow-file" if "read" in actions else "--write-file", target]
         elif "read" in actions:
-            command += ["--ro-bind", path, target]
+            command += ["--ro-bind-fd", str(resource_fds[resource]), target] if resource_fds is not None else ["--ro-bind", path, target]
             permissions += ["--read-file", target]
     return command + ["--"] + permissions + ["--"] + argv
 
@@ -70,12 +85,18 @@ class Supervisor:
             if project["stopped"]:
                 raise Invalid("Project stopped")
             unit = "ptw-" + secrets.token_hex(12) + ".service"
-            command = sandbox_command(bundle["inventory"], json.loads(actor["grants"]), argv, self.nono)
+            # Validate dependencies now. The trusted worker pins and revalidates
+            # resource descriptors immediately before mounting them.
+            sandbox_command(bundle["inventory"], json.loads(actor["grants"]), argv, self.nono)
+            bindings = {r["resource"]: [r["device"], r["inode"]] for r in db.execute(
+                "SELECT resource,device,inode FROM bindings WHERE project=?", (actor["project"],))}
+            config = {"inventory": bundle["inventory"], "grants": json.loads(actor["grants"]),
+                      "bindings": bindings, "nono": self.nono or os.environ.get("PTW_NONO") or shutil.which("nono")}
+            command = [sys.executable, "-m", "ptw.worker", json.dumps(config), *argv]
             db.execute("INSERT INTO workloads(unit,project,session) VALUES(?,?,?)", (unit, actor["project"], actor["id"]))
-            result = run(["sudo", "-n", "systemd-run", "--quiet", "--collect", "--unit=" + unit,
-                          "--uid=" + pwd.getpwuid(os.getuid()).pw_name,
+            result = run(manager("systemd-run") + ["--quiet", "--collect", "--unit=" + unit, *service_identity(),
                           "--property=KillMode=control-group", "--property=NoNewPrivileges=yes",
-                          "--property=ProtectControlGroups=yes", "--property=RestrictSUIDSGID=yes",
+                          "--property=ProtectControlGroups=yes",
                           "--property=MemoryMax=256M", "--property=CPUQuota=50%", "--property=TasksMax=64",
                           "--property=RuntimeMaxSec=300", "--property=TimeoutStopSec=2", "--", *command])
             if result.returncode:
@@ -96,8 +117,8 @@ class Supervisor:
                 raise Invalid("Project stopped")
             unit = "ptw-" + secrets.token_hex(12) + ".service"
             db.execute("INSERT INTO workloads(unit,project,session) VALUES(?,?,?)", (unit, actor["project"], actor["id"]))
-            process = subprocess.Popen(["sudo", "-n", "systemd-run", "--quiet", "--collect", "--pipe", "--wait", "--unit=" + unit,
-                "--uid=" + pwd.getpwuid(os.getuid()).pw_name, "--property=KillMode=control-group",
+            process = subprocess.Popen(manager("systemd-run") + ["--quiet", "--collect", "--pipe", "--wait", "--unit=" + unit,
+                *service_identity(), "--property=KillMode=control-group",
                 "--property=MemoryMax=768M", "--property=CPUQuota=100%", "--property=TasksMax=128",
                 "--property=RuntimeMaxSec=200", "--property=TimeoutStopSec=2", "--", *command],
                 stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
@@ -118,7 +139,7 @@ class Supervisor:
     def state(unit):
         if not re.fullmatch(r"ptw-[0-9a-f]{24}\.service", unit):
             raise Invalid("Invalid managed unit name")
-        result = run(["sudo", "-n", "systemctl", "show", unit, "-p", "ActiveState", "-p", "ControlGroup", "-p", "LoadState"])
+        result = run(manager("systemctl") + ["show", unit, "-p", "ActiveState", "-p", "ControlGroup", "-p", "LoadState"])
         if result.returncode:
             return {"confirmed_stopped": False, "error": "Cannot query supervisor"}
         values = dict(line.split("=", 1) for line in result.stdout.splitlines() if "=" in line)
@@ -131,7 +152,7 @@ class Supervisor:
 
     def terminate(self, unit):
         self.state(unit)  # Validate the exact target before any mutation.
-        run(["sudo", "-n", "systemctl", "stop", unit])
+        run(manager("systemctl") + ["stop", unit])
         return self.state(unit)
 
     def reconcile(self):

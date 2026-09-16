@@ -4,7 +4,7 @@
 
 A job receives explicit authority from a trusted operator. Tool access, possession of a credential, retrieved instructions and a worker's own claims cannot enlarge it.
 
-The proposed boundary is the project, not just one parent and its children: every participating agent must stay within that scope. The native experiments exercise one parent and its workers. Multiple parent agents, nested task scopes no broader than their project, and persistent coordination across hosts remain extension work.
+The boundary is the project, not just one parent and its children: every participating agent must stay within that scope. The paper's native experiments exercise one parent and its workers. The newer [local harness](../harness/DESIGN.md) adds multiple independent parents, narrower tasks and persistent shared state on one host. Coordination across hosts remains extension work.
 
 | Layer | Input | Responsibility | Current implementation |
 |---|---|---|---|
@@ -19,6 +19,8 @@ The proposed boundary is the project, not just one parent and its children: ever
 Controls are external to the acting agent. Their implementation can be public; protection must not depend on hiding source code.
 
 ## What is reusable now
+
+For a usable new or existing project workflow, start with the [harness guide](../harness/README.md). The components below preserve the original research interfaces and limits.
 
 - `src/permission_to_work/policy.py`: typed schema, deterministic compiler and the study's constrained contract validator. Extracted unchanged from the core experiment.
 - `src/vega_core/`: request/policy parsing, contextual authorization, approval and provenance registries, delegation utilities, experimental gateway/executor.

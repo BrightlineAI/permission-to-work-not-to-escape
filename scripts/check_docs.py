@@ -12,6 +12,7 @@ def main():
     documents=list(ROOT.glob('*.md'))+list((ROOT/'docs').glob('*.md'))
     documents+=[ROOT/'validation/README.md',ROOT/'schemas/README.md']
     documents+=list((ROOT/'examples').rglob('*.md'))+list((ROOT/'adapters').rglob('*.md'))
+    documents+=list((ROOT/'harness').rglob('*.md'))
     for name in ['index-final.md','2026-09-13-fg-novelty-review.md','2026-09-13-lab-incident-coverage.md','2026-09-13-vendor-incident-coverage.md']:
         documents.append(ROOT/'paper/research'/name)
     documents+=[ROOT/'paper/README.md',ROOT/'experiments/paper-2026/README.md']

@@ -82,6 +82,9 @@ class Fixture(unittest.TestCase):
     def test_large_request_denied(self):
         self.assertFalse(self.request(action="write", content="x" * 1_048_577)["allowed"])
 
+    def test_invalid_unicode_request_denied(self):
+        self.assertFalse(self.request(action="write", content="\ud800")["allowed"])
+
     def test_three_actors_share_stop(self):
         child = self.store.register("website", "frontend", parent_token=self.a["token"])
         self.assertEqual(self.request("customers", actor=self.a, event="a")["level"], "warn")
@@ -300,6 +303,11 @@ class Fixture(unittest.TestCase):
         file.write_text("{broken\n")
         self.assertEqual(audit.audit(file, self.policy, self.inv, "frontend")["counts"]["unknown"], 1)
 
+    def test_audit_duplicate_fields_unknown(self):
+        file = self.root / "ambiguous.jsonl"
+        file.write_text('{"payload":{},"payload":{}}\n')
+        self.assertEqual(audit.audit(file, self.policy, self.inv, "frontend")["counts"]["unknown"], 1)
+
     def test_history_is_untrusted(self):
         data = audit.history_context(self.root / "project/history.jsonl")
         self.assertIn("UNTRUSTED", data["trust"])
@@ -309,6 +317,28 @@ class Fixture(unittest.TestCase):
         serialized = json.dumps(self.store.audit_events("website"))
         self.assertNotIn("Welcome", serialized)
         self.assertNotIn(self.a["token"], serialized)
+
+    def test_delegate_cannot_reset_stricter_ancestor_threshold(self):
+        self.policy["project"]["id"] = "stricter"
+        self.policy["tasks"][0]["escalation"] = {"warn_at": 1, "stop_at": 2}
+        self.policy["tasks"].append({"id": "review", "description": "Read only",
+            "grants": [{"resource": "ui", "actions": ["read"]}],
+            "escalation": {"warn_at": 1, "stop_at": 3}})
+        self.store.activate(self.approved())
+        parent = self.store.register("stricter", "frontend")
+        child = self.store.register("stricter", "review", parent_token=parent["token"])
+        self.assertEqual(self.request("customers", actor=child, event="1")["level"], "warn")
+        self.assertEqual(self.request("customers", actor=child, event="2")["level"], "stop")
+        counts = {r["task"]: r["violations"] for r in self.store.status("stricter")["tasks"]}
+        self.assertEqual(counts["frontend"], 2)
+        self.assertEqual(counts["review"], 2)
+
+    def test_same_task_ancestry_counts_once(self):
+        child = self.store.register("website", "frontend", parent_token=self.a["token"])
+        grandchild = self.store.register("website", "frontend", parent_token=child["token"])
+        self.request("customers", actor=grandchild)
+        counts = {r["task"]: r["violations"] for r in self.store.status("website")["tasks"]}
+        self.assertEqual(counts["frontend"], 1)
 
 
 if __name__ == "__main__":

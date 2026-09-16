@@ -14,6 +14,7 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description="Reviewed project controls for local agents")
     parser.add_argument("--version", action="version", version=__version__)
     commands = parser.add_subparsers(dest="command", required=True)
+    commands.add_parser("doctor", help="Check installation with real permitted, forbidden and stop probes")
     sample = commands.add_parser("sample", help="Create a fresh synthetic project")
     sample.add_argument("--out", required=True)
     propose = commands.add_parser("propose", help="Codex drafts policy, never approves it")
@@ -76,12 +77,17 @@ def main(argv=None):
     try:
         result = execute(args)
         print(json.dumps(result, indent=2))
+        if args.command == "doctor" and not result["ready"]:
+            raise SystemExit(1)
     except (Invalid, OSError, ValueError) as exc:
         print(json.dumps({"error": str(exc)}), file=sys.stderr)
         raise SystemExit(2)
 
 
 def execute(args):
+    if args.command == "doctor":
+        from .doctor import check
+        return check()
     if args.command == "sample":
         from .sample import create
         return create(args.out)
