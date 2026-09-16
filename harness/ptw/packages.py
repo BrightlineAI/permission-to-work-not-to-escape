@@ -7,7 +7,7 @@ import secrets
 import tempfile
 import time
 
-from .package_evidence import EvidenceError, PyPIEvidence, evaluate, pins
+from .package_evidence import EvidenceError, PyPIEvidence, evaluate, pins, severity
 from .package_install import file_manifest, install_wheels, validate_wheels
 from .policy import Invalid, canonical, digest
 
@@ -134,7 +134,10 @@ class PackageControl:
                 response = {"allowed": True, "effect": "installed", "level": "allow",
                             "package_set": identity, "packages": selected,
                             "manifest_sha256": digest(manifest), "policy_sha256": current["approval"]["sha256"],
-                            "evidence": [{k: e[k] for k in ("name", "version", "sha256", "published_at", "checked_at")} for e in evidence]}
+                            "evidence": [{**{k: e[k] for k in ("name", "version", "sha256", "published_at", "checked_at")},
+                                "advisories": [{"id": v["id"], "cvss_base": severity(v),
+                                               "withdrawn": v.get("withdrawn")} for v in e["vulnerabilities"]]}
+                                for e in evidence]}
                 db.execute("BEGIN IMMEDIATE")
                 db.execute("INSERT INTO package_sets VALUES(?,?,?,?,?)",
                            (identity, actor["project"], canonical(sorted(selected)), canonical(manifest), time.time()))

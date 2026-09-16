@@ -12,7 +12,7 @@ from packaging.requirements import Requirement
 from packaging.utils import canonicalize_name, parse_wheel_filename
 from packaging.version import Version
 
-from .policy import Invalid
+from .policy import Invalid, parse_json
 
 MAX_DOWNLOAD = 20 * 1024 * 1024
 
@@ -135,7 +135,7 @@ class PyPIEvidence:
 
     def json(self, url, data=None):
         try:
-            return json.loads(self.fetch(url, data))
+            return parse_json(self.fetch(url, data))
         except (ValueError, TypeError) as exc:
             raise EvidenceError("Invalid evidence JSON") from exc
 
@@ -148,7 +148,7 @@ class PyPIEvidence:
                 raise ValueError()
             candidates = []
             for item in release["urls"]:
-                if item.get("packagetype") != "bdist_wheel" or item.get("yanked"):
+                if item.get("packagetype") != "bdist_wheel" or item.get("yanked") is not False:
                     continue
                 wheel_name, wheel_version, _, tags = parse_wheel_filename(item["filename"])
                 if wheel_name == name and wheel_version == Version(version) and any(
@@ -167,6 +167,8 @@ class PyPIEvidence:
                 if token:
                     query["page_token"] = token
                 response = self.json("https://api.osv.dev/v1/query", query)
+                if not isinstance(response, dict) or set(response) - {"vulns", "next_page_token"}:
+                    raise EvidenceError("Unexpected vulnerability response fields")
                 rows = response.get("vulns", [])
                 if not isinstance(rows, list):
                     raise ValueError()

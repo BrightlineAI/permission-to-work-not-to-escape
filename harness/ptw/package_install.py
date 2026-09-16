@@ -20,12 +20,17 @@ from .supervisor import runtime_namespace
 
 
 def target_environment():
-    result = subprocess.run(["/usr/bin/python3", "-I", "-c",
-        "import json,sys; print(json.dumps(list(sys.version_info[:3])))"],
+    result = subprocess.run(["/usr/bin/python3", "-I", "-S", "-c",
+        "import json,sys,platform; v=sys.implementation.version; "
+        "iv=f'{v.major}.{v.minor}.{v.micro}'; "
+        "iv += '' if v.releaselevel == 'final' else "
+        "{'alpha':'a','beta':'b','candidate':'rc'}[v.releaselevel]+str(v.serial); "
+        "print(json.dumps(dict(python_version='.'.join(map(str,sys.version_info[:2])), "
+        "python_full_version=platform.python_version(), implementation_name=sys.implementation.name, "
+        "implementation_version=iv, platform_python_implementation=platform.python_implementation())))"],
         capture_output=True, text=True, timeout=5, check=True)
-    major, minor, patch = json.loads(result.stdout)
     env = default_environment()
-    env.update(python_version=f"{major}.{minor}", python_full_version=f"{major}.{minor}.{patch}", extra="")
+    env.update(json.loads(result.stdout), extra="")
     return env
 
 

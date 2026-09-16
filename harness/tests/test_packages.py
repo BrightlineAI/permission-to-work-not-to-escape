@@ -17,7 +17,7 @@ from unittest.mock import patch
 import zipfile
 
 from ptw.package_evidence import EvidenceError, PyPIEvidence, evaluate, pins, severity
-from ptw.package_install import file_manifest, validate_wheels
+from ptw.package_install import file_manifest, validate_wheels, target_environment
 from ptw.packages import PackageControl, mounted_set
 from ptw.policy import Invalid, approve, compile_policy, digest, load
 from ptw.sample import create
@@ -101,6 +101,120 @@ class PackageFixture:
 
 
 class PackagePolicyTests(PackageFixture, unittest.TestCase):
+    def test_all_interpreter_markers_use_runtime_not_controller(self):
+        env = target_environment()
+        expected = json.loads(subprocess.check_output(["/usr/bin/python3", "-I", "-S", "-c",
+            "import json,platform; print(json.dumps(platform.python_version()))"], text=True))
+        self.assertEqual(env["python_full_version"], expected)
+        self.assertEqual(env["implementation_version"], expected)
+        self.assertEqual(env["python_version"], ".".join(expected.split(".")[:2]))
+        path = self.root / "implementation-marker.whl"
+        path.write_bytes(wheel_bytes(requires=["missing; implementation_version == '" + expected + "'"]))
+        with self.assertRaises(EvidenceError):
+            validate_wheels({"idna": path}, {"idna": "3.11"})
+
+    def test_nonfinite_policy_threshold_rejected(self):
+        for value in [float("nan"), float("inf"), -float("inf")]:
+            self.policy["project"]["packages"]["deny_cvss_at_or_above"] = value
+            with self.assertRaises(Invalid):
+                compile_policy(self.policy, self.inv)
+
+    def test_duplicate_or_nonfinite_evidence_json_rejected(self):
+        provider = PyPIEvidence()
+        for raw in [b'{"vulns":[1],"vulns":[]}', b'{"value":NaN}']:
+            with patch.object(provider, "fetch", return_value=raw), self.assertRaises(EvidenceError):
+                provider.json("https://api.osv.dev/v1/query")
+
+    def release(self):
+        return {"info": {"name": "idna", "version": "3.11"}, "urls": [{
+            "filename": "idna-3.11-py3-none-any.whl", "packagetype": "bdist_wheel", "yanked": False,
+            "digests": {"sha256": "a" * 64}, "url": "https://files.pythonhosted.org/a.whl",
+            "upload_time_iso_8601": "2020-01-01T00:00:00Z"}]}
+
+    def test_osv_pagination_checks_later_critical_record(self):
+        provider = PyPIEvidence()
+        with patch.object(provider, "json", side_effect=[self.release(), {"next_page_token": "next"},
+                                                        {"vulns": [CRITICAL]}]) as fetch:
+            result = provider.assess("idna", "3.11")
+        self.assertEqual(fetch.call_args.args[1]["page_token"], "next")
+        self.assertTrue(evaluate(result, self.policy["project"]["packages"]))
+
+    def test_osv_pagination_cycle_blocked(self):
+        provider = PyPIEvidence()
+        with patch.object(provider, "json", side_effect=[self.release(), {"next_page_token": "next"},
+                                                        {"next_page_token": "next"}]), self.assertRaises(EvidenceError):
+            provider.assess("idna", "3.11")
+
+    def test_osv_error_body_not_a_clean_scan(self):
+        provider = PyPIEvidence()
+        with patch.object(provider, "json", side_effect=[self.release(), {"error": "try later"}]), self.assertRaises(EvidenceError):
+            provider.assess("idna", "3.11")
+
+    def test_osv_empty_valid_response_is_not_missing_evidence(self):
+        provider = PyPIEvidence()
+        with patch.object(provider, "json", side_effect=[self.release(), {}]):
+            self.assertEqual(provider.assess("idna", "3.11")["vulnerabilities"], [])
+
+    def test_yanked_missing_yank_native_and_source_rejected(self):
+        for changes in [{"yanked": True}, {"yanked": None}, {"packagetype": "sdist"},
+                        {"filename": "idna-3.11-cp313-cp313-linux_x86_64.whl"}]:
+            release = self.release()
+            release["urls"][0].update(changes)
+            with patch.object(PyPIEvidence, "json", return_value=release), self.assertRaises(EvidenceError):
+                PyPIEvidence().assess("idna", "3.11")
+
+    def test_release_identity_cannot_change(self):
+        release = self.release()
+        release["info"]["name"] = "other"
+        with patch.object(PyPIEvidence, "json", return_value=release), self.assertRaises(EvidenceError):
+            PyPIEvidence().assess("idna", "3.11")
+
+    def test_inactive_marker_skipped_but_active_dependency_required(self):
+        path = self.root / "marker.whl"
+        path.write_bytes(wheel_bytes(requires=["missing; sys_platform == 'win32'"]))
+        validate_wheels({"idna": path}, {"idna": "3.11"})
+        path.write_bytes(wheel_bytes(requires=["missing; sys_platform == 'linux'"]))
+        with self.assertRaises(EvidenceError):
+            validate_wheels({"idna": path}, {"idna": "3.11"})
+
+    def test_active_extra_dependency_rejected(self):
+        self.provider.wheels["idna"] = wheel_bytes(requires=["django[extra]==3.2.0"])
+        self.no_effect(self.install(["idna==3.11", "django==3.2.0"]))
+
+    def test_incompatible_dependency_rejected(self):
+        self.provider.wheels["idna"] = wheel_bytes(requires=["django>=4"])
+        self.no_effect(self.install(["idna==3.11", "django==3.2.0"]))
+
+    def test_wheel_identity_mismatch_rejected(self):
+        self.provider.wheels["idna"] = wheel_bytes("other", "3.11")
+        self.no_effect(self.install())
+
+    def test_symlink_archive_member_rejected(self):
+        raw = io.BytesIO(wheel_bytes())
+        with zipfile.ZipFile(raw, "a") as archive:
+            link = zipfile.ZipInfo("escape")
+            link.create_system = 3
+            link.external_attr = 0o120777 << 16
+            archive.writestr(link, "../../outside")
+        self.provider.wheels["idna"] = raw.getvalue()
+        self.no_effect(self.install())
+
+    def test_file_collision_between_packages_rejected(self):
+        for name, version in [("idna", "3.11"), ("django", "3.2.0")]:
+            self.provider.wheels[name] = wheel_bytes(name, version, extra={"shared.py": b"pass"})
+        self.no_effect(self.install(["idna==3.11", "django==3.2.0"]))
+
+    def test_no_installer_fallback(self):
+        with patch("ptw.package_install.shutil.which", return_value=None), patch.dict(os.environ, {"PTW_UV": ""}):
+            self.no_effect(self.install())
+
+    def test_pending_package_publication_stops_on_recovery(self):
+        with self.store.locked() as db:
+            db.execute("INSERT INTO events VALUES(?,?,?,?,?,?,?)", (self.a["session"], "uncertain", "hash",
+                '{"action":"package_install"}', None, "pending", time.time()))
+        recovered = Store(self.store.directory)
+        self.assertTrue(recovered.status("website")["stopped"])
+
     def test_exact_pins_normalized(self):
         self.assertEqual(pins(["Django==3.2.0", "My_Package==1.0"]), {"django": "3.2.0", "my-package": "1.0"})
 
@@ -304,6 +418,42 @@ class PackagePolicyTests(PackageFixture, unittest.TestCase):
 
 @unittest.skipUnless(os.environ.get("PTW_LINUX_TESTS") == "1", "Real isolated Linux installer opt in required")
 class PackageLinuxTests(PackageFixture, unittest.TestCase):
+    def test_install_failure_no_partial_publication(self):
+        self.provider.wheels["idna"] = b"not a wheel"
+        self.no_effect(self.install())
+
+    def test_equivalent_version_spelling(self):
+        self.provider.wheels["django"] = wheel_bytes("django", "3.2")
+        result = self.install(["django==3.2.0"])
+        self.assertTrue(result["allowed"], result)
+
+    def test_concurrent_same_request_publishes_once(self):
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+            results = list(pool.map(lambda _: self.install(), range(2)))
+        self.assertTrue(all(r["allowed"] for r in results), results)
+        self.assertEqual(results[0]["package_set"], results[1]["package_set"])
+        self.assertEqual(sum(bool(r.get("replayed")) for r in results), 1)
+        with self.store.locked() as db:
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM package_sets").fetchone()[0], 1)
+
+    def test_successful_install_does_not_run_package_code(self):
+        self.provider.wheels["idna"] = wheel_bytes(extra={"idna/__init__.py":
+            ("open(" + repr(str(self.root / "unexpected-effect")) + ",'w').write('BAD')").encode()})
+        result = self.install()
+        self.assertTrue(result["allowed"], result)
+        self.assertFalse((self.root / "unexpected-effect").exists())
+
+    def test_unrelated_projects_survive_package_stop(self):
+        self.policy["project"]["id"] = "unrelated"
+        self.store.activate(approve(self.policy, self.inv, digest(compile_policy(self.policy, self.inv)), "operator"))
+        unrelated = self.store.register("unrelated", "frontend")
+        self.provider.changes["idna"] = {"vulnerabilities": [CRITICAL]}
+        for index in range(3):
+            self.install(event=str(index))
+        self.assertFalse(self.store.status("unrelated")["stopped"])
+        self.provider.changes.clear()
+        self.assertTrue(self.install(actor=unrelated)["allowed"])
+
     def test_real_install_import_and_immutable_mount(self):
         result = self.install()
         self.assertTrue(result["allowed"], result)

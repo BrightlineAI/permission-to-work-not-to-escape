@@ -65,7 +65,7 @@ def digest(value):
     return hashlib.sha256(canonical(value).encode()).hexdigest()
 
 
-def load(path):
+def parse_json(text):
     def pairs(items):
         result = {}
         for key, value in items:
@@ -73,8 +73,12 @@ def load(path):
                 raise Invalid(f"Duplicate JSON field: {key}")
             result[key] = value
         return result
-    return json.loads(Path(path).read_text(), object_pairs_hook=pairs,
+    return json.loads(text, object_pairs_hook=pairs,
                       parse_constant=lambda _: (_ for _ in ()).throw(Invalid("Nonfinite JSON")))
+
+
+def load(path):
+    return parse_json(Path(path).read_text())
 
 
 def save(path, value):
