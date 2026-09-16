@@ -191,6 +191,16 @@ class ProtocolTests(WorkspaceFixture):
                     await client.initialize()
                     tools = await client.list_tools()
                     self.assertEqual({t.name for t in tools.tools}, {"project_context", "project_action"})
+                    # The relay forwards the SDK response before persisting its
+                    # readiness receipt, so allow that small scheduling interval.
+                    for _ in range(100):
+                        if (session_path.parent / "mcp-ready.json").exists():
+                            break
+                        await asyncio.sleep(.01)
+                    ready = load(session_path.parent / "mcp-ready.json")
+                    self.assertEqual(ready["session"], self.actor["session"])
+                    self.assertEqual(ready["evidence"], "initialized-and-protected-tools-listed")
+                    self.assertNotIn(self.actor["token"], json.dumps(ready))
                     context = await client.call_tool("project_context", {})
                     self.assertFalse(context.is_error)
                     self.assertNotIn(self.actor["token"], str(context))

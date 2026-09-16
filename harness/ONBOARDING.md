@@ -70,8 +70,23 @@ operator state outside the project. The installer preserves `PTW_USER_STATE` for
 an explicitly chosen location; onboarding validates that it is private, canonical
 and separate from project data. Other installer runtime overrides remain filtered.
 
-After approval, a journal records all destinations and old/new identities.
-Publication uses same-filesystem staging and no-replace Linux renames. Only the
+After approval, preparation stays outside the repository. A durable `preparing`
+journal precedes staging creation; no project file or controller changes in that
+phase. A failed or interrupted preparation is retained as evidence, even if a
+file is partially written or its identity has not been recorded. Recovery marks
+that attempt rolled back and permits a fresh review and retry without deleting
+unknown content. Two consecutive recoveries have the same effect.
+
+Staging normally lives in the private attempt directory. If private state is on
+another filesystem, staging uses a private random directory beside the project
+so publication can still use same-filesystem renames. This requires a writable
+project parent; inability to stage fails before any project mutation. The journal
+records that external path for inspection, including incomplete attempts.
+A project at a mount root needs private state on that same filesystem.
+
+Once every staged object has a durable identity, the journal records all
+destinations and old/new identities and exits preparation before any publication.
+Publication uses no-replace Linux renames. Only the
 review copy and private registration may replace previous files, with retained
 backups. Ordinary generated destinations cannot overwrite collisions. The
 controller activates a pending project, validates live resource identities and
@@ -89,8 +104,10 @@ leaves the approved setup available for retry.
 Concurrent edits are preserved as an explicit recovery conflict. Inspect the
 private `setup-journal.json`, attempt directory and affected files before moving
 conflicting operator data aside and retrying; do not delete controller history.
-A crash in the tiny staging-directory creation window can also require inspection
-when ownership could not yet be recorded. Existing-project multi-file changes
+This includes unexpected files, modified generated files and nonempty directories
+inside staging: rollback validates them before cleanup and preserves conflicts.
+Partial preparation outside the repository does not block recovery or retry.
+Existing-project multi-file changes
 are recoverable, not atomically invisible to unrelated filesystem readers.
 Filesystem timestamps are not restored by rollback. Host/operator processes are
 trusted; the journal is not a defense against malicious same-account state edits.
@@ -99,8 +116,12 @@ trusted; the journal is not a defense against malicious same-account state edits
 
 Thirty seconds means first installer invocation through fresh review and an idle
 protected Codex TUI, including downloads, doctor, preparation and scripted human
-input delays. The first successful controller receipt and physically verified
-useful work are separate timings. Warm reopening is separately labeled.
+input delays. Readiness also requires the actual MCP initialized notification and
+matching response listing both protected tools, a live registered broker, an open
+session and healthy monitoring. A quiet banner alone cannot establish readiness.
+The private `first-ready.json` records that connection without credentials. The
+first successful controller receipt and useful work verified by the independent
+functional oracle are separate timings. Warm reopening is separately labeled.
 The target remains unproven for this change. No new-account OAuth/MFA is claimed.
 
 On an isolated VPS, after building an operator-verified release artifact:
@@ -121,12 +142,20 @@ retry with a fresh-install claim. The independent installer lifecycle remains
 `harness/tests/test_product_onboarding.py` tests six new/existing template cases,
 real terminal input/output with explicitly mocked external integrations,
 root-file controller effects, failure rollback, cancellation and process-death
-recovery. They are fast offline behavior tests, not real Codex/native acceptance.
+recovery. Preparation tests inject failure and process death after staging-directory
+creation, after each staged object is created, during file writing/fsync and before
+identity journal updates. They verify unchanged project data, preservation of
+concurrent edits and external evidence, repeated recovery and successful retry.
+They are fast offline behavior tests, not real Codex/native acceptance.
+Use the [isolated source-test environment](README.md#run-the-tests) for controller
+and service regressions. Fresh installed-user acceptance must remain a separate
+wheel installation with no editable source or inherited PYTHONPATH.
 
 ## Design sources
 
 - [Linux rename(2)](https://man7.org/linux/man-pages/man2/rename.2.html): RENAME_NOREPLACE prevents destination overwrite; unsupported filesystems fail without a weaker fallback.
 - [Node 22 filesystem API](https://nodejs.org/docs/latest-v22.x/api/fs.html#fsreaddirsyncpath-options): recursive readdirSync supports selected test-directory enumeration.
+- [MCP lifecycle](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle) and [tool discovery](https://modelcontextprotocol.io/specification/2025-11-25/server/tools): readiness observes the initialized notification and the matching tools/list response on the existing relay. The SDK still owns the protocol and all request handling.
 
 Policy schema, approval hashing, SQLite locking and package enforcement reuse
 existing repository interfaces. Additional research adds nothing to those stable

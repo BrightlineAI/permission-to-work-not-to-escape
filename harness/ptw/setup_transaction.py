@@ -104,20 +104,40 @@ def validate_registration(record):
         raise Invalid("Committed setup review copy is missing; recover it before launch")
 
 
-def finish(journal):
+def staging_entries(journal):
+    """Check ownership before either successful cleanup or rollback removal."""
     local = Path(journal["local"])
-    if not local.exists():
-        return
+    if fingerprint(local) is None:
+        return []
     if fingerprint(local) != journal["local_identity"]:
         raise Invalid("Setup staging directory changed")
     expected = {Path(op[key]).name: op[value] for op in journal["operations"]
                 for key, value in (("source", "new"), ("backup", "old")) if Path(op[key]).parent == local}
-    for entry in local.iterdir():
+    entries = list(local.iterdir())
+    for entry in entries:
         if fingerprint(entry) != expected.get(entry.name) or (entry.is_dir() and any(entry.iterdir())):
             raise Invalid("Recovery found unexpected staging content; preserving it")
+    return entries
+
+
+def remove_staging(journal):
+    for entry in staging_entries(journal):
+        # rmdir, never recursive removal: late directory additions must survive.
+        if entry.is_dir():
+            entry.rmdir()
+        else:
+            entry.unlink()
+    Path(journal["local"]).rmdir()
+
+
+def finish(journal):
+    local = Path(journal["local"])
+    staging_entries(journal)
+    if not local.exists():
+        return
     backup = Path(journal["record"]["bundle"]).parent / "publication-backups"
     shutil.copytree(local, backup, dirs_exist_ok=True)
-    shutil.rmtree(local)
+    remove_staging(journal)
     sync(local.parent)
 
 
@@ -131,6 +151,13 @@ def recover(directory):
         finish(journal)
         return
     if journal["phase"] == "rolled-back":
+        return
+    if journal["phase"] == "preparing":
+        # No destination or controller has changed. Partial objects may not yet
+        # have identities in the journal; retain them outside the repository,
+        # including any concurrent additions, rather than guessing ownership.
+        journal["phase"] = "rolled-back"
+        atomic(path, journal)
         return
     store = Store(directory / "controller")
     record = journal["record"]
@@ -169,10 +196,8 @@ def recover(directory):
                 move(backup, destination)
         local = Path(journal["local"])
         if local.exists():
-            # Only our staged objects remain here, never repository source trees.
-            if fingerprint(local) != journal["local_identity"]:
-                raise Invalid("Setup staging directory changed")
-            shutil.rmtree(local)
+            # Never discard edits to staged files or files added by another process.
+            remove_staging(journal)
             sync(local.parent)
         journal["phase"] = "rolled-back"
         atomic(path, journal)
@@ -193,20 +218,26 @@ def publish(repo, directory, stage, bundle, record, generated, trees, inputs, pr
         raise Invalid("Publication changed after approval")
     sync(stage)
     sync(directory)
-    local = repo / (".ptw-setup-" + secrets.token_hex(12))
-    journal = {"phase": "approved", "directory": str(directory), "record": record,
+    # Prepare outside project data. Prefer the private attempt directory, but
+    # keep renames on the project's filesystem when state is on another mount.
+    device = repo.stat().st_dev
+    parent = stage if stage.stat().st_dev == device else repo.parent
+    if parent.stat().st_dev != device:
+        raise Invalid("Setup needs external staging on the project filesystem; place PTW_USER_STATE there")
+    local = parent / (".ptw-setup-" + secrets.token_hex(12))
+    journal = {"phase": "preparing", "directory": str(directory), "record": record,
                "local": str(local), "local_identity": None, "operations": []}
     path = directory / "setup-journal.json"
     # Keep every attempt, including previous journals, in its unique private stage.
     if path.exists():
         save(stage / "preceding-journal.json", load(path))
     atomic(path, journal)
-    store = Store(directory / "controller")
     try:
         for name, expected in inputs.items():
             if fingerprint(repo / name) != expected:
                 raise Invalid("Repository changed since review: " + name)
         local.mkdir(mode=0o700)
+        sync(local.parent)
         journal["local_identity"] = fingerprint(local)
         atomic(path, journal)
         destinations = [(repo / name, None) for name in trees]
@@ -236,6 +267,11 @@ def publish(repo, directory, stage, bundle, record, generated, trees, inputs, pr
                          "old": old, "new": fingerprint(source)}
             journal["operations"].append(operation)
             atomic(path, journal)
+        # This durable boundary precedes ALL destination/controller effects.
+        # Recovery can now require complete staged identities, as before.
+        journal["phase"] = "approved"
+        atomic(path, journal)
+        store = Store(directory / "controller")
         ensure(store)
         if previous:
             store.stop(previous["project"], "Operator approved replacement policy " + record["project"])

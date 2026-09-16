@@ -1,6 +1,6 @@
 """Offline setup/PTY tests. Mocked login/resolution/monitor are not native user proof."""
 import copy
-from contextlib import ExitStack
+from contextlib import ExitStack, contextmanager
 import hashlib
 import json
 import os
@@ -24,6 +24,7 @@ from ptw.workspace import Workspace, request
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 from terminal_driver import Terminal
 import product_onboarding_acceptance as native_journey
+import interactive_acceptance as native_terminal
 
 
 def args(repo, **changes):
@@ -48,6 +49,92 @@ def snapshot(repo):
     return {str(p.relative_to(repo)): ("dir", p.stat().st_ino) if p.is_dir() else
             (hashlib.sha256(p.read_bytes()).hexdigest(), p.stat().st_ino)
             for p in repo.rglob("*")}
+
+
+@contextmanager
+def preparation_fault(point, fail):
+    """Interrupt real creation/writes before ownership journal updates, once."""
+    mkdir, opened, os_open, saved, atomic = Path.mkdir, Path.open, os.open, tx.save, tx.atomic
+    sync, fsync = tx.sync, os.fsync
+    fired = []
+    staging = []
+
+    def hit(name):
+        if name == point and not fired:
+            fired.append(name)
+            fail()
+
+    def make(path, *args, **kwargs):
+        result = mkdir(path, *args, **kwargs)
+        if path.name.startswith(".ptw-setup-"):
+            staging.append(path)
+            hit("staging-directory")
+        if path.name.startswith("publish-"):
+            hit("created-" + path.name.removeprefix("publish-"))
+        return result
+
+    def open_file(path, mode="r", *args, **kwargs):
+        stream = opened(path, mode, *args, **kwargs)
+        if path.name.startswith("publish-") and mode == "x":
+            index = path.name.removeprefix("publish-")
+            try:
+                hit("created-" + index)
+                if point == "writing-" + index:
+                    stream.write("partial generated content")
+                    stream.flush()
+                    hit(point)
+            except BaseException:
+                stream.close()
+                raise
+        return stream
+
+    def open_fd(path, flags, *args, **kwargs):
+        fd = os_open(path, flags, *args, **kwargs)
+        if Path(path).name.startswith("publish-") and flags & os.O_CREAT:
+            try:
+                hit("created-" + Path(path).name.removeprefix("publish-"))
+            except BaseException:
+                os.close(fd)
+                raise
+        return fd
+
+    def save_file(path, value):
+        if path.name.startswith("publish-") and point == "writing-" + path.name.removeprefix("publish-"):
+            with path.open("x") as stream:
+                stream.write('{"partial":')
+                stream.flush()
+                hit(point)
+        return saved(path, value)
+
+    def journal(path, value):
+        if value.get("phase") == "preparing":
+            if value["operations"]:
+                hit("journal-" + Path(value["operations"][-1]["source"]).name.removeprefix("publish-"))
+            elif value["local_identity"] is not None:
+                hit("staging-journal")
+        return atomic(path, value)
+
+    def sync_directory(path):
+        if staging and path == staging[0].parent:
+            hit("staging-fsync")
+        return sync(path)
+
+    def sync_file(fd):
+        name = Path(os.readlink(f"/proc/self/fd/{fd}")).name
+        if name.startswith("publish-"):
+            hit("fsync-" + name.removeprefix("publish-"))
+        return fsync(fd)
+
+    with patch.object(Path, "mkdir", make), patch.object(Path, "open", open_file), \
+            patch.object(tx.os, "open", open_fd), patch.object(tx, "save", save_file), \
+            patch.object(tx, "atomic", journal), patch.object(tx, "sync", sync_directory), \
+            patch.object(tx.os, "fsync", sync_file):
+        yield fired
+
+
+PREPARATION_POINTS = ("staging-directory", "staging-fsync", "staging-journal", *(
+    f"{action}-{index}" for action in ("created", "journal") for index in range(6)),
+    "writing-2", "writing-4", "writing-5", "fsync-2", "fsync-4", "fsync-5")
 
 
 class SetupTests(unittest.TestCase):
@@ -162,6 +249,24 @@ class SetupTests(unittest.TestCase):
         (self.repo / "package.json").write_text("x" * (8 * 1024 * 1024 + 1))
         with self.assertRaises(Invalid):
             self.setup()
+
+    def test_invalid_thresholds_fail_before_dependency_resolution(self):
+        with patch.object(ui, "resolve_python") as resolver, self.assertRaises(Invalid):
+            self.setup(warn_at=4, stop_at=3)
+        resolver.assert_not_called()
+        self.assertEqual(list(self.repo.iterdir()), [])
+
+    def test_malformed_npm_locks_reject_before_review_without_project_changes(self):
+        save(self.repo / "package.json", {"name": "fixture"})
+        lock = self.repo / "package-lock.json"
+        for value in ([], {}, {"lockfileVersion": 3, "packages": []},
+                      {"lockfileVersion": 1, "packages": {"": {}}}):
+            lock.write_text(json.dumps(value))
+            before = snapshot(self.repo)
+            with patch("builtins.input") as prompt, self.assertRaises(Invalid):
+                ui.start(args(self.repo, language="javascript"))
+            prompt.assert_not_called()
+            self.assertEqual(snapshot(self.repo), before)
 
     def test_symlinks_hardlinks_special_files_and_input_changes(self):
         (self.root / "outside").write_text("fixture")
@@ -313,6 +418,110 @@ class SetupTests(unittest.TestCase):
                 tx.recover(ui.private_directory(self.repo))
                 self.setup(language="javascript")
 
+    def test_preparation_failures_preserve_data_recover_twice_and_retry(self):
+        for point in PREPARATION_POINTS:
+            with self.subTest(point=point):
+                self.repo = self.root / point
+                self.repo.mkdir()
+                (self.repo / "app.py").write_text("original")
+                expected = None
+                def fail():
+                    nonlocal expected
+                    (self.repo / "app.py").write_text("concurrent operator edit")
+                    (self.repo / "operator.txt").write_text("concurrent new file")
+                    expected = snapshot(self.repo)
+                    raise OSError("injected preparation failure")
+                with preparation_fault(point, fail) as fired, self.assertRaisesRegex(OSError, "injected preparation"):
+                    self.setup(language="javascript")
+                self.assertEqual(fired, [point])
+                directory = ui.private_directory(self.repo)
+                journal = load(directory / "setup-journal.json")
+                local = Path(journal["local"])
+                self.assertFalse(local.is_relative_to(self.repo))
+                # Unrecorded objects and concurrent changes in external staging
+                # remain evidence; recovery must not guess ownership or delete.
+                (local / "operator-evidence.txt").write_text("preserve staging data")
+                retained = snapshot(local)
+                for _ in range(2):
+                    tx.recover(directory)
+                    self.assertEqual(snapshot(self.repo), expected)
+                    self.assertEqual(snapshot(local), retained)
+                self.assertEqual(journal["phase"], "rolled-back")
+                self.assertFalse((directory / "project.json").exists())
+                self.setup(language="javascript")
+                self.assertEqual((self.repo / "app.py").read_text(), "concurrent operator edit")
+                self.assertEqual((self.repo / "operator.txt").read_text(), "concurrent new file")
+                self.assertEqual(snapshot(local), retained)
+
+    def test_separate_state_filesystem_stages_beside_repo_and_retries_failures(self):
+        original_publish, original_stat, original_mkdir = tx.publish, Path.stat, Path.mkdir
+        for failure in (None, "create", "created", "mount-root"):
+            with self.subTest(failure=failure):
+                self.repo = self.root / (failure or "success")
+                self.repo.mkdir()
+                before = snapshot(self.repo)
+                observed = []
+                def publish(repo, directory, stage, *args, **kwargs):
+                    def different_device(path, *a, **kw):
+                        value = original_stat(path, *a, **kw)
+                        if path == stage or (path == repo and failure == "mount-root"):
+                            fields = list(value)
+                            fields[2] = -1 if path == stage else -2  # Synthetic device identities.
+                            return os.stat_result(fields)
+                        return value
+                    with patch.object(Path, "stat", different_device):
+                        return original_publish(repo, directory, stage, *args, **kwargs)
+                def mkdir(path, *a, **kw):
+                    if path.name.startswith(".ptw-setup-"):
+                        observed.append(path)
+                        if failure == "create":
+                            raise PermissionError("project parent not writable")
+                    result = original_mkdir(path, *a, **kw)
+                    if path.name.startswith(".ptw-setup-") and failure == "created":
+                        raise OSError("after external staging creation")
+                    return result
+                with patch.object(tx, "publish", publish), patch.object(Path, "mkdir", mkdir):
+                    if failure == "mount-root":
+                        with self.assertRaisesRegex(Invalid, "external staging on the project filesystem"):
+                            self.setup()
+                    elif failure:
+                        with self.assertRaises(OSError):
+                            self.setup()
+                    else:
+                        self.setup()
+                if failure == "mount-root":
+                    self.assertEqual(observed, [])
+                    self.assertEqual(snapshot(self.repo), before)
+                    self.setup()
+                    continue
+                self.assertEqual(observed[0].parent, self.repo.parent)
+                self.assertFalse(observed[0].is_relative_to(self.repo))
+                if failure:
+                    directory = ui.private_directory(self.repo)
+                    for _ in range(2):
+                        tx.recover(directory)
+                        self.assertEqual(snapshot(self.repo), before)
+                    with patch.object(tx, "publish", publish):
+                        self.setup()
+                else:
+                    self.assertFalse(observed[0].exists())
+                self.assertTrue((self.repo / ".ptw/policy.json").exists())
+
+    def test_preparation_failure_does_not_stop_existing_revision(self):
+        self.setup()
+        directory, record, store = self.registration()
+        before = snapshot(self.repo)
+        def fail():
+            raise OSError("revision preparation failure")
+        with preparation_fault("journal-0", fail), self.assertRaisesRegex(OSError, "revision preparation"):
+            self.setup(revise=True, warn_at=2, stop_at=4)
+        for _ in range(2):
+            tx.recover(directory)
+            self.assertEqual(snapshot(self.repo), before)
+            self.assertEqual(load(directory / "project.json"), record)
+            self.assertFalse(store.status(record["project"])["stopped"])
+        self.setup(revise=True, warn_at=2, stop_at=4)
+
     def test_revision_failure_preserves_prior_registration_and_history(self):
         self.setup()
         directory, record, store = self.registration()
@@ -334,6 +543,93 @@ class SetupTests(unittest.TestCase):
         self.assertEqual((self.repo / "src/operator.txt").read_text(), "preserve this concurrent edit")
         with self.assertRaises(Invalid):
             tx.recover(directory)
+
+    def test_rollback_preserves_unexpected_or_modified_staging_content(self):
+        for edit in ("new-file", "changed-file", "nonempty-directory"):
+            with self.subTest(edit=edit):
+                self.repo = self.root / edit
+                self.repo.mkdir()
+                directory = ui.private_directory(self.repo)
+                def fail(*args):
+                    journal = load(directory / "setup-journal.json")
+                    local = Path(journal["local"])
+                    if edit == "new-file":
+                        target = local / "operator.txt"
+                    elif edit == "changed-file":
+                        target = next(p for p in local.iterdir() if p.is_file())
+                    else:
+                        target = next(p for p in local.iterdir() if p.is_dir()) / "operator.txt"
+                    target.write_text("preserve concurrent staging edit")
+                    raise OSError("before publication")
+                with patch("ptw.monitor.ensure", side_effect=fail), self.assertRaisesRegex(Invalid, "unexpected staging"):
+                    self.setup(language="javascript")
+                local = Path(load(directory / "setup-journal.json")["local"])
+                self.assertTrue(any(p.is_file() and p.read_text() == "preserve concurrent staging edit"
+                                    for p in local.rglob("*")))
+                for _ in range(2):
+                    with self.assertRaises(Invalid):
+                        tx.recover(directory)
+
+    def test_revision_backup_rename_failure_restores_original_files(self):
+        self.setup()
+        before = snapshot(self.repo)
+        directory, record, store = self.registration()
+        original_move = tx.move
+        fired = False
+        def fail(source, destination):
+            nonlocal fired
+            original_move(source, destination)
+            if destination.name.startswith("backup-") and not fired:
+                fired = True
+                raise OSError("after backing up the review copy")
+        with patch.object(tx, "move", side_effect=fail), self.assertRaises(OSError):
+            self.setup(revise=True, warn_at=2, stop_at=4)
+        self.assertTrue(fired)
+        self.assertEqual(snapshot(self.repo), before)
+        tx.recover(directory)
+        self.assertEqual(load(directory / "project.json"), record)
+        self.assertTrue(store.status(record["project"])["stopped"])
+
+    def test_late_staging_directory_addition_is_not_recursively_removed(self):
+        original = tx.staging_entries
+        target = None
+        def validate_then_edit(journal):
+            nonlocal target
+            entries = original(journal)
+            if target is None:
+                target = next(p for p in entries if p.is_dir()) / "late.txt"
+                target.write_text("late operator data")
+            return entries
+        with patch("ptw.monitor.ensure", side_effect=OSError("fixture failure")), \
+                patch.object(tx, "staging_entries", side_effect=validate_then_edit), self.assertRaises(OSError):
+            self.setup()
+        self.assertIsNotNone(target)
+        self.assertEqual(target.read_text(), "late operator data")
+        with self.assertRaises(Invalid):
+            tx.recover(ui.private_directory(self.repo))
+
+    def test_readiness_requires_handshake_current_session_monitor_and_live_unit(self):
+        self.setup()
+        directory, record, store = self.registration()
+        actor = store.register(record["project"], "work")
+        unit = "ptw-" + "a" * 24 + ".service"
+        receipt = directory / "sessions" / actor["session"] / "mcp-ready.json"
+        with patch("ptw.monitor.health", return_value={"healthy": True}), \
+                patch.object(native_terminal, "health", return_value={"healthy": True}), \
+                patch("ptw.supervisor.Supervisor.state", return_value={"ActiveState": "active"}):
+            self.assertIsNone(native_terminal.protected_connection(directory, store, record["project"]))
+            save(receipt, {"session": actor["session"], "project": record["project"], "unit": unit})
+            self.assertIsNone(native_terminal.protected_connection(directory, store, record["project"]))
+            with store.locked() as db:
+                db.execute("INSERT INTO workloads(unit,project,session) VALUES(?,?,?)",
+                           (unit, record["project"], actor["session"]))
+            self.assertIsNotNone(native_terminal.protected_connection(directory, store, record["project"]))
+            with patch.object(native_terminal, "health", return_value={"healthy": False}):
+                self.assertIsNone(native_terminal.protected_connection(directory, store, record["project"]))
+            with patch("ptw.supervisor.Supervisor.state", return_value={"ActiveState": "failed"}):
+                self.assertIsNone(native_terminal.protected_connection(directory, store, record["project"]))
+            store.close_session(actor["token"])
+            self.assertIsNone(native_terminal.protected_connection(directory, store, record["project"]))
 
     def test_launch_failure_closes_session_and_keeps_committed_setup(self):
         with patch("ptw.terminal.launch", side_effect=OSError("terminal unavailable")), self.assertRaises(OSError):
@@ -454,6 +750,51 @@ class TerminalTests(unittest.TestCase):
                     self.assertEqual(list(self.repo.iterdir()), [])
                     self.assertFalse((directory / "project.json").exists())
 
+    def test_process_death_during_preparation_recovers_twice_and_retries(self):
+        for point in PREPARATION_POINTS:
+            with self.subTest(point=point):
+                self.repo = self.root / point
+                self.repo.mkdir()
+                (self.repo / "app.py").write_text("original")
+                extra = ("--language", "javascript", "--editable", "src,tests")
+                terminal = self.terminal(extra, crash=point)
+                try:
+                    terminal.expect("Approve exactly", 15)
+                    terminal.send("yes")
+                    terminal.wait(lambda: terminal.exited, 10)
+                finally:
+                    code = terminal.close()
+                self.assertEqual(code, 76)
+                self.assertEqual(list(self.repo.iterdir()), [self.repo / "app.py"])
+                (self.repo / "app.py").write_text("concurrent edit after death")
+                (self.repo / "operator.txt").write_text("unrelated work")
+                before = snapshot(self.repo)
+                with patch.dict(os.environ, {"PTW_USER_STATE": str(self.root / "state")}):
+                    directory = ui.private_directory(self.repo)
+                    journal = load(directory / "setup-journal.json")
+                    self.assertEqual(journal["phase"], "preparing")
+                    local = Path(journal["local"])
+                    self.assertFalse(local.is_relative_to(self.repo))
+                    (local / "operator-evidence.txt").write_text("retain concurrent staging data")
+                    retained = snapshot(local)
+                    for _ in range(2):
+                        tx.recover(directory)
+                        self.assertEqual(snapshot(self.repo), before)
+                        self.assertEqual(snapshot(local), retained)
+                    self.assertEqual(load(directory / "setup-journal.json")["phase"], "rolled-back")
+                    self.assertFalse((directory / "project.json").exists())
+                terminal = self.terminal(extra)
+                try:
+                    terminal.expect("Approve exactly", 15)
+                    terminal.send("yes")
+                    terminal.wait(lambda: terminal.exited, 10)
+                    self.assertIn("Approved.", terminal.text)
+                finally:
+                    terminal.close()
+                self.assertEqual((self.repo / "app.py").read_text(), "concurrent edit after death")
+                self.assertEqual((self.repo / "operator.txt").read_text(), "unrelated work")
+                self.assertEqual(snapshot(local), retained)
+
     def test_real_pty_customization_then_new_explicit_review(self):
         terminal = self.terminal()
         try:
@@ -474,6 +815,42 @@ class TerminalTests(unittest.TestCase):
 
 
 class TimingDriverTests(unittest.TestCase):
+    def test_readiness_observes_fragmented_protocol_and_rejects_false_signals(self):
+        from ptw.mcp_server import Readiness
+        def message(value):
+            return json.dumps({"jsonrpc": "2.0", **value}).encode() + b"\n"
+        tools = [{"name": n} for n in ("project_context", "project_action")]
+        for bad in ({"id": 8, "result": {"tools": tools}},
+                    {"id": 7, "error": {"message": "startup failed"}},
+                    {"id": 7, "result": {"tools": tools, "nextCursor": "more"}},
+                    {"id": 7, "result": {"tools": [{"name": {}}, tools[1]]}},
+                    {"id": 7, "result": {"tools": tools + [{"name": "shell"}]}},
+                    {"id": 7, "result": "invalid"}):
+            records = []
+            observer = Readiness(lambda: records.append(True))
+            observer.feed("input", message({"method": "notifications/initialized"}) +
+                          message({"method": "tools/list", "id": 7}))
+            observer.feed("output", message(bad))
+            self.assertEqual(records, [])
+            good = message({"id": 7, "result": {"tools": tools}})
+            for byte in good:
+                observer.feed("output", bytes([byte]))
+            observer.feed("output", good)
+            self.assertEqual(records, [True])
+        records = []
+        observer = Readiness(lambda: records.append(True))
+        observer.feed("input", message({"method": "tools/list", "id": 7}))
+        observer.feed("output", message({"id": 7, "result": {"tools": tools}}))
+        self.assertEqual(records, [])
+        observer.feed("output", b"x" * (1024 * 1024 + 1))
+        self.assertTrue(observer.done)
+        observer = Readiness(lambda: records.append(True))
+        observer.feed("input", message({"method": "notifications/initialized"}) +
+                      message({"method": "tools/list", "id": 7}))
+        good = message({"id": 7, "result": {"tools": tools}})
+        observer.feed("output", good + good)
+        self.assertEqual(records, [True])
+
     def test_installer_failure_is_retained_without_launch_or_raw_output(self):
         with tempfile.TemporaryDirectory(prefix="ptw-timing-test-") as temporary:
             root = Path(temporary)
@@ -540,7 +917,8 @@ def fixture_main():
     with patch("ptw.codex.require_login"), patch("ptw.monitor.ensure"), patch("ptw.onboarding.ensure"), \
             patch("ptw.codex.generate", side_effect=AssertionError("Unexpected model call")), \
             patch.object(tx, "atomic", side_effect=atomic), patch.object(Store, "commit_setup", commit), \
-            patch.object(tx, "move", side_effect=move):
+            patch.object(tx, "move", side_effect=move), \
+            preparation_fault(os.environ.get("PTW_TEST_CRASH"), lambda: os._exit(76)):
         try:
             result = main(sys.argv[2:])
             print(json.dumps(result))

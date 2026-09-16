@@ -6,6 +6,8 @@ import secrets
 import signal
 import sys
 import threading
+import time
+from pathlib import Path
 
 from mcp.server.mcpserver import Context, MCPServer
 
@@ -117,6 +119,51 @@ def server(adapter):
     return app
 
 
+class Readiness:
+    """Observe the real MCP handshake without changing protocol traffic or authority."""
+    def __init__(self, record):
+        self.record = record
+        self.buffers = {"input": b"", "output": b""}
+        self.initialized = False
+        self.list_id = None
+        self.done = False
+
+    def feed(self, direction, chunk):
+        if self.done:
+            return
+        buffer = self.buffers[direction] + chunk
+        # A malformed/oversized stream cannot establish readiness. The SDK still
+        # handles the original bytes; this observer is not a second MCP server.
+        if len(buffer) > 1024 * 1024:
+            self.done = True
+            return
+        lines = buffer.split(b"\n")
+        self.buffers[direction] = lines.pop()
+        for line in lines:
+            try:
+                value = json.loads(line)
+            except (ValueError, UnicodeError):
+                continue
+            if not isinstance(value, dict) or value.get("jsonrpc") != "2.0":
+                continue
+            if direction == "input":
+                if value.get("method") == "notifications/initialized":
+                    self.initialized = True
+                if value.get("method") == "tools/list" and type(value.get("id")) in (str, int):
+                    self.list_id = value["id"]
+            elif (self.initialized and self.list_id is not None and
+                  type(value.get("id")) is type(self.list_id) and value.get("id") == self.list_id):
+                result = value.get("result")
+                tools = result.get("tools") if isinstance(result, dict) else None
+                if ("error" not in value and isinstance(result, dict) and not result.get("nextCursor") and
+                        isinstance(tools, list) and len(tools) == 2 and
+                        all(isinstance(t, dict) and isinstance(t.get("name"), str) for t in tools) and
+                        {t.get("name") for t in tools} == {"project_context", "project_action"}):
+                    self.record()
+                    self.done = True
+                    return
+
+
 def bridge(state, session_path):
     """Stdio relay to a registered broker outside the CLI's configuration view.
 
@@ -136,10 +183,21 @@ def bridge(state, session_path):
         ["/usr/bin/env", *environment, sys.executable, "-B", "-m", "ptw.mcp_server",
          "--state", str(state), "--session", str(session_path)],
         stderr=sys.stderr.buffer, service_seconds=28800)
+    def record_ready():
+        # This receipt contains no credentials. A unique session directory makes
+        # it specific to this launch, not a warm or previous connection.
+        path = Path(session_path).parent / "mcp-ready.json"
+        temporary = path.with_name("mcp-ready-" + secrets.token_hex(8) + ".json")
+        save(temporary, {"session": session["session"], "project": session["project"],
+                         "unit": unit, "monotonic": time.monotonic(),
+                         "evidence": "initialized-and-protected-tools-listed"})
+        os.replace(temporary, path)
+    readiness = Readiness(record_ready)
 
     def copy_input():
         try:
             while chunk := sys.stdin.buffer.read1(65536):
+                readiness.feed("input", chunk)
                 process.stdin.write(chunk)
                 process.stdin.flush()
         except (BrokenPipeError, OSError):
@@ -159,6 +217,7 @@ def bridge(state, session_path):
         while chunk := process.stdout.read1(65536):
             sys.stdout.buffer.write(chunk)
             sys.stdout.buffer.flush()
+            readiness.feed("output", chunk)
         return process.wait(timeout=10)
     except (BrokenPipeError, KeyboardInterrupt):
         return 1

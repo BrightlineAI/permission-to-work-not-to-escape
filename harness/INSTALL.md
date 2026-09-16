@@ -49,6 +49,20 @@ Run the candidate's absolute `venv/bin/ptw doctor` with its private `bin` on PAT
 for private troubleshooting, or retry from a normal login session with an active
 systemd user manager. No failure enables an unconfined execution fallback.
 
+Health checks use a private temporary directory beside the release payload for
+temporary files and tool caches, including the
+[Node compile cache](https://nodejs.org/download/release/v22.13.1/docs/api/module.html#module-compile-cache)
+when enabled by tooling. They remove it on normal success or failure;
+an interrupted check can leave that directory for inspection. The immutable
+payload still requires exact file-set and hash equality before and after health.
+Python service imports and isolated identity probes use explicit `-B`: isolated
+Python ignores environment bytecode settings. See the
+[Python command-line reference](https://docs.python.org/3.12/using/cmdline.html).
+This preserves the earlier bytecode fix and keeps later runtime cache writes
+outside the receipt, without accepting extra installed files. Native final-source
+installer lifecycle verification remains required; source tests alone do not
+certify installation.
+
 Each archive download attempt has a 30-second wall-clock deadline covering DNS,
 redirects, headers and body reads, with at most two attempts. On Linux the installer
 uses a main-thread real-time signal timer to interrupt blocked reads, including a

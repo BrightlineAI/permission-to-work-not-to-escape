@@ -121,13 +121,16 @@ Thirty seconds is the target from **first installer invocation through fresh
 project review and protected readiness** on the declared supported profile.
 That target is not yet certified. Record downloads, cache state, model latency,
 human review and external login separately, and measure the first useful action.
+The [first-setup driver](ONBOARDING.md#measurement-and-verification) includes the
+installer clock and requires a live protected MCP connection as well as the TUI.
 Reopening an installed, approved project is a separate warm measurement.
 The [Algol acceptance record](validation/interactive-20260916/README.md) measured
 6.18–7.03 seconds to reopen the four approved project fixtures.
 
 ## Reproduce the user tests on a disposable Linux VPS
 
-From the source repository with the installed tools on PATH:
+For source regressions, first use the [isolated editable test environment](README.md#run-the-tests)
+so detached services import the current checkout. Keep the installed tools on PATH:
 
     python harness/scripts/interactive_acceptance.py --out /absolute/new-website
     python harness/scripts/interactive_acceptance.py --existing --language python --out /absolute/existing-python

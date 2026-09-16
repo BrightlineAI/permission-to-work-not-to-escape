@@ -128,7 +128,30 @@ The operator can launch a confined workload with ptw launch --state STATE --sess
 
 ## Run the tests
 
-From the repository root, with the installed environment on PATH:
+For source tests, create a new isolated environment on the VPS. Install the
+hashed runtime dependencies and the same hashed build prerequisite used by the
+release builder, then install this checkout without further resolution:
+
+```sh
+PTW_TEST_ENV=$(mktemp -d /tmp/ptw-source-tests.XXXXXXXX)
+uv venv --no-python-downloads --python python3 "$PTW_TEST_ENV/venv"
+uv pip sync --python "$PTW_TEST_ENV/venv/bin/python" --require-hashes --only-binary :all: harness/requirements.lock
+python3 -c 'import sys; sys.path.insert(0,"harness/scripts"); from build_product_release import BUILD_PIN; print(BUILD_PIN,end="")' > "$PTW_TEST_ENV/build.lock"
+uv pip install --python "$PTW_TEST_ENV/venv/bin/python" --require-hashes --only-binary :all: -r "$PTW_TEST_ENV/build.lock"
+uv pip install --python "$PTW_TEST_ENV/venv/bin/python" --no-deps --no-build-isolation --editable ./harness
+export PATH="$PTW_TEST_ENV/venv/bin:$PATH"
+python -I -B -c 'import ptw; print(ptw.__file__)'
+PTW_LINUX_TESTS=1 python -B -m unittest discover -s harness/tests -v
+```
+
+The import must point into this checkout. An ambient `PYTHONPATH=harness` alone
+is insufficient because detached systemd services do not inherit it. Keep the
+installed native tools on PATH and use a normal systemd user login for native
+checks. Source tests with mocked integrations establish only their stated
+behavior. For installed-user acceptance, use fresh wheel installations with
+PYTHONPATH unset, prove installed hashes, and never reuse this editable environment.
+
+From the repository root in that source-test environment:
 
     python harness/scripts/validate.py --linux --out ../ptw-validation
     python harness/scripts/walkthrough.py --out ../ptw-walkthrough

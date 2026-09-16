@@ -16,6 +16,7 @@ from ptw.store import Store
 from ptw.website_example import create, GOAL
 from ptw.workflow import dispatch
 from ptw.workspace import request
+from ptw.monitor import health
 from terminal_driver import Terminal
 
 
@@ -23,6 +24,25 @@ def check(condition, label, records):
     records.append({"check": label, "passed": bool(condition)})
     if not condition:
         raise AssertionError(label)
+
+
+def protected_connection(directory, store, project):
+    """Require a current controller session and the actual MCP tool handshake."""
+    from ptw.supervisor import Supervisor
+    status = store.status(project)
+    if status["stopped"] or not health(store)["healthy"]:
+        return None
+    for path in directory.glob("sessions/*/mcp-ready.json"):
+        receipt = load(path)
+        with store.locked() as db:
+            actor = db.execute("SELECT * FROM sessions WHERE id=? AND project=? AND closed=0",
+                               (receipt["session"], project)).fetchone()
+            unit = db.execute("SELECT * FROM workloads WHERE unit=? AND session=? AND stopped=0",
+                              (receipt["unit"], receipt["session"])).fetchone()
+        if (receipt.get("project") == project and actor is not None and unit is not None and
+                Supervisor.state(receipt["unit"]).get("ActiveState") == "active"):
+            return receipt
+    return None
 
 
 def main():
@@ -77,13 +97,17 @@ def main():
         terminal.send("yes")
         approved_at = time.monotonic()
         terminal.expect("OpenAI Codex", 30)
-        terminal.quiet(timeout=40)
-        timing["approval_to_idle_tui_seconds"] = round(time.monotonic() - approved_at, 3)
-        timing["first_invocation_to_ready_seconds"] = round(time.monotonic() - journey_started, 3)
-        timing["first_setup_target_met"] = timing["first_invocation_to_ready_seconds"] <= 30
         record = load(directory / "project.json")
         store = Store(record["state"])
         project = record["project"]
+        terminal.wait(lambda: protected_connection(directory, store, project), 30, "protected MCP handshake")
+        terminal.quiet(timeout=40)
+        connection = protected_connection(directory, store, project)
+        check(connection is not None and not terminal.exited, "live protected MCP connection at readiness", records)
+        save(args.out / "first-ready.json", connection)
+        timing["approval_to_idle_tui_seconds"] = round(time.monotonic() - approved_at, 3)
+        timing["first_invocation_to_ready_seconds"] = round(time.monotonic() - journey_started, 3)
+        timing["first_setup_target_met"] = timing["first_invocation_to_ready_seconds"] <= 30
         suffix = "py" if args.language == "python" else ("ts" if args.language == "typescript" else "js")
         prompt = (
             "Use project_context and the protected tools. " +
@@ -112,7 +136,6 @@ def main():
         check((repo / ("src/site." + suffix)).is_file(), "source physically exists", records)
         page = (repo / "public/index.html").read_text()
         check("Workshops" in page and "<select" in page, "visible website feature physically exists", records)
-        timing["first_invocation_to_verified_useful_work_seconds"] = round(time.monotonic() - journey_started, 3)
         for path, sha in original.items():
             check(hashlib.sha256((repo / path).read_bytes()).hexdigest() == sha,
                   "existing fixture preserved: " + path, records)
@@ -130,6 +153,7 @@ def main():
         oracle_result = dispatch(store, actor, "independent-oracle", request(
             "run", "test", content=json.dumps({"package_sets": package_sets})))
         check(oracle_result.get("exit_code") == 0, "independent hidden functional oracle passed", records)
+        timing["first_invocation_to_verified_useful_work_seconds"] = round(time.monotonic() - journey_started, 3)
         save(args.out / "oracle-result.json", oracle_result)
         terminal.send("Now add a footer 'Community workshops' to public/index.html. Keep the previous feature and tests intact. Read before editing.")
         terminal.wait(lambda: "Community workshops" in (repo / "public/index.html").read_text(), 180,
@@ -142,7 +166,10 @@ def main():
         terminal = Terminal([args.ptw, "codex", "--repo", str(repo)], args.out / "terminal-2",
                             env={"PTW_USER_STATE": str(state_base)})
         terminal.expect("OpenAI Codex", 30)
+        terminal.wait(lambda: protected_connection(directory, store, project), 30, "new protected MCP handshake")
         terminal.quiet(timeout=40)
+        check(protected_connection(directory, store, project) is not None and not terminal.exited,
+              "live protected MCP connection on reopening", records)
         timing["repeat_to_idle_tui_seconds"] = round(time.monotonic() - terminal.started, 3)
         check("Approve exactly" not in terminal.text, "repeat launch reused reviewed policy", records)
         check(timing["repeat_to_idle_tui_seconds"] < 30, "separate warm reopening stays within 30 seconds", records)

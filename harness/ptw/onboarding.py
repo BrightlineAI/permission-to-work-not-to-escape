@@ -125,9 +125,10 @@ def resolve_npm(repo, stage):
                            ("dependencies", "devDependencies", "optionalDependencies", "peerDependencies"))
     if lock.exists():
         resolved = parse_json(data(lock, 8 * 1024 * 1024))
-        if not isinstance(resolved, dict):
-            raise Invalid("Expected package-lock.json object")
-        if not has_dependencies and resolved.get("packages") == {"": resolved.get("packages", {}).get("")}:
+        if (not isinstance(resolved, dict) or resolved.get("lockfileVersion") not in (2, 3)
+                or not isinstance(resolved.get("packages"), dict)):
+            raise Invalid("Expected package-lock.json version 2/3 with a packages object")
+        if not has_dependencies and resolved["packages"] == {"": resolved["packages"].get("")}:
             root = resolved["packages"][""]
             if isinstance(root, dict) and not any(root.get(k) for k in
                     ("dependencies", "devDependencies", "optionalDependencies", "peerDependencies", "workspaces")):
@@ -302,6 +303,8 @@ def setup(repo, directory, args, previous=None):
     stage.mkdir(mode=0o700)
     started = time.monotonic()
     try:
+        if not 1 <= warn <= stop <= 100:
+            raise Invalid("Use thresholds 1 <= warning <= stop <= 100.")
         scope = selected(repo, directories, files)
         # Metadata is copied into an external workspace. Resolvers may write only there.
         inputs = {name: fingerprint(repo / name) for name in sorted(set(scope) | set(METADATA) | {".ptw"})}

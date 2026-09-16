@@ -316,15 +316,21 @@ def prepare(candidate, files, manifest):
         shutil.rmtree(candidate / name, ignore_errors=True)
 
 
-def candidate_env(candidate):
-    env = clean_env(candidate)
+def candidate_env(candidate, runtime):
+    env = clean_env(runtime)
     env["PATH"] = ":".join(str(candidate / p) for p in ("venv/bin", "bin", "codex/node_modules/.bin")) + ":" + env.get("PATH", "")
     env["PTW_NONO"] = str(candidate / "bin/nono")
     return env
 
 
 def health(candidate, version):
-    env = candidate_env(candidate)
+    # Health runs after the immutable receipt was taken. Runtime temporary files
+    # and tool caches must never become additions to that verified payload.
+    with tempfile.TemporaryDirectory(prefix="ptw-health-", dir=candidate.parent) as runtime:
+        return health_commands(candidate, version, candidate_env(candidate, Path(runtime)))
+
+
+def health_commands(candidate, version, env):
     commands = [(candidate / "bin" / name, pin[0]) for name, pin in PINS.items()]
     commands += [(candidate / "codex/node_modules/.bin/codex", CODEX), (candidate / "venv/bin/ptw", version)]
     for path, expected in commands:

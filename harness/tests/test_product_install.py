@@ -793,15 +793,47 @@ class HealthTests(unittest.TestCase):
             product.preflight()
 
     def test_health_requires_success_versions_and_all_doctor_probes(self):
+        temporary = self.enterContext(tempfile.TemporaryDirectory(prefix="ptw-health-test-"))
+        candidate = Path(temporary) / "fixture"
         outputs = ["uv 0.12.15", "nono 0.77.0", "codex-cli 0.154.0", "0.5.0", json.dumps(READY)]
         with patch.object(product, "run", side_effect=outputs):
-            self.assertTrue(product.health(Path("/fixture"), "0.5.0")["ready"])
+            self.assertTrue(product.health(candidate, "0.5.0")["ready"])
         for index, bad in [(0, "uv 9.9.9"), (2, ""), (3, "0.5.01"), (4, "not json"),
                            (4, '{"ready":true,"checks":{}}')]:
             values = list(outputs)
             values[index] = bad
             with patch.object(product, "run", side_effect=values), self.assertRaises((product.InstallError, ValueError)):
-                product.health(Path("/fixture"), "0.5.0")
+                product.health(candidate, "0.5.0")
+
+    def test_health_runtime_writes_stay_outside_payload_on_success_and_failure(self):
+        with tempfile.TemporaryDirectory(prefix="ptw-health-writes-") as temporary:
+            candidate = Path(temporary) / "release"
+            candidate.mkdir()
+            (candidate / "source.py").write_text("immutable payload")
+            receipt = product.snapshot(candidate)
+            for fail in (False, True):
+                runtimes = []
+                def command(argv, *, env, **kwargs):
+                    runtime = Path(env["TMPDIR"])
+                    runtimes.append(runtime)
+                    self.assertFalse(runtime.is_relative_to(candidate))
+                    # Real child effects, synthetic tool fixture; no native doctor claim.
+                    subprocess.run([sys.executable, "-B", "-c",
+                        "import os,pathlib; p=pathlib.Path(os.environ['TMPDIR'])/'node-compile-cache'; "
+                        "p.mkdir(exist_ok=True); (p/'entry').write_text('cache')"], env=env, check=True)
+                    if fail:
+                        raise product.InstallError("fixture health failure")
+                    return json.dumps(READY) if argv[-1] == "doctor" else {
+                        "uv": "0.12.15", "nono": "0.77.0", "codex": "0.154.0", "ptw": "0.5.0"}[Path(argv[0]).name]
+                with patch.object(product, "run", side_effect=command):
+                    if fail:
+                        with self.assertRaises(product.InstallError):
+                            product.health(candidate, "0.5.0")
+                    else:
+                        self.assertTrue(product.health(candidate, "0.5.0")["ready"])
+                product.verify(candidate, receipt)
+                self.assertTrue(runtimes)
+                self.assertTrue(all(not path.exists() for path in runtimes))
 
     def test_process_failures_nonexecutable_and_timeout(self):
         with self.assertRaises(product.InstallError):
