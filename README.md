@@ -40,7 +40,7 @@ Run fresh benchmark workloads on an isolated Linux VPS using the [reproduction i
 
 ## Build on the work
 
-The [project safety harness](harness/README.md) adds reviewed policy drafting, narrower task scopes, shared controls across independent agents, and auditing of selected Codex logs. It is a new, bounded file resource implementation, separate from the paper's frozen experiments.
+The [project safety harness](harness/README.md) adds reviewed policy drafting, narrower task scopes, shared controls across independent agents, and auditing of selected Codex logs. Its [Python package control](harness/PACKAGES.md) checks vulnerabilities and release age under the same approved policy and escalation. This usable prototype is separate from the paper's frozen experiments.
 
 The repository includes experimental policy, authorization, diagnostic and escalation components. See the [architecture](docs/architecture.md), [data availability](docs/evidence.md), [future work](docs/roadmap.md) and [contribution guide](CONTRIBUTING.md).
 

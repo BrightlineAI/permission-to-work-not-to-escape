@@ -2,7 +2,7 @@
 
 A small working extension of the [paper](../paper/submission.pdf). Describe a project, review its proposed policy, and run agents through shared controls.
 
-The first version handles existing text files. It supports multiple independent agents, narrower tasks and delegates, shared escalation, and review of existing Codex logs. Project differences are JSON configuration, not custom code.
+The first usable prototype handles existing text files and [controlled Python package installation](PACKAGES.md). It supports multiple independent agents, narrower tasks and delegates, shared escalation, and review of existing Codex logs. Project differences are JSON configuration, not custom code.
 
 ## Install on a Linux VPS
 
@@ -29,7 +29,7 @@ For model calls, authenticate your own Codex installation:
     codex login
     codex login status
 
-The default model is GPT-5.6 Sol with low effort. No model is silently substituted. The file broker and audit do not need an API key or a model.
+The default model is GPT-5.6 Sol with low effort. No model is silently substituted. The file broker, package control and audit do not need an API key or a model. For those features alone, install with --no-codex; see the [package walkthrough](PACKAGES.md).
 
 ## New project
 

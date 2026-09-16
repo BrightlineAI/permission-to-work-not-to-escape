@@ -31,6 +31,7 @@ def main():
     result = unittest.TextTestRunner(stream=log, verbosity=2).run(suite)
     versions = {"python": platform.python_version(), "kernel": platform.release()}
     for key, command in {"codex": ["codex", "--version"], "bubblewrap": ["bwrap", "--version"],
+                         "uv": [os.environ.get("PTW_UV", "uv"), "--version"],
                          "nono": [os.environ.get("PTW_NONO", "nono"), "--version"]}.items():
         try:
             process = subprocess.run(command, text=True, capture_output=True, timeout=10)

@@ -13,6 +13,7 @@ from packaging.markers import default_environment
 from packaging.requirements import Requirement
 from packaging.specifiers import SpecifierSet
 from packaging.utils import canonicalize_name
+from packaging.version import Version
 
 from .package_evidence import EvidenceError
 from .supervisor import runtime_namespace
@@ -31,11 +32,14 @@ def target_environment():
 def validate_wheels(wheels, selected, environment=None):
     """No resolver, imports or build backend: the input must close its dependencies."""
     env = environment or target_environment()
-    occupied = set()
+    occupied, expanded = set(), 0
     for name, path in wheels.items():
         try:
             with zipfile.ZipFile(path) as wheel:
                 members = wheel.infolist()
+                expanded += sum(x.file_size for x in members)
+                if expanded > 200 * 1024 * 1024:
+                    raise EvidenceError("Package set exceeds expanded size limit")
                 if len(members) > 5000 or sum(x.file_size for x in members) > 100 * 1024 * 1024:
                     raise EvidenceError("Wheel exceeds expanded size limit")
                 seen, metadata = set(), []
@@ -46,6 +50,11 @@ def validate_wheels(wheels, selected, environment=None):
                             item.filename in seen or stat.S_ISLNK(item.external_attr >> 16)):
                         raise EvidenceError("Unsafe or duplicate wheel member")
                     seen.add(item.filename)
+                    if p.parts[0].endswith(".dist-info"):
+                        identity = p.parts[0][:-10].rsplit("-", 1)
+                        if (len(identity) != 2 or canonicalize_name(identity[0]) != name or
+                                Version(identity[1]) != Version(selected[name])):
+                            raise EvidenceError("Foreign distribution metadata in wheel")
                     # This narrow first version excludes relocation and startup hooks.
                     if (p.parts[0].endswith(".data") or p.suffix == ".pth" or
                             p.name in ("sitecustomize.py", "usercustomize.py")):
@@ -60,7 +69,7 @@ def validate_wheels(wheels, selected, environment=None):
                     raise EvidenceError("Exactly one bounded wheel metadata file required")
                 meta = BytesParser().parsebytes(wheel.read(metadata[0]))
                 if (len(meta.get_all("Name", [])) != 1 or len(meta.get_all("Version", [])) != 1 or
-                        canonicalize_name(meta["Name"]) != name or meta["Version"] != selected[name]):
+                        canonicalize_name(meta["Name"]) != name or Version(meta["Version"]) != Version(selected[name])):
                     raise EvidenceError("Wheel identity differs from approved pin")
                 requires_python = meta.get_all("Requires-Python", [])
                 if len(requires_python) > 1 or (requires_python and

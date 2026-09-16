@@ -70,6 +70,14 @@ def main(argv=None):
     package.add_argument("--event", required=True)
     package.add_argument("--requirements", required=True, help="One exact name==version per line, including dependencies")
     package.add_argument("--out", help="Optional new receipt file")
+    package_draft = commands.add_parser("package-draft", help="Add package controls to a version 1 draft; never approve or activate")
+    package_draft.add_argument("--policy", required=True)
+    package_draft.add_argument("--project-id", required=True, help="Explicit new project version identity")
+    package_draft.add_argument("--task", required=True)
+    package_draft.add_argument("--allow", action="append", required=True, help="Canonical PyPI name, repeat for each dependency")
+    package_draft.add_argument("--min-age-days", type=int, default=3)
+    package_draft.add_argument("--deny-cvss", type=float, default=9.0)
+    package_draft.add_argument("--out", required=True)
     watch = commands.add_parser("watch", help="Retry and verify pending project terminations")
     watch.add_argument("--once", action="store_true")
     events = commands.add_parser("events", help="Export content free policy event metadata")
@@ -101,6 +109,25 @@ def execute(args):
     if args.command == "sample":
         from .sample import create
         return create(args.out, packages=args.packages)
+    if args.command == "package-draft":
+        from .policy import PACKAGE_SCHEMA, validate
+        draft = load(args.policy)
+        if draft.get("version") != 1:
+            raise Invalid("package-draft upgrades version 1 only; edit and review version 2 directly")
+        if draft["project"]["id"] == args.project_id:
+            raise Invalid("Use an explicit new project identity; active history cannot be reset")
+        if args.task not in {task["id"] for task in draft["tasks"]}:
+            raise Invalid("Unknown task")
+        draft["version"] = 2
+        draft["project"]["id"] = args.project_id
+        draft["project"]["packages"] = {"allowed_names": sorted(set(args.allow)),
+            "min_release_age_days": args.min_age_days, "deny_cvss_at_or_above": args.deny_cvss,
+            "evidence_max_age_seconds": 900}
+        for task in draft["tasks"]:
+            task["packages"] = sorted(set(args.allow)) if task["id"] == args.task else []
+        validate(PACKAGE_SCHEMA, draft)
+        save(args.out, draft)
+        return {"draft": args.out, "approved": False, "note": "Review all scope before approval. Stop the old project before switching."}
     if args.command == "propose":
         from .codex import propose
         if any(Path(args.out + suffix).exists() for suffix in ["", ".meta.json", ".attempts.json"]):

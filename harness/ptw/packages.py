@@ -85,6 +85,7 @@ class PackageControl:
                     wheelhouse = staging / "wheels"
                     wheelhouse.mkdir(mode=0o700)
                     wheels = {}
+                    download_bytes = 0
                     for record in evidence:
                         filename = record["filename"]
                         if (not isinstance(filename, str) or Path(filename).name != filename or
@@ -92,6 +93,9 @@ class PackageControl:
                             raise EvidenceError("Unsafe wheel filename")
                         destination = wheelhouse / filename
                         self.provider.download(record, destination)
+                        download_bytes += destination.stat().st_size
+                        if download_bytes > 100 * 1024 * 1024:
+                            raise EvidenceError("Package set exceeds download size limit")
                         wheels[record["name"]] = destination
                     validate_wheels(wheels, selected)
                     target = staging / "site"

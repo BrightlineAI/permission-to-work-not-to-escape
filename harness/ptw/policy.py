@@ -58,7 +58,7 @@ class Invalid(ValueError):
 
 
 def canonical(value):
-    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True, allow_nan=False)
 
 
 def digest(value):
@@ -90,6 +90,10 @@ def save(path, value):
 
 
 def validate(schema, value):
+    try:
+        canonical(value)
+    except (ValueError, TypeError) as exc:
+        raise Invalid("Policy and inventory must contain finite JSON values") from exc
     errors = sorted(Draft202012Validator(schema).iter_errors(value), key=lambda e: str(e.path))
     if errors:
         error = errors[0]
