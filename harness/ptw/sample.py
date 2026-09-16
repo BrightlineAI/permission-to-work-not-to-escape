@@ -42,4 +42,3 @@ def create(directory):
     (root / "history.jsonl").write_text("\n".join(json.dumps(r) for r in rows) + "\n")
     return {"directory": str(root), "description": str(root / "project.md"), "inventory": str(root / "inventory.json"),
             "manual_policy": str(root / "policy.json"), "history": str(root / "history.jsonl")}
-
