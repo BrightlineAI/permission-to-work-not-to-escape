@@ -11,6 +11,7 @@ from unittest.mock import patch
 from ptw.mcp_server import Adapter, server
 from ptw.onboarding import candidates, data, detect, private_directory, resolve_npm, review_text
 from ptw.policy import Invalid, load, save
+from ptw.codex import require_login
 from test_workspace import WorkspaceFixture
 
 
@@ -119,6 +120,14 @@ class OnboardingTests(unittest.TestCase):
         with patch("subprocess.run") as run:
             self.assertIsNone(resolve_npm(self.repo, self.root))
         run.assert_not_called()
+
+    def test_missing_login_has_actionable_error_without_model_call(self):
+        with patch("ptw.codex.shutil.which", return_value="/usr/bin/codex"), \
+                patch("ptw.codex.subprocess.run") as run:
+            run.return_value.returncode = 1
+            with self.assertRaisesRegex(Invalid, "codex login"):
+                require_login()
+            self.assertEqual(run.call_args.args[0], ["/usr/bin/codex", "login", "status"])
 
     def test_empty_npm_lock_needs_no_package_install(self):
         save(self.repo / "package.json", {"name": "plain"})

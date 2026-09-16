@@ -148,7 +148,7 @@ def drive(store, session, assignment, *, model="gpt-5.6-sol", effort="low", max_
 
 
 def prepare(repo, description, output, *, commands=None, requirements=None, npm_lock=None,
-            history=None, model="gpt-5.6-sol", effort="low"):
+            history=None, model="gpt-5.6-sol", effort="low", validate_proposal=None):
     """Operator entry: inventory metadata, draft and retained validation attempts."""
     from .codex import generate
     from .audit import history_context
@@ -209,6 +209,8 @@ def prepare(repo, description, output, *, commands=None, requirements=None, npm_
                 raise Invalid("Proposal introduced a command outside operator candidates")
             if not set(policy["project"]["packages"]["allowed_names"]) <= names:
                 raise Invalid("Proposal introduced packages outside operator candidates")
+            if validate_proposal:
+                validate_proposal(policy, inv)
         except Invalid as exc:
             record["error"] = str(exc)
             prompt += "\nRepair structure without expanding operator intent: " + str(exc) + "\n" + canonical(policy)

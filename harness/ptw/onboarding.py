@@ -211,6 +211,8 @@ def private_directory(repo):
 
 def setup(repo, directory, args, previous=None):
     from .workflow import prepare
+    from .codex import require_login
+    require_login()
     display = repo / ".ptw"
     if display.is_symlink() or (display.exists() and not display.is_dir()):
         raise Invalid("Cannot export policy into unsafe .ptw path.")
@@ -270,19 +272,26 @@ def setup(repo, directory, args, previous=None):
     )
     (stage / "description.md").write_text(description)
     print("Proposing typed policies and escalation for your review...", flush=True)
+    def check_scope(proposal, inv):
+        for grant in proposal["project"]["grants"]:
+            path = inv["resources"][grant["resource"]]["path"]
+            permitted = set(FILE_ACTIONS) if path in editable else ({"read"} if path in metadata else set())
+            if not set(grant["actions"]) <= permitted:
+                raise Invalid("Proposal exceeds explicit operator scope: " + path)
+        if any(item["escalation"] != {"warn_at": warn, "stop_at": stop}
+               for item in [proposal["project"], *proposal["tasks"]]):
+            raise Invalid("Keep exactly the operator's warning and stop thresholds.")
+        tasks = {t["id"]: t for t in proposal["tasks"]}
+        if set(tasks) != {"work", "verify"}:
+            raise Invalid("Propose exactly the requested work and verify tasks.")
+        if any(set(g["actions"]) - {"read"} for g in tasks["verify"]["grants"]):
+            raise Invalid("The requested verify task must have read-only file grants.")
     prepare(repo, description, stage / "draft", commands=stage / "commands.json",
-            requirements=requirements, npm_lock=npm_lock, history=args.history)
+            requirements=requirements, npm_lock=npm_lock, history=args.history, validate_proposal=check_scope)
     proposal, inv = load(stage / "draft/draft.json"), load(stage / "draft/inventory.json")
     # Identity is supplied by the trusted launcher, not chosen by repository/model.
     proposal["project"]["id"] = "repo-" + directory.name + "-" + secrets.token_hex(4)
-    for grant in proposal["project"]["grants"]:
-        path = inv["resources"][grant["resource"]]["path"]
-        permitted = set(FILE_ACTIONS) if path in editable else ({"read"} if path in metadata else set())
-        if not set(grant["actions"]) <= permitted:
-            raise Invalid("Proposed policy exceeds your declared scope. Retained draft: " + str(stage))
-    if any(item["escalation"] != {"warn_at": warn, "stop_at": stop}
-           for item in [proposal["project"], *proposal["tasks"]]):
-        raise Invalid("Proposal changed your escalation thresholds; review the retained draft.")
+    check_scope(proposal, inv)
     compiled = compile_policy(proposal, inv)
     print(review_text(compiled), flush=True)
     if ask("Approve exactly this policy? Type yes", "no").lower() != "yes":

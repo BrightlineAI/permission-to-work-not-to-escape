@@ -20,6 +20,15 @@ DISABLED = ["shell_tool", "multi_agent", "apps", "plugins", "browser_use", "comp
             "code_mode", "code_mode_host", "view_image", "image_generation", "memories", "goals"]
 
 
+def require_login():
+    executable = shutil.which("codex")
+    if executable is None:
+        raise Invalid("Install the pinned Codex CLI first, then run codex login.")
+    result = subprocess.run([executable, "login", "status"], capture_output=True, text=True, timeout=15)
+    if result.returncode:
+        raise Invalid("Authenticate your own account with codex login, then rerun ptw codex. No unchecked fallback.")
+
+
 def provider_schema(schema):
     """Only provider format restrictions change; the local validator stays strict."""
     if isinstance(schema, dict):

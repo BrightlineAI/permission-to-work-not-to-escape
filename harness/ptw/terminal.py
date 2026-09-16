@@ -7,13 +7,14 @@ import subprocess
 import sys
 import time
 
-from .codex import DISABLED
+from .codex import DISABLED, require_login
 from .monitor import health
 from .policy import Invalid, load, save
 from .supervisor import Supervisor
 
 
 def codex_command(store, session_path, work, prompt=None, *, interactive=True):
+    require_login()
     executable = shutil.which("codex")
     if not executable:
         raise Invalid("Codex is missing. Install and authenticate Codex before starting.")

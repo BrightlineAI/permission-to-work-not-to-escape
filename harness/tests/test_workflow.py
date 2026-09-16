@@ -2,12 +2,36 @@ import copy
 from unittest.mock import patch
 
 from test_workspace import WorkspaceFixture
-from ptw.policy import Invalid, load
+from ptw.policy import Invalid, load, save
 from ptw.workflow import drive, prepare
 from ptw.workspace import request
 
 
 class WorkflowTests(WorkspaceFixture):
+    def test_operator_scope_failure_is_repaired_or_rejected_before_approval(self):
+        draft = copy.deepcopy(self.policy)
+        mapping = {"dist": "r1", "private": "r2", "dependencies": "r3", "src": "r4", "tests": "r5"}
+        catalog = copy.deepcopy(draft["project"]["commands"])
+        for command in catalog:
+            command["resources"] = [self.inv["resources"][r]["path"] for r in command["resources"]]
+        save(self.root / "commands.json", catalog)
+        for layer in [draft["project"], *draft["tasks"]]:
+            for grant in layer["grants"]:
+                grant["resource"] = mapping[grant["resource"]]
+        for command in draft["project"]["commands"]:
+            command["resources"] = [mapping[r] for r in command["resources"]]
+        def operator_scope(policy, inventory):
+            raise Invalid("Operator scope requires a read-only verification task")
+        with patch("ptw.codex.generate", return_value=(draft, {"test_double": True})) as generate, self.assertRaises(Invalid):
+            prepare(self.inv["root"], "Read-only verification", self.root / "scoped-review",
+                    commands=self.root / "commands.json",
+                    requirements=self.root / "example/repo/requirements.txt",
+                    validate_proposal=operator_scope)
+        self.assertEqual(generate.call_count, 3)
+        self.assertTrue(all("read-only verification" in r["error"]
+                            for r in load(self.root / "scoped-review/attempts.json")))
+        self.assertFalse((self.root / "scoped-review/draft.json").exists())
+
     def test_nested_model_loop_shares_budget_and_records_actual_effects(self):
         proposals = [request("delegate", "readcheck", content="Read the calculator"),
                      request("read", "src", "calculator.py"),
