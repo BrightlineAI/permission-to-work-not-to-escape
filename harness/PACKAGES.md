@@ -80,16 +80,26 @@ For another agent adapter, call PackageControl(store).install(token, event_id, e
 
 ## Existing project
 
-Keep your files and file grants. Start from your reviewed version 1 policy:
+Keep your files and file grants. Set PTW_EXISTING to an existing project with a reviewed version 1 policy, not the version 2 example above:
 
-    ptw package-draft --policy "$PTW_PROJECT/policy.json" \
+    PTW_EXISTING="/absolute/path/to/your/existing-project"
+    ptw package-draft --policy "$PTW_EXISTING/policy.json" \
       --project-id website-packages --task frontend --allow idna \
-      --min-age-days 3 --deny-cvss 9 --out "$PTW_PROJECT/package-draft.json"
-    ptw review --policy "$PTW_PROJECT/package-draft.json" --inventory "$PTW_PROJECT/inventory.json"
+      --min-age-days 3 --deny-cvss 9 --out "$PTW_EXISTING/package-draft.json"
+    ptw review --policy "$PTW_EXISTING/package-draft.json" --inventory "$PTW_EXISTING/inventory.json"
 
 This creates an unapproved version 2 draft, gives package scope only to the named task, and preserves file grants and escalation. Repeat --allow for each dependency. It is an explicit operator configuration, not a claim that an LLM inferred safe dependencies.
 
-Approve the new hash as before. Before activating the new project identity in the same controller, stop the old project with ptw stop and confirm termination. Old records remain; the new identity has its own counters. This is an operator-reviewed transition, never an agent shortcut around stopping. Register new sessions for website-packages, then use package-install and launch as above. Existing application environments are not modified or retroactively certified.
+For the website/frontend example, approve and switch explicitly:
+
+    ptw approve --policy "$PTW_EXISTING/package-draft.json" --inventory "$PTW_EXISTING/inventory.json" \
+      --sha256 PASTE_THE_NEW_REVIEW_HASH --reviewer "Your name" --out "$PTW_EXISTING/package-approved.json"
+    ptw stop --state "$PTW_EXISTING/controller" --project website
+    ptw activate --state "$PTW_EXISTING/controller" --bundle "$PTW_EXISTING/package-approved.json"
+    ptw register --state "$PTW_EXISTING/controller" --project website-packages --task frontend \
+      --out "$PTW_EXISTING/package-session.json"
+
+Use your real project and task IDs. Confirm the old project's registered workloads stopped before activating the new identity. Old records remain; the new identity has its own counters. This is an operator-reviewed transition, never an agent shortcut around stopping. Use package-install and launch with the new session. Existing application environments are not modified or retroactively certified.
 
 Version 2 policies can be edited as new drafts and reviewed normally. Never edit active database state. Version 1 policies continue to work, with no package installation authority.
 

@@ -45,6 +45,12 @@ The policy evaluator, not uv configuration, owns age and severity. uv only insta
 5. Fresh ordinary Linux account: install committed code, follow documentation, exercise new and existing project policies, verify positive and negative effects. Repeat after fixes.
 6. Rerun all existing tests, scan publication artifacts for credentials, commit code and evidence, update release integrity inventory and publish. Record failures as well as passes.
 
+## Implementation review outcome
+
+The first release uses three small package modules around the existing policy, store and supervisor, rather than an additional gateway or policy service. It reuses packaging, cvss, uv, PyPI, OSV, bubblewrap and nono. The policy evaluator is the only source of package admission decisions.
+
+Validation exposed an environment-scrubbing integration bug. Further review corrected interpreter marker selection and uncertain-publication handling. These fixes and the original failures are recorded in the [acceptance report](validation/packages-20260916/README.md). New and existing projects both passed the documented live CLI workflow from a separate account.
+
 ## Sources
 
 - [uv installation controls](https://docs.astral.sh/uv/reference/cli/)
