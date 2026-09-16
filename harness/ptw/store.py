@@ -217,6 +217,8 @@ class Store:
         with self.locked() as db:
             actor = self.session(db, token)
             project, bundle = self.project(db, actor["project"])
+            if bundle["policy"]["version"] == 4:
+                raise Invalid("Use repository actions for version 4; legacy file requests lack edit preconditions")
             prior = db.execute("SELECT * FROM events WHERE session=? AND event=?", (actor["id"], event)).fetchone()
             if prior:
                 if prior["request_hash"] != request_hash:

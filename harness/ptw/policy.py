@@ -193,7 +193,9 @@ def open_resource(inv, relative, flags):
 def compile_policy(proposal, inv):
     version = proposal.get("version") if isinstance(proposal, dict) else None
     if version == 4:
-        from .workspace_policy import validate_workspace
+        from .workspace_policy import WORKSPACE_SCHEMA, validate_workspace
+        validate(WORKSPACE_SCHEMA, proposal)
+        inventory(inv, workspace=True)
         validate_workspace(proposal, inv)
     else:
         validate({1: POLICY_SCHEMA, 2: PACKAGE_SCHEMA, 3: ECOSYSTEM_SCHEMA}.get(version, POLICY_SCHEMA), proposal)

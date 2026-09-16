@@ -100,6 +100,8 @@ class Supervisor:
             project, bundle = self.store.project(db, actor["project"])
             if project["stopped"]:
                 raise Invalid("Project stopped")
+            if bundle["policy"]["version"] == 4:
+                raise Invalid("Use reviewed repository commands for version 4, not direct workload mounts")
             package_mount = None
             package_ecosystem = "pypi"
             if package_set:

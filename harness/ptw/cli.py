@@ -18,6 +18,17 @@ def main(argv=None):
     sample = commands.add_parser("sample", help="Create a fresh synthetic project")
     sample.add_argument("--out", required=True)
     sample.add_argument("--packages", action="store_true", help="Include reviewed Python package control example")
+    sample.add_argument("--workspace", choices=["python", "typescript"], help="Create a small real repository and version 4 policy")
+    prepare = commands.add_parser("prepare", help="Inventory an existing repository and propose a reviewed version 4 workflow")
+    prepare.add_argument("--repo", required=True)
+    prepare.add_argument("--description", required=True)
+    prepare.add_argument("--commands", help="Operator candidate commands JSON; resource names are repository paths")
+    prepare.add_argument("--requirements")
+    prepare.add_argument("--npm-lock")
+    prepare.add_argument("--history")
+    prepare.add_argument("--model", default="gpt-5.6-sol")
+    prepare.add_argument("--effort", default="low", choices=["low", "medium", "high"])
+    prepare.add_argument("--out", required=True)
     propose = commands.add_parser("propose", help="Codex drafts policy, never approves it")
     propose.add_argument("--description", required=True)
     propose.add_argument("--inventory", required=True)
@@ -41,6 +52,7 @@ def main(argv=None):
     register.add_argument("--parent", help="Private parent session file, for a narrower delegate")
     register.add_argument("--grants", help="Optional JSON grant array, to narrow further")
     register.add_argument("--packages", help="Optional JSON name array, to narrow package scope further")
+    register.add_argument("--commands", help="Optional JSON command ID array, to narrow further")
     register.add_argument("--out", required=True)
     request = commands.add_parser("request")
     request.add_argument("--session", required=True)
@@ -48,13 +60,19 @@ def main(argv=None):
     request.add_argument("--action", required=True)
     request.add_argument("--resource", required=True)
     request.add_argument("--content", default="")
+    action = commands.add_parser("action", help="Unified repository/package/command request through reviewed scope")
+    action.add_argument("--session", required=True)
+    action.add_argument("--event", required=True)
+    action.add_argument("--request", required=True, help="Structured request JSON file, not executable code")
+    action.add_argument("--out", help="Optional private result JSON")
     status = commands.add_parser("status")
     stop = commands.add_parser("stop")
     for command in [status, stop]:
         command.add_argument("--project", required=True)
     run = commands.add_parser("run", help="Codex resource task through the protected broker")
-    run.add_argument("--project", required=True)
-    run.add_argument("--task", required=True)
+    run.add_argument("--project")
+    run.add_argument("--task")
+    run.add_argument("--session", help="Use an existing private registered session")
     run.add_argument("--assignment", required=True)
     run.add_argument("--parent", help="Private parent session file")
     run.add_argument("--model", default="gpt-5.6-sol")
@@ -87,6 +105,16 @@ def main(argv=None):
     package_draft.add_argument("--out", required=True)
     watch = commands.add_parser("watch", help="Retry and verify pending project terminations")
     watch.add_argument("--once", action="store_true")
+    monitor = commands.add_parser("monitor", help="Inspect, install/restart or safely remove automatic monitoring")
+    monitor.add_argument("operation", choices=["status", "ensure", "remove"])
+    recover = commands.add_parser("recover", help="Reconcile interrupted work; never reset stopped history")
+    recover.add_argument("--project", required=True)
+    change = commands.add_parser("change", help="Draft one narrow operator permission change for review")
+    for name in ["project", "task", "resource", "action", "reason", "project-id", "out"]:
+        change.add_argument("--" + name, required=True)
+    replace = commands.add_parser("replace", help="Stop old work, confirm termination, activate a separately approved new version")
+    replace.add_argument("--project", required=True)
+    replace.add_argument("--bundle", required=True)
     events = commands.add_parser("events", help="Export content free policy event metadata")
     events.add_argument("--project", required=True)
     audit = commands.add_parser("audit", help="Compare selected Codex logs with reviewed scope")
@@ -94,7 +122,8 @@ def main(argv=None):
     audit.add_argument("--history", required=True)
     audit.add_argument("--task", required=True)
     audit.add_argument("--out", required=True)
-    for command in [activate, register, request, status, stop, run, launch, package, watch, events]:
+    for command in [activate, register, request, status, stop, run, launch, package, watch, events,
+                    action, monitor, recover, change, replace]:
         command.add_argument("--state", required=True, help="Private controller directory outside resources")
     args = parser.parse_args(argv)
     try:
@@ -103,6 +132,8 @@ def main(argv=None):
         if args.command == "doctor" and not result["ready"]:
             raise SystemExit(1)
         if args.command == "package-install" and not result["allowed"]:
+            raise SystemExit(1)
+        if args.command == "action" and (not result.get("allowed") or result.get("exit_code", 0) != 0):
             raise SystemExit(1)
     except (Invalid, OSError, ValueError) as exc:
         print(json.dumps({"error": str(exc)}), file=sys.stderr)
@@ -114,8 +145,16 @@ def execute(args):
         from .doctor import check
         return check()
     if args.command == "sample":
+        if args.workspace:
+            from .project_example import create
+            return create(args.out, args.workspace)
         from .sample import create
         return create(args.out, packages=args.packages)
+    if args.command == "prepare":
+        from .workflow import prepare
+        return prepare(args.repo, Path(args.description).read_text(), args.out,
+                       commands=args.commands, requirements=args.requirements, npm_lock=args.npm_lock,
+                       history=args.history, model=args.model, effort=args.effort)
     if args.command == "package-draft":
         from .policy import PACKAGE_SCHEMA, ECOSYSTEM_SCHEMA, validate
         draft = load(args.policy)
@@ -193,17 +232,71 @@ def execute(args):
     supervisor = Supervisor(store)
     supervisor.reconcile()
     if args.command == "activate":
-        return store.activate(load(args.bundle))
+        bundle = load(args.bundle)
+        if bundle["policy"]["version"] == 4:
+            from .monitor import ensure
+            ensure(store)
+        return store.activate(bundle)
+    if args.command == "monitor":
+        from .monitor import health, ensure, remove
+        return {"status": health, "ensure": ensure, "remove": remove}[args.operation](store)
+    if args.command == "recover":
+        from .monitor import ensure
+        monitoring = ensure(store)
+        return {"monitor": monitoring, "termination": supervisor.reconcile(),
+                "status": store.status(args.project),
+                "next": "Stopped projects stay stopped. Inspect uncertain effects and explicitly review a new version."}
+    if args.command == "change":
+        from .workflow import change
+        return change(store, args.project, args.task, args.resource, args.action, args.reason, args.out, args.project_id)
+    if args.command == "replace":
+        bundle = load(args.bundle)
+        check_approval(bundle)  # Fail before stopping current work on an invalid draft.
+        if bundle["policy"]["project"]["id"] == args.project:
+            raise Invalid("Replacement must have an explicit new project identity")
+        with store.locked() as db:
+            old, old_bundle = store.project(db, args.project)
+            if old_bundle["inventory"]["root"] != bundle["inventory"]["root"]:
+                raise Invalid("Replacement must refer to the same repository")
+            if db.execute("SELECT 1 FROM projects WHERE id=?", (bundle["policy"]["project"]["id"],)).fetchone():
+                raise Invalid("Replacement identity already exists")
+        from .monitor import ensure
+        monitoring = ensure(store)
+        store.stop(args.project, "operator approved replacement: " + bundle["policy"]["project"]["id"])
+        outcomes = supervisor.reconcile()
+        old_status = store.status(args.project)
+        if any(not w["stopped"] for w in old_status["workloads"]):
+            raise Invalid("Old work has pending termination; new project was not activated")
+        return {"previous": args.project, "previous_history_retained": True,
+                "termination": outcomes, "monitor": monitoring, **store.activate(bundle)}
     if args.command == "register":
         parent = load(args.parent)["token"] if args.parent else None
         result = store.register(args.project, args.task, parent_token=parent,
                                 grants=load(args.grants) if args.grants else None,
-                                packages=load(args.packages) if args.packages else None)
+                                packages=load(args.packages) if args.packages else None,
+                                commands=load(args.commands) if args.commands else None)
         save(args.out, result)
         return {k: v for k, v in result.items() if k != "token"}
     if args.command == "request":
         return store.request(load(args.session)["token"], args.event,
                              {"action": args.action, "resource": args.resource, "content": args.content})
+    if args.command == "action":
+        from .workflow import dispatch
+        from .monitor import ensure
+        if args.out and Path(args.out).exists():
+            raise Invalid("Result output already exists")
+        ensure(store)
+        session = load(args.session)
+        # Identity comes from the registered token, not editable session labels.
+        with store.locked() as db:
+            actor = store.session(db, session["token"])
+            session.update(project=actor["project"], task=actor["task"])
+        result = dispatch(store, session, args.event, load(args.request))
+        if not result.get("allowed"):
+            result = {**result, "next": "Read the reason. Fix an input/conflict, or ask the operator to draft a narrow reviewed change. Do not bypass."}
+        if args.out:
+            save(args.out, result)
+        return result
     if args.command == "package-install":
         from .packages import PackageControl
         if args.out and Path(args.out).exists():
@@ -223,7 +316,8 @@ def execute(args):
             save(args.out, result)
         return result
     if args.command == "status":
-        return store.status(args.project)
+        from .monitor import health
+        return {**store.status(args.project), "monitor": health(store)}
     if args.command == "stop":
         store.stop(args.project)
         return {"project": args.project, "termination": supervisor.reconcile(), "status": store.status(args.project)}
@@ -245,7 +339,25 @@ def execute(args):
         from .codex import drive
         if Path(args.out).exists():
             raise Invalid("Run output already exists")
-        session = store.register(args.project, args.task, parent_token=load(args.parent)["token"] if args.parent else None)
+        if args.session:
+            if args.project or args.task or args.parent:
+                raise Invalid("Use --session or --project/--task/--parent, not both")
+            raw = load(args.session)
+            with store.locked() as db:
+                actor = store.session(db, raw["token"])
+                session = {"token": raw["token"], "session": actor["id"], "project": actor["project"], "task": actor["task"],
+                           "grants": json.loads(actor["grants"]), "packages": json.loads(actor["packages"]),
+                           "commands": json.loads(actor["commands"])}
+        else:
+            if not args.project or not args.task:
+                raise Invalid("Specify --session or both --project and --task")
+            session = store.register(args.project, args.task, parent_token=load(args.parent)["token"] if args.parent else None)
+        with store.locked() as db:
+            _, bundle = store.project(db, session["project"])
+        if bundle["policy"]["version"] == 4:
+            from .monitor import ensure
+            ensure(store)
+            from .workflow import drive
         result = drive(store, session, Path(args.assignment).read_text(), model=args.model, effort=args.effort, max_steps=args.max_steps)
         save(args.out, result)
         return {"outcome": result["outcome"], "output": args.out, "requests": len(result["steps"]),

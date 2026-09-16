@@ -4,6 +4,8 @@ import os
 from pathlib import Path
 import tempfile
 import unittest
+import concurrent.futures
+import time
 from unittest.mock import patch
 
 from ptw.policy import Invalid, approve, compile_policy, digest, load
@@ -12,7 +14,7 @@ from ptw.store import Store
 from ptw.workspace import Workspace, request
 
 
-class WorkspaceTests(unittest.TestCase):
+class WorkspaceFixture(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix="ptw-workspace-")
         self.addCleanup(self.temp.cleanup)
@@ -33,6 +35,8 @@ class WorkspaceTests(unittest.TestCase):
         self.i += 1
         return self.broker.request(self.actor["token"], "event-" + str(self.i), request(action, resource, path, **kwargs))
 
+
+class WorkspaceTests(WorkspaceFixture):
     def test_read_and_atomic_write(self):
         old = self.ask("read")
         before = (Path(self.inv["root"]) / "src/calculator.py").stat().st_ino
@@ -149,9 +153,79 @@ class WorkspaceTests(unittest.TestCase):
         self.assertEqual(result["level"], "stop")
         self.assertTrue(self.store.status("python-demo")["stopped"])
 
+    def test_legacy_route_cannot_bypass_preconditions(self):
+        with self.assertRaises(Invalid):
+            self.store.request(self.actor["token"], "legacy", {"action": "write", "resource": "dependencies", "content": "x"})
+
+    def test_dispatch_package_input_must_be_readable(self):
+        from ptw.workflow import dispatch
+        result = dispatch(self.store, self.actor, "install-private", request("install", "private", "customer.txt", content="pypi"))
+        self.assertFalse(result["allowed"])
+        self.assertEqual(self.store.status("python-demo")["violations"], 1)
+        replay = dispatch(self.store, self.actor, "install-private", request("install", "private", "customer.txt", content="pypi"))
+        self.assertTrue(replay["replayed"])
+        self.assertEqual(self.store.status("python-demo")["violations"], 1)
+
+    def test_dispatch_delegate_has_no_token_and_replays(self):
+        from ptw.workflow import dispatch
+        req = request("delegate", "readcheck", content="Review without writing")
+        result = dispatch(self.store, self.actor, "delegate", req)
+        self.assertTrue(result["allowed"], result)
+        self.assertNotIn("token", result["child"])
+        again = dispatch(self.store, self.actor, "delegate", req)
+        self.assertEqual(result["child"]["session"], again["child"]["session"])
+        self.assertEqual(len(self.store.status("python-demo")["sessions"]), 2)
+
+    def test_delegate_scope_expansion_counts_once(self):
+        from ptw.workflow import dispatch
+        actor = self.store.register("python-demo", "readcheck")
+        req = request("delegate", "implementation", content="Try wider access")
+        result = dispatch(self.store, actor, "delegate", req)
+        self.assertEqual(result["level"], "warn")
+        self.assertEqual(self.store.status("python-demo")["violations"], 1)
+
+    def test_new_declared_top_level_file(self):
+        self.policy["project"]["id"] = "newfile"
+        self.inv["resources"]["new"] = {"path": "NEW.md", "kind": "file", "description": "Future release note"}
+        for item in [self.policy["project"], self.policy["tasks"][0]]:
+            item["grants"].append({"resource": "new", "actions": ["read", "create", "write", "delete"]})
+        self.store.activate(self.approve())
+        self.actor = self.store.register("newfile", "implementation")
+        self.assertTrue(self.ask("create", resource="new", path="", content="created")["allowed"])
+        read = self.ask("read", resource="new", path="")
+        self.assertEqual(read["content"], "created")
+        self.assertTrue(self.ask("delete", resource="new", path="", expected=read["sha256"])["allowed"])
+        self.assertTrue(self.ask("create", resource="new", path="", content="recreated")["allowed"])
+
+    def test_command_conflict_does_not_publish(self):
+        from ptw.workspace import scan
+        before = scan(self.inv, ["src", "tests"])
+        after = copy.deepcopy(before)
+        after["src/calculator.py"]["data"] = b"stale"
+        def execute(*args):
+            path = Path(self.inv["root"]) / "src/calculator.py"
+            path.write_text("concurrent operator edit")
+            return after, {"exit_code": 0, "output": "", "output_truncated": False}
+        with patch("ptw.execution.execute", side_effect=execute):
+            result = self.ask("run", resource="test", path="")
+        self.assertEqual(result["level"], "conflict")
+        self.assertEqual((Path(self.inv["root"]) / "src/calculator.py").read_text(), "concurrent operator edit")
+
+    def test_stop_during_command_prevents_publication(self):
+        from ptw.workspace import scan
+        after = scan(self.inv, ["src", "tests"])
+        after["src/calculator.py"]["data"] = b"never publish"
+        def execute(*args):
+            self.store.stop("python-demo")
+            return after, {"exit_code": 0, "output": "", "output_truncated": False}
+        with patch("ptw.execution.execute", side_effect=execute):
+            result = self.ask("run", resource="test", path="")
+        self.assertEqual(result["level"], "stop")
+        self.assertNotEqual((Path(self.inv["root"]) / "src/calculator.py").read_bytes(), b"never publish")
+
 
 @unittest.skipUnless(os.environ.get("PTW_LINUX_TESTS") == "1", "Explicit isolated VPS opt in")
-class WorkspaceLinux(WorkspaceTests):
+class WorkspaceLinux(WorkspaceFixture):
     def add_command(self, code, resources=None):
         # New synthetic project per test; no mutation of an active policy.
         self.policy["project"]["id"] = "command-demo"
@@ -205,3 +279,45 @@ class WorkspaceLinux(WorkspaceTests):
         result = self.ask("run", resource="probe", path="")
         self.assertFalse(result["allowed"], result)
         self.assertFalse((Path(self.inv["root"]) / "src/leak").exists())
+
+    def test_actual_running_parents_child_stop_unrelated_survives(self):
+        from ptw.supervisor import Supervisor
+        # Each command also starts an independent subprocess within its cgroup.
+        self.policy["project"]["commands"].append({"id": "wait", "argv": ["/usr/bin/python3", "-c",
+            "import subprocess,time; subprocess.Popen(['/usr/bin/sleep','20']); time.sleep(20)"],
+            "resources": ["src"], "timeout_seconds": 30})
+        for task in self.policy["tasks"]:
+            task["commands"].append("wait")
+        self.policy["project"]["id"] = "running"
+        self.store.activate(self.approve())
+        a = self.store.register("running", "implementation")
+        b = self.store.register("running", "verification")
+        child = self.store.register("running", "readcheck", parent_token=a["token"])
+        self.policy["project"]["id"] = "unrelated"
+        self.policy["project"]["commands"][-1]["argv"] = ["/usr/bin/python3", "-c", "import time; time.sleep(3); print('UNRELATED_COMPLETED')"]
+        self.store.activate(self.approve())
+        other = self.store.register("unrelated", "implementation")
+        try:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
+                futures = [pool.submit(self.broker.request, actor["token"], "running", request("run", "wait"))
+                           for actor in [a, b, child, other]]
+                deadline = time.monotonic() + 10
+                while time.monotonic() < deadline:
+                    units = self.store.status("running")["workloads"]
+                    if len(units) == 3 and all(Supervisor.state(w["unit"]).get("ActiveState") == "active" for w in units):
+                        break
+                    time.sleep(.05)
+                self.assertEqual(len(units), 3)
+                for actor in [a, b, child]:
+                    self.broker.request(actor["token"], "forbidden", request("read", "private", "customer.txt"))
+                for result in [f.result(timeout=15) for f in futures[:3]]:
+                    self.assertFalse(result["allowed"], result)
+                unrelated = futures[3].result(timeout=15)
+                self.assertTrue(unrelated["allowed"], unrelated)
+                self.assertIn("UNRELATED_COMPLETED", unrelated["output"])
+                self.assertTrue(all(w["stopped"] for w in self.store.status("running")["workloads"]))
+                self.assertFalse(self.store.status("unrelated")["stopped"])
+        finally:
+            for name in ["running", "unrelated"]:
+                self.store.stop(name)
+            Supervisor(self.store).reconcile()
