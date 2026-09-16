@@ -17,6 +17,7 @@ def main(argv=None):
     commands.add_parser("doctor", help="Check installation with real permitted, forbidden and stop probes")
     sample = commands.add_parser("sample", help="Create a fresh synthetic project")
     sample.add_argument("--out", required=True)
+    sample.add_argument("--packages", action="store_true", help="Include reviewed Python package control example")
     propose = commands.add_parser("propose", help="Codex drafts policy, never approves it")
     propose.add_argument("--description", required=True)
     propose.add_argument("--inventory", required=True)
@@ -39,6 +40,7 @@ def main(argv=None):
     register.add_argument("--task", required=True)
     register.add_argument("--parent", help="Private parent session file, for a narrower delegate")
     register.add_argument("--grants", help="Optional JSON grant array, to narrow further")
+    register.add_argument("--packages", help="Optional JSON name array, to narrow package scope further")
     register.add_argument("--out", required=True)
     request = commands.add_parser("request")
     request.add_argument("--session", required=True)
@@ -61,7 +63,13 @@ def main(argv=None):
     run.add_argument("--out", required=True)
     launch = commands.add_parser("launch", help="Operator launches a confined local workload")
     launch.add_argument("--session", required=True)
+    launch.add_argument("--package-set", help="Approved package set returned by package-install")
     launch.add_argument("argv", nargs=argparse.REMAINDER)
+    package = commands.add_parser("package-install", help="Check and install a complete pinned Python wheel set")
+    package.add_argument("--session", required=True)
+    package.add_argument("--event", required=True)
+    package.add_argument("--requirements", required=True, help="One exact name==version per line, including dependencies")
+    package.add_argument("--out", help="Optional new receipt file")
     watch = commands.add_parser("watch", help="Retry and verify pending project terminations")
     watch.add_argument("--once", action="store_true")
     events = commands.add_parser("events", help="Export content free policy event metadata")
@@ -71,13 +79,15 @@ def main(argv=None):
     audit.add_argument("--history", required=True)
     audit.add_argument("--task", required=True)
     audit.add_argument("--out", required=True)
-    for command in [activate, register, request, status, stop, run, launch, watch, events]:
+    for command in [activate, register, request, status, stop, run, launch, package, watch, events]:
         command.add_argument("--state", required=True, help="Private controller directory outside resources")
     args = parser.parse_args(argv)
     try:
         result = execute(args)
         print(json.dumps(result, indent=2))
         if args.command == "doctor" and not result["ready"]:
+            raise SystemExit(1)
+        if args.command == "package-install" and not result["allowed"]:
             raise SystemExit(1)
     except (Invalid, OSError, ValueError) as exc:
         print(json.dumps({"error": str(exc)}), file=sys.stderr)
@@ -90,7 +100,7 @@ def execute(args):
         return check()
     if args.command == "sample":
         from .sample import create
-        return create(args.out)
+        return create(args.out, packages=args.packages)
     if args.command == "propose":
         from .codex import propose
         if any(Path(args.out + suffix).exists() for suffix in ["", ".meta.json", ".attempts.json"]):
@@ -123,12 +133,25 @@ def execute(args):
     if args.command == "register":
         parent = load(args.parent)["token"] if args.parent else None
         result = store.register(args.project, args.task, parent_token=parent,
-                                grants=load(args.grants) if args.grants else None)
+                                grants=load(args.grants) if args.grants else None,
+                                packages=load(args.packages) if args.packages else None)
         save(args.out, result)
         return {k: v for k, v in result.items() if k != "token"}
     if args.command == "request":
         return store.request(load(args.session)["token"], args.event,
                              {"action": args.action, "resource": args.resource, "content": args.content})
+    if args.command == "package-install":
+        from .packages import PackageControl
+        if args.out and Path(args.out).exists():
+            raise Invalid("Receipt output already exists")
+        raw = Path(args.requirements).read_text()
+        if len(raw) > 65536:
+            raise Invalid("Requirements file too large")
+        specs = [line.strip() for line in raw.splitlines() if line.strip() and not line.lstrip().startswith("#")]
+        result = PackageControl(store).install(load(args.session)["token"], args.event, specs)
+        if args.out:
+            save(args.out, result)
+        return result
     if args.command == "status":
         return store.status(args.project)
     if args.command == "stop":
@@ -138,7 +161,7 @@ def execute(args):
         return store.audit_events(args.project)
     if args.command == "launch":
         command = args.argv[1:] if args.argv[:1] == ["--"] else args.argv
-        return {"unit": supervisor.launch(load(args.session)["token"], command)}
+        return {"unit": supervisor.launch(load(args.session)["token"], command, package_set=args.package_set)}
     if args.command == "watch":
         if args.once:
             return supervisor.reconcile()

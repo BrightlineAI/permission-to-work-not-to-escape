@@ -21,7 +21,7 @@ def main():
             if [info.st_dev, info.st_ino] != config["bindings"][name]:
                 raise Invalid("Resource changed before sandbox launch")
             os.set_inheritable(fd, True)
-        command = sandbox_command(inv, grants, sys.argv[2:], config["nono"], descriptors)
+        command = sandbox_command(inv, grants, sys.argv[2:], config["nono"], descriptors, config.get("package_mount"))
         os.execv(command[0], command)
     finally:
         for fd in descriptors.values():

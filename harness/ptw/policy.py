@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import copy
 import json
 import os
 from pathlib import Path, PurePosixPath
@@ -32,6 +33,19 @@ POLICY_SCHEMA = obj({
         "id": ID, "description": {"type": "string", "minLength": 1, "maxLength": 8000},
         "grants": GRANTS, "escalation": ESCALATION})},
 })
+PACKAGE_NAME = {"type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$", "maxLength": 128}
+PACKAGE_NAMES = {"type": "array", "items": PACKAGE_NAME, "uniqueItems": True, "maxItems": 64}
+PACKAGE_SCHEMA = copy.deepcopy(POLICY_SCHEMA)
+PACKAGE_SCHEMA["properties"]["version"]["const"] = 2
+PACKAGE_SCHEMA["properties"]["project"]["properties"]["packages"] = obj({
+    "allowed_names": PACKAGE_NAMES,
+    "min_release_age_days": {"type": "integer", "minimum": 0, "maximum": 36500},
+    "deny_cvss_at_or_above": {"type": "number", "minimum": 0.1, "maximum": 10},
+    "evidence_max_age_seconds": {"type": "integer", "minimum": 60, "maximum": 86400},
+})
+PACKAGE_SCHEMA["properties"]["project"]["required"].append("packages")
+PACKAGE_SCHEMA["properties"]["tasks"]["items"]["properties"]["packages"] = PACKAGE_NAMES
+PACKAGE_SCHEMA["properties"]["tasks"]["items"]["required"].append("packages")
 INVENTORY_SCHEMA = obj({"root": {"type": "string", "minLength": 1}, "resources": {
     "type": "object", "minProperties": 1, "maxProperties": 128,
     "propertyNames": ID, "additionalProperties": obj({
@@ -149,7 +163,7 @@ def open_resource(inv, relative, flags):
 
 
 def compile_policy(proposal, inv):
-    validate(POLICY_SCHEMA, proposal)
+    validate(PACKAGE_SCHEMA if isinstance(proposal, dict) and proposal.get("version") == 2 else POLICY_SCHEMA, proposal)
     inventory(inv)
     project = proposal["project"]
     parent = scope(project["grants"])
@@ -161,6 +175,8 @@ def compile_policy(proposal, inv):
         if escalation["warn_at"] > escalation["stop_at"]:
             raise Invalid("Warning threshold must not exceed stop threshold")
     for task in proposal["tasks"]:
+        if proposal["version"] == 2 and not set(task["packages"]) <= set(project["packages"]["allowed_names"]):
+            raise Invalid("Task package scope expands project scope")
         if task["id"] in ids:
             raise Invalid("Duplicate task ID")
         ids.add(task["id"])

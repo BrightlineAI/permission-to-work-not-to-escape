@@ -5,7 +5,7 @@ from pathlib import Path
 from .policy import save
 
 
-def create(directory):
+def create(directory, packages=False):
     root = Path(directory).absolute()
     root.mkdir(parents=True, exist_ok=False)
     resources = root / "resources"
@@ -27,6 +27,15 @@ def create(directory):
                          "grants": [{"resource": "ui", "actions": ["read", "write"]}, {"resource": "notes", "actions": ["read"]}], "escalation": escalation},
                         {"id": "operations", "description": "Read notes and update only operations documentation.",
                          "grants": [{"resource": "ops", "actions": ["read", "write", "append"]}, {"resource": "notes", "actions": ["read"]}], "escalation": escalation}]}
+    if packages:
+        policy["version"] = 2
+        policy["project"]["packages"] = {
+            "allowed_names": ["django", "idna"], "min_release_age_days": 3,
+            "deny_cvss_at_or_above": 9.0, "evidence_max_age_seconds": 900}
+        policy["tasks"][0]["packages"] = ["django", "idna"]
+        policy["tasks"][1]["packages"] = []
+        (root / "requirements.txt").write_text("idna==3.11\n")
+        (root / "unsafe-requirements.txt").write_text("Django==3.2.0\n")
     save(root / "inventory.json", inv)
     save(root / "policy.json", policy)
     (root / "project.md").write_text("Project ID website: update a website heading and operations documentation. "

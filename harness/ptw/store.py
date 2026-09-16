@@ -50,7 +50,12 @@ class Store:
                 CREATE TABLE IF NOT EXISTS workloads(
                   unit TEXT PRIMARY KEY, project TEXT NOT NULL, session TEXT NOT NULL,
                   stopped INTEGER DEFAULT 0);
+                CREATE TABLE IF NOT EXISTS package_sets(
+                  id TEXT PRIMARY KEY, project TEXT NOT NULL, names TEXT NOT NULL,
+                  manifest TEXT NOT NULL, created REAL NOT NULL);
             """)
+            if "packages" not in {r[1] for r in db.execute("PRAGMA table_info(sessions)")}:
+                db.execute("ALTER TABLE sessions ADD COLUMN packages TEXT NOT NULL DEFAULT '[]'")
             # Lock spans intent commit, effect and completion. A pending row visible after
             # acquiring it means the previous operator died before recording completion.
             rows = db.execute("SELECT DISTINCT s.project FROM events e JOIN sessions s ON s.id=e.session WHERE e.state=?", ("pending",)).fetchall()
@@ -114,7 +119,7 @@ class Store:
             raise Invalid("Unknown project")
         return row, json.loads(row["bundle"])
 
-    def register(self, project, task, *, parent_token=None, grants=None):
+    def register(self, project, task, *, parent_token=None, grants=None, packages=None):
         """Trusted operator registers parents; authenticated delegation may only narrow."""
         with self.locked() as db:
             row, bundle = self.project(db, project)
@@ -124,6 +129,10 @@ class Store:
             if target is None:
                 raise Invalid("Unknown task")
             allowed = scope(target["grants"])
+            package_names = target.get("packages", []) if packages is None else packages
+            if (not isinstance(package_names, list) or not all(isinstance(x, str) for x in package_names)
+                    or not set(package_names) <= set(target.get("packages", []))):
+                raise Invalid("Session expands task package scope")
             requested = scope(grants) if grants is not None else allowed
             if not subset(requested, allowed):
                 raise Invalid("Session expands task scope")
@@ -132,17 +141,19 @@ class Store:
                 parent = self.session(db, parent_token)
                 if parent["project"] != project or not subset(requested, scope(json.loads(parent["grants"]))):
                     raise Invalid("Delegate expands parent scope or changes project")
+                if not set(package_names) <= set(json.loads(parent["packages"])):
+                    raise Invalid("Delegate expands parent package scope")
                 parent_id, depth = parent["id"], parent["depth"] + 1
                 if depth > 16:
                     raise Invalid("Maximum delegation depth reached")
             sid = "agent_" + secrets.token_hex(8)
             token = secrets.token_urlsafe(32)
             serialized = [{"resource": r, "actions": sorted(a)} for r, a in sorted(requested.items())]
-            db.execute("INSERT INTO sessions VALUES(?,?,?,?,?,?,?)",
+            db.execute("INSERT INTO sessions(id,token_hash,project,task,parent,grants,depth,packages) VALUES(?,?,?,?,?,?,?,?)",
                        (sid, hashlib.sha256(token.encode()).hexdigest(), project, task,
-                        parent_id, canonical(serialized), depth))
+                        parent_id, canonical(serialized), depth, canonical(sorted(set(package_names)))))
             return {"session": sid, "project": project, "task": task, "parent": parent_id,
-                    "token": token, "grants": serialized}
+                    "token": token, "grants": serialized, "packages": sorted(set(package_names))}
 
     @staticmethod
     def reason(request, allowed):
@@ -192,34 +203,7 @@ class Store:
             if project["stopped"]:
                 response = {"allowed": False, "effect": "none", "level": "stop", "reason": "project stopped"}
             elif reason:
-                db.execute("BEGIN IMMEDIATE")
-                db.execute("UPDATE projects SET violations=violations+1 WHERE id=?", (actor["project"],))
-                # A delegate also contributes to every ancestor task. Switching
-                # to a narrower task cannot reset its parent's stricter threshold.
-                tasks = {actor["task"]}
-                parent_id = actor["parent"]
-                while parent_id:
-                    ancestor = db.execute("SELECT task,parent FROM sessions WHERE id=?", (parent_id,)).fetchone()
-                    tasks.add(ancestor["task"])
-                    parent_id = ancestor["parent"]
-                for task_id in tasks:
-                    db.execute("UPDATE task_counts SET violations=violations+1 WHERE project=? AND task=?", (actor["project"], task_id))
-                total = project["violations"] + 1
-                task_count = db.execute("SELECT violations FROM task_counts WHERE project=? AND task=?", (actor["project"], actor["task"])).fetchone()[0]
-                pe = bundle["policy"]["project"]["escalation"]
-                stop, warn = total >= pe["stop_at"], total >= pe["warn_at"]
-                for task in bundle["policy"]["tasks"]:
-                    if task["id"] in tasks:
-                        count = db.execute("SELECT violations FROM task_counts WHERE project=? AND task=?", (actor["project"], task["id"])).fetchone()[0]
-                        stop = stop or count >= task["escalation"]["stop_at"]
-                        warn = warn or count >= task["escalation"]["warn_at"]
-                if stop:
-                    db.execute("UPDATE projects SET stopped=1, reason=? WHERE id=?", ("violation threshold", actor["project"]))
-                response = {"allowed": False, "effect": "none", "level": "stop" if stop else "warn" if warn else "deny",
-                            "reason": reason, "project_violations": total, "task_violations": task_count}
-                self.record(db, actor["id"], event, request_hash, request, response)
-                db.commit()
-                return response
+                return self.deny(db, actor, project, bundle, event, request_hash, request, reason)
             else:
                 # Intent is durable before an effect. Crash recovery stops this project,
                 # rather than silently duplicating an append with an uncertain outcome.
@@ -235,6 +219,35 @@ class Store:
                 return response
             self.record(db, actor["id"], event, request_hash, request, response)
             return response
+
+    def deny(self, db, actor, project, bundle, event, request_hash, request, reason):
+        """The same counter transition for every controlled effect."""
+        db.execute("BEGIN IMMEDIATE")
+        db.execute("UPDATE projects SET violations=violations+1 WHERE id=?", (actor["project"],))
+        tasks = {actor["task"]}
+        parent_id = actor["parent"]
+        while parent_id:
+            ancestor = db.execute("SELECT task,parent FROM sessions WHERE id=?", (parent_id,)).fetchone()
+            tasks.add(ancestor["task"])
+            parent_id = ancestor["parent"]
+        for task_id in tasks:
+            db.execute("UPDATE task_counts SET violations=violations+1 WHERE project=? AND task=?", (actor["project"], task_id))
+        total = project["violations"] + 1
+        task_count = db.execute("SELECT violations FROM task_counts WHERE project=? AND task=?", (actor["project"], actor["task"])).fetchone()[0]
+        pe = bundle["policy"]["project"]["escalation"]
+        stop, warn = total >= pe["stop_at"], total >= pe["warn_at"]
+        for task in bundle["policy"]["tasks"]:
+            if task["id"] in tasks:
+                count = db.execute("SELECT violations FROM task_counts WHERE project=? AND task=?", (actor["project"], task["id"])).fetchone()[0]
+                stop = stop or count >= task["escalation"]["stop_at"]
+                warn = warn or count >= task["escalation"]["warn_at"]
+        if stop:
+            db.execute("UPDATE projects SET stopped=1, reason=? WHERE id=?", ("violation threshold", actor["project"]))
+        response = {"allowed": False, "effect": "none", "level": "stop" if stop else "warn" if warn else "deny",
+                    "reason": reason, "project_violations": total, "task_violations": task_count}
+        self.record(db, actor["id"], event, request_hash, request, response)
+        db.commit()
+        return response
 
     @staticmethod
     def metadata(request):

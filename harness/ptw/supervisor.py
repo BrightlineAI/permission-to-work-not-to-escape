@@ -33,13 +33,11 @@ def service_identity():
         "--uid=" + pwd.getpwuid(os.getuid()).pw_name]
 
 
-def sandbox_command(inv, grants, argv, nono=None, resource_fds=None):
-    if not argv or not all(isinstance(v, str) and "\x00" not in v for v in argv):
-        raise Invalid("Nonempty argument list required")
+def runtime_namespace():
+    """Small shared filesystem and network boundary for workers and installer."""
     bwrap = shutil.which("bwrap")
-    nono = nono or os.environ.get("PTW_NONO") or shutil.which("nono")
-    if not bwrap or not nono or not Path(nono).is_file():
-        raise Invalid("bubblewrap and nono are required; no unsandboxed fallback")
+    if not bwrap:
+        raise Invalid("bubblewrap is required; no unsandboxed fallback")
     command = [bwrap, "--unshare-all", "--die-with-parent", "--new-session", "--clearenv",
                "--setenv", "PATH", "/usr/bin:/bin", "--setenv", "HOME", "/home/agent",
                "--dir", "/home/agent",
@@ -55,11 +53,25 @@ def sandbox_command(inv, grants, argv, nono=None, resource_fds=None):
     # than creating /dev/tty that nono cannot open in a detached namespace.
     for device in ["null", "zero", "random", "urandom"]:
         command += ["--dev-bind", "/dev/" + device, "/dev/" + device]
-    command += ["--symlink", "/proc/self/fd", "/dev/fd",
-                "--tmpfs", "/tmp", "--tmpfs", "/work",
-                "--dir", "/resources", "--ro-bind", str(Path(nono).resolve()), "/nono", "--chdir", "/work"]
+    return command + ["--symlink", "/proc/self/fd", "/dev/fd",
+                      "--tmpfs", "/tmp", "--tmpfs", "/work", "--chdir", "/work"]
+
+
+def sandbox_command(inv, grants, argv, nono=None, resource_fds=None, package_mount=None):
+    if not argv or not all(isinstance(v, str) and "\x00" not in v for v in argv):
+        raise Invalid("Nonempty argument list required")
+    nono = nono or os.environ.get("PTW_NONO") or shutil.which("nono")
+    if not nono or not Path(nono).is_file():
+        raise Invalid("nono is required; no unsandboxed fallback")
+    command = runtime_namespace() + ["--dir", "/resources", "--ro-bind", str(Path(nono).resolve()), "/nono"]
     permissions = ["/nono", "run", "--sandbox-policy", "landlock", "--block-net", "--allow", "/tmp", "--allow", "/work",
                    "--no-rollback", "--no-audit", "--no-diagnostics"]
+    if package_mount:
+        command += ["--ro-bind", str(package_mount), "/packages"]
+        permissions += ["--read", "/packages"]
+        # nono intentionally scrubs PYTHONPATH. Set this fixed, trusted path only
+        # after entering its sandbox; never forward an operator/model value.
+        argv = ["/usr/bin/env", "PYTHONPATH=/packages", "PYTHONNOUSERSITE=1", *argv]
     for resource, actions in scope(grants).items():
         path = str(Path(inv["root"]) / inv["resources"][resource]["path"])
         target = "/resources/" + resource
@@ -77,21 +89,26 @@ class Supervisor:
     def __init__(self, store, nono=None):
         self.store, self.nono = store, nono
 
-    def launch(self, token, argv):
+    def launch(self, token, argv, package_set=None):
         """Operator API for local workloads, not an unrestricted model tool."""
         with self.store.locked() as db:
             actor = self.store.session(db, token)
             project, bundle = self.store.project(db, actor["project"])
             if project["stopped"]:
                 raise Invalid("Project stopped")
+            package_mount = None
+            if package_set:
+                from .packages import mounted_set
+                package_mount = mounted_set(self.store, db, actor, package_set)
             unit = "ptw-" + secrets.token_hex(12) + ".service"
             # Validate dependencies now. The trusted worker pins and revalidates
             # resource descriptors immediately before mounting them.
-            sandbox_command(bundle["inventory"], json.loads(actor["grants"]), argv, self.nono)
+            sandbox_command(bundle["inventory"], json.loads(actor["grants"]), argv, self.nono, package_mount=package_mount)
             bindings = {r["resource"]: [r["device"], r["inode"]] for r in db.execute(
                 "SELECT resource,device,inode FROM bindings WHERE project=?", (actor["project"],))}
             config = {"inventory": bundle["inventory"], "grants": json.loads(actor["grants"]),
-                      "bindings": bindings, "nono": self.nono or os.environ.get("PTW_NONO") or shutil.which("nono")}
+                      "bindings": bindings, "nono": self.nono or os.environ.get("PTW_NONO") or shutil.which("nono"),
+                      "package_mount": str(package_mount) if package_mount else None}
             command = [sys.executable, "-m", "ptw.worker", json.dumps(config), *argv]
             db.execute("INSERT INTO workloads(unit,project,session) VALUES(?,?,?)", (unit, actor["project"], actor["id"]))
             result = run(manager("systemd-run") + ["--quiet", "--collect", "--unit=" + unit, *service_identity(),
