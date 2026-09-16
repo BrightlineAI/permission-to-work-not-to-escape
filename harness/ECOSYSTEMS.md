@@ -129,4 +129,4 @@ Reports are saved even after a failed assertion. Registry evidence can change; a
 
 This is a broker for registered confined workloads, not a machine-wide pip/npm firewall. Unknown vulnerabilities and malicious code without advisories remain possible. System runtime files, the host, operator and evidence services are trusted. Arbitrary external workers are not stopped by this local controller. The original paper and benchmark results are unchanged.
 
-See the [plan and review](ECOSYSTEM_PLAN.md) and [architecture](DESIGN.md).
+See the [plan and review](ECOSYSTEM_PLAN.md), [architecture](DESIGN.md) and [VPS validation results](validation/ecosystems-20260916/README.md).

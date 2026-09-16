@@ -56,7 +56,10 @@ All implementation and execution below were on Algol, in a separate working dire
 12. Verify ESM resolution from application scratch space, not only a Node expression launched in the dependency directory.
 13. Preserve existing package thresholds and build permissions during a reviewed draft migration. Add draft generation from exact Python pins as well as npm locks.
 
-Release gates still require fresh-user installation, interactive documentation checks, full regression, credential scan, publication and fresh public-clone reproduction. Results belong in a separate validation record, not in the paper's experimental results.
+14. Fresh-user installation and interactive documentation checks passed for native Python, npm/TypeScript and existing-project migration. Full regression passed 176/176 with zero skips under both developer and fresh installed environments.
+15. Real npm and PyPI vulnerability denials, inherited scopes and shared stopping passed. Credential scans found no leaks in selected evidence or changes.
+
+See the [validation record](validation/ecosystems-20260916/README.md) for receipts, failures and reproduction. Publication and fresh public-clone reproduction are the final release gates. New results remain separate from the paper's experimental results.
 
 ## Primary references
 
