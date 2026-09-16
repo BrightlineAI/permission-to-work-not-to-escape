@@ -12,6 +12,7 @@ Implementation version 0.2.0 was built and tested on Algol on September 16, 2026
 | New and existing projects using documented CLI | All 16 checks passed with real PyPI, OSV and downloaded wheels | 9.97 s | [Walkthrough 1](walkthrough-1.json) |
 | Repeated live walkthrough | All 16 checks passed again | 9.71 s | [Walkthrough 2](walkthrough-2.json) |
 | Original file workflow regression | New and existing project CLI workflows passed without model calls | 4.33 s | [Original walkthrough](original-walkthrough.json) |
+| Public GitHub clone and another fresh installation | 139/139 tests and all 16 live workflow checks passed | 8.45 s suite; 13.70 s walkthrough | [Public installation](public-install.log), [suite](public-unit.json), [walkthrough](public-walkthrough.json) |
 
 The final installed source was commit cb958c8. All 14 installed Python modules matched that source byte for byte. Subsequent publication changes concern documentation and retained results. Python 3.12.14 runs the controller; Python 3.13.5 runs package workloads. Tools were uv 0.12.15, nono 0.77.0 and bubblewrap 0.12.0 on Debian 13, kernel 6.12.107.
 
@@ -26,6 +27,8 @@ The final installed source was commit cb958c8. All 14 installed Python modules m
 
 Three full runs are repeated engineering checks, not 417 independent security cases. The live service tests are small examples, not a package ecosystem benchmark. All package decisions required zero LLM calls.
 
+After publishing b200da2, the test account cloned the public GitHub repository and followed the installation instructions again into a new directory. Both the full suite and the live walkthrough passed on that installed copy. GitHub CI also passed. This additional repetition checks publication and installation, not additional distinct security cases.
+
 ## Clean user procedure
 
 A separate ordinary Linux account installed committed source into fresh private directories. It did not use the developer's editable environment, authentication, package fixtures or alternate evidence servers. The account followed the commands in [the package guide](../../PACKAGES.md), exercised by the retained walkthrough script. Automated approval applies only to explicitly known synthetic projects.
@@ -33,6 +36,8 @@ A separate ordinary Linux account installed committed source into fresh private 
 System prerequisites were already present: this was a fresh account and application installation, not a fresh operating system. The initial source was transferred from the committed tree before public release. Because commands entered the account through sudo, XDG_RUNTIME_DIR and DBUS_SESSION_BUS_ADDRESS were set for its systemd user manager; ordinary login sessions normally provide these.
 
 Only logs and reports are published. Private controller databases, session credentials and installation environments are excluded. Reproduce with the [documented validation commands](../../PACKAGES.md#verify-it-yourself).
+
+Credential scanning found no leaks in the harness or its new commits. The paper and frozen experiment trees were unchanged. After acceptance, the temporary account was locked, its shell disabled and its background user manager stopped; no model authentication had been given to it.
 
 ## Bugs found and corrected
 
