@@ -25,9 +25,10 @@ if args.check_login_only:
     project.mkdir()
     call = subprocess.run(["ptw", "codex", "--repo", str(project), "--setup-only"],
                           env=env, capture_output=True, text=True, timeout=30)
-    result = {"exit_code": call.returncode, "message": call.stdout.strip(),
+    message = (call.stdout + call.stderr).strip()
+    result = {"exit_code": call.returncode, "message": message,
               "project_unchanged": not list(project.iterdir()),
-              "passed": call.returncode == 2 and "codex login" in call.stdout and not list(project.iterdir())}
+              "passed": call.returncode == 2 and "codex login" in message and not list(project.iterdir())}
     (args.out / "result.json").write_text(json.dumps(result, indent=2))
     print(json.dumps(result), flush=True)
     raise SystemExit(0 if result["passed"] else 1)
