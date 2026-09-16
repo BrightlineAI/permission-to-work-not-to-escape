@@ -34,4 +34,8 @@ All runs in this directory were made on algol-box-2-1, in the isolated `ptw-buil
 
 16. An expanded test run found a timing assumption in startup verification: a fixed 300 ms wait was too short under load. Changed this to bounded readiness/termination polling and actual marker observation, not a longer assumed sleep.
 
-Checkpoints: 9d54bcb, 079974a, 1614da7 and d2f334f. Development environments and failed validation outputs are retained on the VPS.
+17. The second fresh installation passed all 69 tests and both live workflows. The native history check still failed its positive control because its filesystem profile hid Codex's own executable. Added read access to the installed package tree, not the account's credentials or history.
+
+18. Final boundary review found that placing resources or controller state inside system runtime mounts could expose them to workloads. Both configurations are now rejected before activation or state creation, with regression tests.
+
+Checkpoints: 9d54bcb, 079974a, 1614da7, d2f334f and 6d1d684. Development environments and failed validation outputs are retained on the VPS.

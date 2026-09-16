@@ -95,9 +95,18 @@ def subset(child, parent):
     return all(actions <= parent.get(resource, set()) for resource, actions in child.items())
 
 
+def data_directory(path):
+    """Runtime mounts must never contain project resources or controller state."""
+    resolved = Path(path).resolve()
+    reserved = [Path(p) for p in ("/usr", "/bin", "/sbin", "/lib", "/lib64", "/proc", "/sys", "/dev")]
+    if resolved == Path("/") or any(resolved == p or resolved.is_relative_to(p) for p in reserved):
+        raise Invalid("Use a data directory outside system runtime trees")
+
+
 def inventory(value):
     validate(INVENTORY_SCHEMA, value)
     root = Path(value["root"])
+    data_directory(root)
     if not root.is_absolute() or root != root.resolve() or not root.is_dir():
         raise Invalid("Inventory root must be an existing canonical absolute directory")
     paths = set()

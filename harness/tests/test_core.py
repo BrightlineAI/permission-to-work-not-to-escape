@@ -38,6 +38,18 @@ class Fixture(unittest.TestCase):
     def test_read_permitted(self):
         self.assertEqual(self.request()["content"], "Welcome\n")
 
+    def test_runtime_inventory_roots_rejected(self):
+        for root in ["/", "/usr", "/usr/local/share", "/bin", "/lib", "/proc", "/sys", "/dev"]:
+            with self.subTest(root=root), self.assertRaises(Invalid):
+                inv = copy.deepcopy(self.inv)
+                inv["root"] = root
+                compile_policy(self.policy, inv)
+
+    def test_runtime_controller_roots_rejected_before_creation(self):
+        for root in ["/", "/usr/ptw-forbidden-state", "/proc/ptw-forbidden-state", "/dev/ptw-forbidden-state"]:
+            with self.subTest(root=root), self.assertRaises(Invalid):
+                Store(root)
+
     def test_write_permitted(self):
         self.assertTrue(self.request(action="write", content="Hello\n")["allowed"])
         self.assertEqual((Path(self.inv["root"]) / "ui.txt").read_text(), "Hello\n")

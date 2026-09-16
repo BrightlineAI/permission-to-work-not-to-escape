@@ -52,7 +52,7 @@ The UI file should contain Hello followed by a newline. Customer records must re
 
 To test without model calls, use the supplied policy.json in place of draft.json, skip propose, and use the manual request commands below. Do not call this a model generated policy.
 
-For your project, replace project.md and inventory.json. Give every resource an ID and an existing relative file path under one canonical resource directory. The controller directory must be outside that directory. Version 1 does not create/delete resources or grant arbitrary directory, credential or network access.
+For your project, replace project.md and inventory.json. Give every resource an ID and an existing relative file path under one canonical resource directory. The controller directory must be outside that directory. Both must be data directories outside system runtime trees such as /usr. Version 1 does not create/delete resources or grant arbitrary directory, credential or network access.
 
 ## Existing project
 
@@ -119,8 +119,9 @@ From the repository root, with the installed environment on PATH:
     python harness/scripts/validate.py --linux --out ../ptw-validation
     python harness/scripts/walkthrough.py --out ../ptw-walkthrough
     python harness/scripts/walkthrough.py --live --out ../ptw-live-walkthrough
+    python harness/scripts/native_history.py --out ../ptw-native-history
 
-Use new output directories on each run. The last command makes real Codex calls and exercises both new and existing project workflows. The walkthrough approves only its known synthetic fixtures; real project approval remains your responsibility.
+Use new output directories on each run. The live walkthrough makes real Codex calls and exercises both new and existing project workflows. The native history check records actual shell reads of synthetic files, then audits that history against a frontend policy. The walkthrough approves only its known synthetic fixtures; real project approval remains your responsibility.
 
 ## What this version does and does not cover
 

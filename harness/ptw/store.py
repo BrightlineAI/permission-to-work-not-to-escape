@@ -11,7 +11,7 @@ import secrets
 import sqlite3
 import time
 
-from .policy import Invalid, canonical, check_approval, digest, open_resource, scope, subset
+from .policy import Invalid, canonical, check_approval, data_directory, digest, open_resource, scope, subset
 
 MAX_BYTES = 1_048_576
 
@@ -19,6 +19,7 @@ MAX_BYTES = 1_048_576
 class Store:
     def __init__(self, directory):
         self.directory = Path(directory).absolute()
+        data_directory(self.directory)
         self.directory.mkdir(mode=0o700, parents=True, exist_ok=True)
         if self.directory.resolve() != self.directory or self.directory.stat().st_mode & 0o077:
             raise Invalid("State directory must be canonical and private (mode 0700)")
