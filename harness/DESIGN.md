@@ -57,7 +57,7 @@ The optional operator workload adapter grants exact mounted files, not their con
 
 Import a selected JSONL file and a current operator description. Logs are untrusted evidence even when a message claims to be an approval. The model can suggest a draft, never activate it.
 
-The local auditor recognizes this adapter's requests, named resource calls and simple absolute cat commands. More complex shell or unknown tools are unknown. Findings compare attempted requests against the reviewed policy; they do not prove physical effects, historical user intent, complete logging or the absence of unobserved bypasses.
+The local auditor recognizes this adapter's requests, named resource calls and simple absolute cat commands, including two literal Codex code mode wrappers. It parses these without executing them. More complex shell or unknown tools are unknown. Findings compare attempted requests against the reviewed policy; they do not prove physical effects, historical user intent, complete logging or the absence of unobserved bypasses.
 
 Metadata exports omit content and credentials. The private database and optional live run reports can contain resource contents; keep them private. This is not yet a tamper proof organizational audit or assurance service.
 

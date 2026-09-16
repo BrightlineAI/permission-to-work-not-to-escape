@@ -38,4 +38,6 @@ All runs in this directory were made on algol-box-2-1, in the isolated `ptw-buil
 
 18. Final boundary review found that placing resources or controller state inside system runtime mounts could expose them to workloads. Both configurations are now rejected before activation or state creation, with regression tests.
 
-Checkpoints: 9d54bcb, 079974a, 1614da7, d2f334f and 6d1d684. Development environments and failed validation outputs are retained on the VPS.
+19. The next clean installation passed 71 tests, both offline workflows and both live workflows. The additional native history diagnostic still could not start dynamic shell binaries with its custom filesystem profile. That recording now uses Codex's standard read-only sandbox, as an existing session would. This changes only historical data collection; the protected adapter keeps its deny profile and disabled native tools.
+
+Checkpoints: 9d54bcb, 079974a, 1614da7, d2f334f, 6d1d684 and e8b2ce9. Development environments and failed validation outputs are retained on the VPS.
