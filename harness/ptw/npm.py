@@ -43,7 +43,10 @@ console.log(JSON.stringify(pairs.map(([v,r]) =>
   (v === null || (semver.valid(v) === v && semver.satisfies(v,r))))));
 """
     try:
-        result = subprocess.run(["/usr/bin/node", "-e", script, str(npm_root() / "bin/npm-cli.js")],
+        node = shutil.which("node")
+        if not node:
+            raise EvidenceError("Node is required for npm version validation")
+        result = subprocess.run([str(Path(node).resolve()), "-e", script, str(npm_root() / "bin/npm-cli.js")],
             input=json.dumps(pairs), capture_output=True, text=True, timeout=15, check=True,
             env={"PATH": "/usr/bin:/bin"})
         return json.loads(result.stdout)

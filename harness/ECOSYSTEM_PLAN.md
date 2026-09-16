@@ -58,6 +58,7 @@ All implementation and execution below were on Algol, in a separate working dire
 
 14. Fresh-user installation and interactive documentation checks passed for native Python, npm/TypeScript and existing-project migration. Full regression passed 176/176 with zero skips under both developer and fresh installed environments.
 15. Real npm and PyPI vulnerability denials, inherited scopes and shared stopping passed. Credential scans found no leaks in selected evidence or changes.
+16. GitHub CI exposed a Node metadata-validator path assumption. Discover the operator's Node binary on PATH and test a nonstandard location. Confined workloads retain the documented system-runtime boundary.
 
 See the [validation record](validation/ecosystems-20260916/README.md) for receipts, failures and reproduction. Publication and fresh public-clone reproduction are the final release gates. New results remain separate from the paper's experimental results.
 

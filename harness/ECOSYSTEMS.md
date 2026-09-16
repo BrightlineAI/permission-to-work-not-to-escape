@@ -16,7 +16,7 @@ This does not mean every library works. A source package needing unavailable sys
 
 ## Install
 
-Use an ordinary x86_64 Linux account, with Python 3, git, curl, bubblewrap and a working systemd user manager. For npm packages, also install Node 22 and npm 10 using your administrator's supported distribution. The installer does not replace system packages.
+Use an ordinary x86_64 Linux account, with Python 3, git, curl, bubblewrap and a working systemd user manager. For npm workloads, also install system Node 22 at /usr/bin/node and npm 10 using your administrator's supported distribution. Metadata validation discovers Node/npm on PATH. The installer does not replace system packages.
 
     git clone https://github.com/BrightlineAI/permission-to-work-not-to-escape.git
     cd permission-to-work-not-to-escape
@@ -104,6 +104,8 @@ Review and approve a new project identity, stop the old identity, confirm its re
 Register independent agents against the same project, and delegates with --parent. Task and delegate scopes may only narrow permission. Python, npm and file violations all count toward the same project stop. Missing evidence or a broken build blocks installation without accusing the agent of misconduct.
 
 Use a stable event ID for a retry of the same request, and a new ID for a genuinely new attempt. Exit 1 means denied or operationally blocked; exit 2 means invalid input. Never bypass an age or vulnerability rejection just to make a demo pass.
+
+For agent integration, the trusted adapter calls PackageControl(store).install(session_token, event_id, pins_or_lock, ecosystem="pypi" or "npm"), then launches the approved set through Supervisor. Keep the token outside the model. The existing ptw run model loop remains a file-task adapter; package installation is a separate broker operation, not an unrestricted shell hook.
 
 ## Verify the installation
 

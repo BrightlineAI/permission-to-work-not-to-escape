@@ -11,9 +11,10 @@ import time
 import unittest
 import concurrent.futures
 import subprocess
+import shutil
 from unittest.mock import patch
 
-from ptw.npm import NpmPlan
+from ptw.npm import NpmPlan, semver_check
 from ptw.package_build import extract_result
 from ptw.package_evidence import EvidenceError, PyPIEvidence, pins
 from ptw.package_install import validate_wheels, file_manifest
@@ -133,6 +134,13 @@ class EcosystemTests(EcosystemFixture, unittest.TestCase):
         fixture = NpmFixture()
         fixture.lock["lockfileVersion"] = 2
         self.assertEqual(NpmPlan(fixture.lock).lock["lockfileVersion"], 3)
+
+    def test_metadata_node_can_live_outside_usr_bin(self):
+        node, npm = shutil.which("node"), shutil.which("npm")
+        link = self.root / "custom-node"
+        link.symlink_to(node)
+        with patch("ptw.npm.shutil.which", side_effect=lambda name: str(link) if name == "node" else npm):
+            self.assertEqual(semver_check([("1.2.3", "^1"), ("1.2.3", "^2")]), [True, False])
 
     def test_optional_missing_peer_accepted(self):
         fixture = NpmFixture(fields={"peerDependencies": {"optional": "^1"},
