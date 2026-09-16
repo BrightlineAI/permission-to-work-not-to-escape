@@ -43,6 +43,8 @@ The customer file must remain unchanged.
 Activation installs and starts a private, state-specific systemd user monitor.
 You do not need another terminal running ptw watch. It restarts after a crash
 and starts with the user manager after login. No global services are changed.
+For jobs that must survive logout, ask the host administrator to enable lingering
+for your operator account. Otherwise user services follow the host's login policy.
 
 ## TypeScript
 
@@ -191,6 +193,9 @@ and four nested model delegation levels. Links and special files are rejected.
 Read access discloses content to the model/command. Code and output remain untrusted.
 All execution is on one Linux host; arbitrary remote services are not covered.
 The host, operator, controller and model runtime remain trusted.
+The Codex integration follows the [official structured-output workflow](https://learn.chatgpt.com/docs/non-interactive-mode);
+the tested CLI remains pinned to 0.154.0. Model completion is unverified until
+the actual files and test receipts are checked.
 
     python harness/scripts/validate.py --linux --out /outside/new-validation
     python harness/scripts/repository_walkthrough.py --out /outside/new-walkthrough
@@ -201,3 +206,5 @@ The first walkthrough uses real packages/processes and scripted requests. --live
 also runs genuine model tasks; it does not relabel scripted probes as model actions.
 Both preserve failures and verify actual useful work and unchanged protected files.
 See [the design and acceptance plan](PRACTICAL_PLAN.md).
+The [VPS validation record](validation/practical-20260916/README.md) includes the
+successful runs, two rejected development proposals, timings and reproduction details.

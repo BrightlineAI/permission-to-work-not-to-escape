@@ -73,3 +73,23 @@ Run each gate on the VPS and retain revision, versions, timings and outcomes.
   writable shell mount. Use the existing bounded export design for execution.
 - Setup attempt: an assumed uv path was absent; use the installed executable
   discovered on PATH. No project or test effect occurred.
+- Core implementation: version 4 preserves old policies and adds lifecycle
+  preconditions, shared command/package scope and disposable command publication.
+  Review found that rename must create its destination before deleting its
+  source; directory moves now follow that ordering and check every descendant.
+- Regression review: removed inherited duplicate test execution from new test
+  classes. Final counts refer to distinct tests, not repeated inherited methods.
+- Operations: a real SIGKILL of the monitor recovered automatically. A separate
+  test inserted an interrupted intent; the monitor stopped it without any new
+  client startup. Active parent/child commands stopped while unrelated work ran.
+- Description-driven development attempt 1: "edit" omitted create/delete scope;
+  a model also claimed effects absent from its actual trace. Physical acceptance
+  correctly failed. Clarified lifecycle intent and strengthened the generic
+  one-request loop instruction. Model finish is explicitly not verified success.
+- Attempt 2: review rejected TypeScript manifest read authority not covered by
+  the sample intent. The sample now explicitly permits reading its package
+  manifest, alongside its lock and compiler config. No private-data permission
+  was added, no runtime denial was bypassed, and no active policy was widened.
+- Fresh-account acceptance uses a separate unprivileged account and installation,
+  with no copied model credentials. Model runs use the existing authenticated
+  operator on the same VPS. Scripted probes and genuine model actions are labeled.

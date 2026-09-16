@@ -1,5 +1,7 @@
 # VPS validation
 
+The latest [repository workflow acceptance](practical-20260916/README.md) covers version 0.4: 221 distinct tests, fresh user installation, Python/TypeScript work, generated policies, real multi-agent execution and automatic monitoring. Earlier [ecosystem results](ecosystems-20260916/README.md) and the original records below remain available.
+
 The [package control validation](packages-20260916/README.md) adds 67 package tests, repeated clean installation acceptance and live new/existing project walkthroughs. The original file-only acceptance below remains unchanged.
 
 The first file resource version passed clean installation acceptance on Algol on September 16, 2026. These are new implementation checks, separate from the paper's experiments.

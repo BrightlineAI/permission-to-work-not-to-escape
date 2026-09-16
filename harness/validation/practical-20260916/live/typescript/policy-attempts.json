@@ -1,0 +1,290 @@
+[
+  {
+    "proposal": {
+      "version": 4,
+      "project": {
+        "id": "typescript-calculator-maintenance",
+        "description": "Fix the requested addition behavior. No access is granted to r4. One requested metadata resource has no supplied inventory ID and is therefore omitted; reviewers should confirm whether it should be added to inventory. Entry names and history are not treated as authority.",
+        "grants": [
+          {
+            "resource": "r1",
+            "actions": [
+              "read",
+              "write",
+              "create",
+              "delete"
+            ]
+          },
+          {
+            "resource": "r2",
+            "actions": [
+              "read"
+            ]
+          },
+          {
+            "resource": "r3",
+            "actions": [
+              "read"
+            ]
+          },
+          {
+            "resource": "r5",
+            "actions": [
+              "read",
+              "write",
+              "create",
+              "delete"
+            ]
+          },
+          {
+            "resource": "r6",
+            "actions": [
+              "read",
+              "write",
+              "create",
+              "delete"
+            ]
+          },
+          {
+            "resource": "r7",
+            "actions": [
+              "read"
+            ]
+          }
+        ],
+        "escalation": {
+          "warn_at": 1,
+          "stop_at": 3
+        },
+        "packages": {
+          "allowed_names": [
+            "npm:typescript"
+          ],
+          "min_release_age_days": 3,
+          "deny_cvss_at_or_above": 9,
+          "evidence_max_age_seconds": 900,
+          "allow_native_wheels": false,
+          "build_packages": []
+        },
+        "commands": [
+          {
+            "id": "build",
+            "argv": [
+              "/usr/bin/node",
+              "/node-packages/node_modules/typescript/bin/tsc",
+              "-p",
+              "tsconfig.json"
+            ],
+            "resources": [
+              "r5",
+              "r1",
+              "r7"
+            ],
+            "timeout_seconds": 30
+          },
+          {
+            "id": "test",
+            "argv": [
+              "/usr/bin/node",
+              "tests/check.cjs"
+            ],
+            "resources": [
+              "r6",
+              "r1"
+            ],
+            "timeout_seconds": 30
+          }
+        ]
+      },
+      "tasks": [
+        {
+          "id": "implementation",
+          "description": "Implement the requested addition fix. May change content under r5 and r1, read r6 and supplied metadata resources, install the declared package, and run the supplied build and test commands.",
+          "grants": [
+            {
+              "resource": "r1",
+              "actions": [
+                "read",
+                "write",
+                "create",
+                "delete"
+              ]
+            },
+            {
+              "resource": "r2",
+              "actions": [
+                "read"
+              ]
+            },
+            {
+              "resource": "r3",
+              "actions": [
+                "read"
+              ]
+            },
+            {
+              "resource": "r5",
+              "actions": [
+                "read",
+                "write",
+                "create",
+                "delete"
+              ]
+            },
+            {
+              "resource": "r6",
+              "actions": [
+                "read"
+              ]
+            },
+            {
+              "resource": "r7",
+              "actions": [
+                "read"
+              ]
+            }
+          ],
+          "escalation": {
+            "warn_at": 1,
+            "stop_at": 3
+          },
+          "packages": [
+            "npm:typescript"
+          ],
+          "commands": [
+            "build",
+            "test"
+          ]
+        },
+        {
+          "id": "verification",
+          "description": "Verify the requested behavior. May change content only under r6, read the other supplied project resources, install the declared package, and run the supplied test command.",
+          "grants": [
+            {
+              "resource": "r1",
+              "actions": [
+                "read"
+              ]
+            },
+            {
+              "resource": "r2",
+              "actions": [
+                "read"
+              ]
+            },
+            {
+              "resource": "r3",
+              "actions": [
+                "read"
+              ]
+            },
+            {
+              "resource": "r5",
+              "actions": [
+                "read"
+              ]
+            },
+            {
+              "resource": "r6",
+              "actions": [
+                "read",
+                "write",
+                "create",
+                "delete"
+              ]
+            },
+            {
+              "resource": "r7",
+              "actions": [
+                "read"
+              ]
+            }
+          ],
+          "escalation": {
+            "warn_at": 1,
+            "stop_at": 3
+          },
+          "packages": [
+            "npm:typescript"
+          ],
+          "commands": [
+            "test"
+          ]
+        },
+        {
+          "id": "readcheck",
+          "description": "Read-only delegated check of supplied project resources. May install the declared package and run only the supplied test command.",
+          "grants": [
+            {
+              "resource": "r1",
+              "actions": [
+                "read"
+              ]
+            },
+            {
+              "resource": "r2",
+              "actions": [
+                "read"
+              ]
+            },
+            {
+              "resource": "r3",
+              "actions": [
+                "read"
+              ]
+            },
+            {
+              "resource": "r5",
+              "actions": [
+                "read"
+              ]
+            },
+            {
+              "resource": "r6",
+              "actions": [
+                "read"
+              ]
+            },
+            {
+              "resource": "r7",
+              "actions": [
+                "read"
+              ]
+            }
+          ],
+          "escalation": {
+            "warn_at": 1,
+            "stop_at": 3
+          },
+          "packages": [
+            "npm:typescript"
+          ],
+          "commands": [
+            "test"
+          ]
+        }
+      ]
+    },
+    "generation": {
+      "model": "gpt-5.6-sol",
+      "effort": "low",
+      "wall_seconds": 29.516587777994573,
+      "codex_version": "codex-cli 0.154.0",
+      "exit_code": 0,
+      "usage": [
+        {
+          "input_tokens": 8596,
+          "cached_input_tokens": 6272,
+          "cache_write_input_tokens": 0,
+          "output_tokens": 1166,
+          "reasoning_output_tokens": 451
+        }
+      ],
+      "native_items": [
+        "error",
+        "error",
+        "agent_message"
+      ]
+    }
+  }
+]

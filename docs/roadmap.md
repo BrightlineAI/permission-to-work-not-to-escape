@@ -1,6 +1,6 @@
 # Roadmap
 
-The first release is a research prototype and an inspectable experiment archive. The newer [local harness](../harness/README.md) implements a small part of the roadmap: reviewed policy proposals, a Codex file adapter, narrower tasks, durable shared counters, local stopping and retrospective log review. Broader deliverables below remain research and extension work.
+The first release is a research prototype and an inspectable experiment archive. The newer [local harness](../harness/README.md) implements reviewed policy proposals, scoped repository operations, checked Python/npm installations, a unified Codex runner, narrower tasks, durable shared counters, automatic local stopping and retrospective log review. Broader deliverables below remain research and extension work.
 
 | Stage | Deliverable | Acceptance evidence |
 |---|---|---|
@@ -13,4 +13,4 @@ The first release is a research prototype and an inspectable experiment archive.
 
 The eventual workflow is: **write policy → review → apply controls → probe → repair → audit → verify closure**.
 
-Start with one runner and one resource boundary. Broader coverage needs evidence, not just more integrations. Malware/version screening and post-access secret leakage are later extensions with their own threat models.
+Broader coverage needs evidence, not just more integrations. Installation now checks known vulnerabilities and release age. Continuous rescanning, malware detection, external credential/service adapters, distributed stopping, protected audit export and assurance remain separate extensions.

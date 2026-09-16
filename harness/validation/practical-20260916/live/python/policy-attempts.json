@@ -1,0 +1,227 @@
+[
+  {
+    "proposal": {
+      "version": 4,
+      "project": {
+        "id": "calculator-maintenance",
+        "description": "Maintain the calculator while excluding r2. Human review question: requested optional metadata resources not represented by inventory IDs are omitted; confirm whether additional inventory IDs should be supplied if access is needed.",
+        "grants": [
+          {
+            "resource": "r1",
+            "actions": [
+              "read",
+              "write",
+              "create",
+              "delete"
+            ]
+          },
+          {
+            "resource": "r3",
+            "actions": [
+              "read"
+            ]
+          },
+          {
+            "resource": "r4",
+            "actions": [
+              "read",
+              "write",
+              "create",
+              "delete"
+            ]
+          },
+          {
+            "resource": "r5",
+            "actions": [
+              "read",
+              "write",
+              "create",
+              "delete"
+            ]
+          }
+        ],
+        "escalation": {
+          "warn_at": 1,
+          "stop_at": 3
+        },
+        "packages": {
+          "allowed_names": [
+            "pypi:six"
+          ],
+          "min_release_age_days": 3,
+          "deny_cvss_at_or_above": 9,
+          "evidence_max_age_seconds": 900,
+          "allow_native_wheels": false,
+          "build_packages": []
+        },
+        "commands": [
+          {
+            "id": "test",
+            "argv": [
+              "/usr/bin/python3",
+              "-m",
+              "tests.check"
+            ],
+            "resources": [
+              "r4",
+              "r5"
+            ],
+            "timeout_seconds": 30
+          }
+        ]
+      },
+      "tasks": [
+        {
+          "id": "implementation",
+          "description": "Correct the addition behavior in r4, with generated outputs permitted in r1. Read r5 and r3 as needed, install the supplied dependency identity, and run the supplied test command. Optional metadata without inventory IDs is omitted pending human review.",
+          "grants": [
+            {
+              "resource": "r1",
+              "actions": [
+                "read",
+                "write",
+                "create",
+                "delete"
+              ]
+            },
+            {
+              "resource": "r3",
+              "actions": [
+                "read"
+              ]
+            },
+            {
+              "resource": "r4",
+              "actions": [
+                "read",
+                "write",
+                "create",
+                "delete"
+              ]
+            },
+            {
+              "resource": "r5",
+              "actions": [
+                "read"
+              ]
+            }
+          ],
+          "escalation": {
+            "warn_at": 1,
+            "stop_at": 3
+          },
+          "packages": [
+            "pypi:six"
+          ],
+          "commands": [
+            "test"
+          ]
+        },
+        {
+          "id": "verification",
+          "description": "Verify the correction using read access to r1, r3, and r4; changes are confined to r5. Install the supplied dependency identity and run the supplied test command.",
+          "grants": [
+            {
+              "resource": "r1",
+              "actions": [
+                "read"
+              ]
+            },
+            {
+              "resource": "r3",
+              "actions": [
+                "read"
+              ]
+            },
+            {
+              "resource": "r4",
+              "actions": [
+                "read"
+              ]
+            },
+            {
+              "resource": "r5",
+              "actions": [
+                "read",
+                "write",
+                "create",
+                "delete"
+              ]
+            }
+          ],
+          "escalation": {
+            "warn_at": 1,
+            "stop_at": 3
+          },
+          "packages": [
+            "pypi:six"
+          ],
+          "commands": [
+            "test"
+          ]
+        },
+        {
+          "id": "readcheck",
+          "description": "Perform a read-only delegated check over the authorized resources, install the supplied dependency identity, and run the supplied test command.",
+          "grants": [
+            {
+              "resource": "r1",
+              "actions": [
+                "read"
+              ]
+            },
+            {
+              "resource": "r3",
+              "actions": [
+                "read"
+              ]
+            },
+            {
+              "resource": "r4",
+              "actions": [
+                "read"
+              ]
+            },
+            {
+              "resource": "r5",
+              "actions": [
+                "read"
+              ]
+            }
+          ],
+          "escalation": {
+            "warn_at": 1,
+            "stop_at": 3
+          },
+          "packages": [
+            "pypi:six"
+          ],
+          "commands": [
+            "test"
+          ]
+        }
+      ]
+    },
+    "generation": {
+      "model": "gpt-5.6-sol",
+      "effort": "low",
+      "wall_seconds": 22.530955666094087,
+      "codex_version": "codex-cli 0.154.0",
+      "exit_code": 0,
+      "usage": [
+        {
+          "input_tokens": 8480,
+          "cached_input_tokens": 0,
+          "cache_write_input_tokens": 0,
+          "output_tokens": 1013,
+          "reasoning_output_tokens": 416
+        }
+      ],
+      "native_items": [
+        "error",
+        "error",
+        "agent_message"
+      ]
+    }
+  }
+]

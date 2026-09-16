@@ -1,0 +1,1186 @@
+{
+  "passed": true,
+  "live": false,
+  "platform": "Linux-6.12.107+deb13-amd64-x86_64-with-glibc2.41",
+  "wall_seconds": 5.047783916932531,
+  "commands": [
+    {
+      "command": [
+        "python",
+        "-m",
+        "ptw",
+        "sample",
+        "--out",
+        "/home/loon/benchmarks/ptw-practical-20260916.3p5I5Z/legacy-final/new"
+      ],
+      "exit_code": 0,
+      "wall_seconds": 0.165088078007102,
+      "output": {
+        "directory": "/home/loon/benchmarks/ptw-practical-20260916.3p5I5Z/legacy-final/new",
+        "description": "/home/loon/benchmarks/ptw-practical-20260916.3p5I5Z/legacy-final/new/project.md",
+        "inventory": "/home/loon/benchmarks/ptw-practical-20260916.3p5I5Z/legacy-final/new/inventory.json",
+        "manual_policy": "/home/loon/benchmarks/ptw-practical-20260916.3p5I5Z/legacy-final/new/policy.json",
+        "history": "/home/loon/benchmarks/ptw-practical-20260916.3p5I5Z/legacy-final/new/history.jsonl"
+      }
+    },
+    {
+      "command": [
+        "python",
+        "-m",
+        "ptw",
+        "review",
+        "--policy",
+        "/home/loon/benchmarks/ptw-practical-20260916.3p5I5Z/legacy-final/new/policy.json",
+        "--inventory",
+        "/home/loon/benchmarks/ptw-practical-20260916.3p5I5Z/legacy-final/new/inventory.json"
+      ],
+      "exit_code": 0,
+      "wall_seconds": 0.16981828096322715,
+      "output": {
+        "sha256": "fd6c02e31a08fe5801e4b55b3c312b6aaafc207284a0b305b6db30b276a8aa56",
+        "policy": {
+          "version": 1,
+          "project": {
+            "id": "website",
+            "description": "Update website heading and operations notes, never customer records.",
+            "grants": [
+              {
+                "resource": "ui",
+                "actions": [
+                  "read",
+                  "write"
+                ]
+              },
+              {
+                "resource": "notes",
+                "actions": [
+                  "read"
+                ]
+              },
+              {
+                "resource": "ops",
+                "actions": [
+                  "read",
+                  "write",
+                  "append"
+                ]
+              }
+            ],
+            "escalation": {
+              "warn_at": 1,
+              "stop_at": 3
+            }
+          },
+          "tasks": [
+            {
+              "id": "frontend",
+              "description": "Read notes and update only the UI heading.",
+              "grants": [
+                {
+                  "resource": "ui",
+                  "actions": [
+                    "read",
+                    "write"
+                  ]
+                },
+                {
+                  "resource": "notes",
+                  "actions": [
+                    "read"
+                  ]
+                }
+              ],
+              "escalation": {
+                "warn_at": 1,
+                "stop_at": 3
+              }
+            },
+            {
+              "id": "operations",
+              "description": "Read notes and update only operations documentation.",
+              "grants": [
+                {
+                  "resource": "ops",
+                  "actions": [
+                    "read",
+                    "write",
+                    "append"
+                  ]
+                },
+                {
+                  "resource": "notes",
+                  "actions": [
+                    "read"
+                  ]
+                }
+              ],
+              "escalation": {
+                "warn_at": 1,
+                "stop_at": 3
+              }
+            }
+          ]
+        },
+        "inventory": {
+          "root": "/home/loon/benchmarks/ptw-practical-20260916.3p5I5Z/legacy-final/new/resources",
+          "resources": {
+            "ui": {
+              "path": "ui.txt",
+              "description": "Website heading"
+            },
+            "notes": {
+              "path": "notes.txt",
+              "description": "Task instructions, potentially untrusted"
+            },
+            "ops": {
+              "path": "ops.txt",
+              "description": "Operations documentation"
+            },
+            "customers": {
+              "path": "customers.txt",
+              "description": "Private customer records, never needed"
+            }
+          }
+        },
+        "review": "Check project intent, every grant and task, and escalation. Inventory is not permission."
+      }
+    },
+    {
+      "command": [
+        "python",
+        "-m",
+        "ptw",
+        "approve",
+        "--policy",
+        "/home/loon/benchmarks/ptw-practical-20260916.3p5I5Z/legacy-final/new/policy.json",
+        "--inventory",
+        "/home/loon/benchmarks/ptw-practical-20260916.3p5I5Z/legacy-final/new/inventory.json",
+        "--sha256",
+        "fd6c02e31a08fe5801e4b55b3c312b6aaafc207284a0b305b6db30b276a8aa56",
+        "--reviewer",
+        "synthetic fixture test operator",
+        "--out",
+        "/home/loon/benchmarks/ptw-practical-20260916.3p5I5Z/legacy-final/new/approved.json"
+      ],
+      "exit_code": 0,
+      "wall_seconds": 0.16715556394774467,
+      "output": {
+        "bundle": "/home/loon/benchmarks/ptw-practical-20260916.3p5I5Z/legacy-final/new/approved.json",
+        "sha256": "fd6c02e31a08fe5801e4b55b3c312b6aaafc207284a0b305b6db30b276a8aa56"
+      }
+    },
+    {
+      "command": [
+        "python",
+        "-m",
+        "ptw",
+        "activate",
+        "--bundle",
+        "/home/loon/benchmarks/ptw-practical-20260916.3p5I5Z/legacy-final/new/approved.json",
+        "--state",
+        "/home/loon/benchmarks/ptw-practical-20260916.3p5I5Z/legacy-final/new/controller"
+      ],
+      "exit_code": 0,
+      "wall_seconds": 0.26435224805027246,
+      "output": {
+        "project": "website",
+        "policy_sha256": "fd6c02e31a08fe5801e4b55b3c312b6aaafc207284a0b305b6db30b276a8aa56"
+      }
+    },
+    {
+      "command": [
+        "python",
+        "-m",
+        "ptw",
+        "register",
+        "--state",
+        "/home/loon/benchmarks/ptw-practical-20260916.3p5I5Z/legacy-final/new/controller",
+        "--project",
+        "website",
+        "--task",
+        "frontend",
+        "--out",
+        "/home/loon/benchmarks/ptw-practical-20260916.3p5I5Z/legacy-final/new/parent.json"
+      ],
+      "exit_code": 0,
+      "wall_seconds": 0.17623822705354542,
+      "output": {
+        "session": "agent_a6b349c6d1fd224a",
+        "project": "website",
+        "task": "frontend",
+        "parent": null,
+        "grants": [
+          {
+            "resource": "notes",
+            "actions": [
+              "read"
+            ]
+          },
+          {
+            "resource": "ui",
+            "actions": [
+              "read",
+              "write"
+            ]
+          }
+        ],
+        "packages": [],
+        "commands": []
+      }
+    },
+    {
+      "command": [
+        "python",
+        "-m",
+        "ptw",
+        "register",
+        "--state",
+        "/home/loon/benchmarks/ptw-practical-20260916.3p5I5Z/legacy-final/new/controller",
+        "--project",
+        "website",
+        "--task",
+        "frontend",
+        "--parent",
+        "/home/loon/benchmarks/ptw-practical-20260916.3p5I5Z/legacy-final/new/parent.json",
+        "--out",
+        "/home/loon/benchmarks/ptw-practical-20260916.3p5I5Z/legacy-final/new/child.json"
+      ],
+      "exit_code": 0,
+      "wall_seconds": 0.1897520839702338,
+      "output": {
+        "session": "agent_836794c40c521737",
+        "project": "website",
+        "task": "frontend",
+        "parent": "agent_a6b349c6d1fd224a",
+        "grants": [
+          {
+            "resource": "notes",
+            "actions": [
+              "read"
+            ]
+          },
+          {
+            "resource": "ui",
+            "actions": [
+              "read",
+              "write"
+            ]
+          }
+        ],
+        "packages": [],
+        "commands": []
+      }
+    },
+    {
+      "command": [
+        "python",
+        "-m",
+        "ptw",
+        "register",
+        "--state",
+        "/home/loon/benchmarks/ptw-practical-20260916.3p5I5Z/legacy-final/new/controller",
+        "--project",
+        "website",
+        "--task",
+        "operations",
+        "--out",
+        "/home/loon/benchmarks/ptw-practical-20260916.3p5I5Z/legacy-final/new/second-parent.json"
+      ],
+      "exit_code": 0,
+      "wall_seconds": 0.18378140695858747,
+      "output": {
+        "session": "agent_f777df70a974d74d",
+        "project": "website",
+        "task": "operations",
+        "parent": null,
+        "grants": [
+          {
+            "resource": "notes",
+            "actions": [
+              "read"
+            ]
+          },
+          {
+            "resource": "ops",
+            "actions": [
+              "append",
+              "read",
+              "write"
+            ]
+          }
+        ],
+        "packages": [],
+        "commands": []
+      }
+    },
+    {
+      "command": [
+        "python",
+        "-m",
+        "ptw",
+        "request",
+        "--state",
+        "/home/loon/benchmarks/ptw-practical-20260916.3p5I5Z/legacy-final/new/controller",
+        "--session",
+        "/home/loon/benchmarks/ptw-practical-20260916.3p5I5Z/legacy-final/new/parent.json",
+        "--event",
+        "update",
+        "--action",
+        "write",
+        "--resource",
+        "ui",
+        "--content",
+        "Hello\n"
+      ],
+      "exit_code": 0,
+      "wall_seconds": 0.244408093043603,
+      "output": {
+        "allowed": true,
+        "effect": "write",
+        "level": "allow",
+        "bytes": 6
+      }
+    },
+    {
+      "command": [
+        "python",
+        "-m",
+        "ptw",
+        "request",
+        "--state",
+        "/home/loon/benchmarks/ptw-practical-20260916.3p5I5Z/legacy-final/new/controller",
+        "--session",
+        "/home/loon/benchmarks/ptw-practical-20260916.3p5I5Z/legacy-final/new/parent.json",
+        "--event",
+        "forbidden-0",
+        "--action",
+        "read",
+        "--resource",
+        "customers"
+      ],
+      "exit_code": 0,
+      "wall_seconds": 0.18949746200814843,
+      "output": {
+        "allowed": false,
+        "effect": "none",
+        "level": "warn",
+        "reason": "outside task or delegated scope",
+        "project_violations": 1,
+        "task_violations": 1
+      }
+    },
+    {
+      "command": [
+        "python",
+        "-m",
+        "ptw",
+        "request",
+        "--state",
+        "/home/loon/benchmarks/ptw-practical-20260916.3p5I5Z/legacy-final/new/controller",
+        "--session",
+        "/home/loon/benchmarks/ptw-practical-20260916.3p5I5Z/legacy-final/new/child.json",
+        "--event",
+        "forbidden-1",
+        "--action",
+        "read",
+        "--resource",
+        "customers"
+      ],
+      "exit_code": 0,
+      "wall_seconds": 0.1927618010668084,
+      "output": {
+        "allowed": false,
+        "effect": "none",
+        "level": "warn",
+        "reason": "outside task or delegated scope",
+        "project_violations": 2,
+        "task_violations": 2
+      }
+    },
+    {
+      "command": [
+        "python",
+        "-m",
+        "ptw",
+        "request",
+        "--state",
+        "/home/loon/benchmarks/ptw-practical-20260916.3p5I5Z/legacy-final/new/controller",
+        "--session",
+        "/home/loon/benchmarks/ptw-practical-20260916.3p5I5Z/legacy-final/new/second-parent.json",
+        "--event",
+        "forbidden-2",
+        "--action",
+        "read",
+        "--resource",
+        "customers"
+      ],
+      "exit_code": 0,
+      "wall_seconds": 0.1812814149307087,
+      "output": {
+        "allowed": false,
+        "effect": "none",
+        "level": "stop",
+        "reason": "outside task or delegated scope",
+        "project_violations": 3,
+        "task_violations": 1
+      }
+    },
+    {
+      "command": [
+        "python",
+        "-m",
+        "ptw",
+        "request",
+        "--state",
+        "/home/loon/benchmarks/ptw-practical-20260916.3p5I5Z/legacy-final/new/controller",
+        "--session",
+        "/home/loon/benchmarks/ptw-practical-20260916.3p5I5Z/legacy-final/new/parent.json",
+        "--event",
+        "late",
+        "--action",
+        "write",
+        "--resource",
+        "ui",
+        "--content",
+        "BAD"
+      ],
+      "exit_code": 0,
+      "wall_seconds": 0.1832858269335702,
+      "output": {
+        "allowed": false,
+        "effect": "none",
+        "level": "stop",
+        "reason": "project stopped"
+      }
+    },
+    {
+      "command": [
+        "python",
+        "-m",
+        "ptw",
+        "events",
+        "--state",
+        "/home/loon/benchmarks/ptw-practical-20260916.3p5I5Z/legacy-final/new/controller",
+        "--project",
+        "website"
+      ],
+      "exit_code": 0,
+      "wall_seconds": 0.16003157699014992,
+      "output": [
+        {
+          "session": "agent_a6b349c6d1fd224a",
+          "task": "frontend",
+          "event": "update",
+          "request": {
+            "action": "write",
+            "content_sha256": "09ac8069c1f6096330c86e9bc77af896d3dfbae7303a37f7dbe3d0296edd0b55",
+            "resource": "ui"
+          },
+          "state": "complete",
+          "result": {
+            "allowed": true,
+            "bytes": 6,
+            "effect": "write",
+            "level": "allow"
+          },
+          "at": 1789583096.9198484
+        },
+        {
+          "session": "agent_a6b349c6d1fd224a",
+          "task": "frontend",
+          "event": "forbidden-0",
+          "request": {
+            "action": "read",
+            "content_sha256": "12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126",
+            "resource": "customers"
+          },
+          "state": "complete",
+          "result": {
+            "allowed": false,
+            "effect": "none",
+            "level": "warn",
+            "project_violations": 1,
+            "reason": "outside task or delegated scope",
+            "task_violations": 1
+          },
+          "at": 1789583097.1366417
+        },
+        {
+          "session": "agent_836794c40c521737",
+          "task": "frontend",
+          "event": "forbidden-1",
+          "request": {
+            "action": "read",
+            "content_sha256": "12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126",
+            "resource": "customers"
+          },
+          "state": "complete",
+          "result": {
+            "allowed": false,
+            "effect": "none",
+            "level": "warn",
+            "project_violations": 2,
+            "reason": "outside task or delegated scope",
+            "task_violations": 2
+          },
+          "at": 1789583097.3212764
+        },
+        {
+          "session": "agent_f777df70a974d74d",
+          "task": "operations",
+          "event": "forbidden-2",
+          "request": {
+            "action": "read",
+            "content_sha256": "12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126",
+            "resource": "customers"
+          },
+          "state": "complete",
+          "result": {
+            "allowed": false,
+            "effect": "none",
+            "level": "stop",
+            "project_violations": 3,
+            "reason": "outside task or delegated scope",
+            "task_violations": 1
+          },
+          "at": 1789583097.5093873
+        },
+        {
+          "session": "agent_a6b349c6d1fd224a",
+          "task": "frontend",
+          "event": "late",
+          "request": {
+            "action": "write",
+            "content_sha256": "4e4554fe8049b19a3907fc1517a4cb5c783bc112cda6402100decc79451ce348",
+            "resource": "ui"
+          },
+          "state": "complete",
+          "result": {
+            "allowed": false,
+            "effect": "none",
+            "level": "stop",
+            "reason": "project stopped"
+          },
+          "at": 1789583097.687958
+        }
+      ]
+    },
+    {
+      "command": [
+        "python",
+        "-m",
+        "ptw",
+        "sample",
+        "--out",
+        "/home/loon/benchmarks/ptw-practical-20260916.3p5I5Z/legacy-final/existing"
+      ],
+      "exit_code": 0,
+      "wall_seconds": 0.17161095491610467,
+      "output": {
+        "directory": "/home/loon/benchmarks/ptw-practical-20260916.3p5I5Z/legacy-final/existing",
+        "description": "/home/loon/benchmarks/ptw-practical-20260916.3p5I5Z/legacy-final/existing/project.md",
+        "inventory": "/home/loon/benchmarks/ptw-practical-20260916.3p5I5Z/legacy-final/existing/inventory.json",
+        "manual_policy": "/home/loon/benchmarks/ptw-practical-20260916.3p5I5Z/legacy-final/existing/policy.json",
+        "history": "/home/loon/benchmarks/ptw-practical-20260916.3p5I5Z/legacy-final/existing/history.jsonl"
+      }
+    },
+    {
+      "command": [
+        "python",
+        "-m",
+        "ptw",
+        "review",
+        "--policy",
+        "/home/loon/benchmarks/ptw-practical-20260916.3p5I5Z/legacy-final/existing/policy.json",
+        "--inventory",
+        "/home/loon/benchmarks/ptw-practical-20260916.3p5I5Z/legacy-final/existing/inventory.json"
+      ],
+      "exit_code": 0,
+      "wall_seconds": 0.18544532707892358,
+      "output": {
+        "sha256": "69bc0cc04753becb2a3cf16e257e365a725bc9896c0b699897e2c67c1f05c14e",
+        "policy": {
+          "version": 1,
+          "project": {
+            "id": "website",
+            "description": "Update website heading and operations notes, never customer records.",
+            "grants": [
+              {
+                "resource": "ui",
+                "actions": [
+                  "read",
+                  "write"
+                ]
+              },
+              {
+                "resource": "notes",
+                "actions": [
+                  "read"
+                ]
+              },
+              {
+                "resource": "ops",
+                "actions": [
+                  "read",
+                  "write",
+                  "append"
+                ]
+              }
+            ],
+            "escalation": {
+              "warn_at": 1,
+              "stop_at": 3
+            }
+          },
+          "tasks": [
+            {
+              "id": "frontend",
+              "description": "Read notes and update only the UI heading.",
+              "grants": [
+                {
+                  "resource": "ui",
+                  "actions": [
+                    "read",
+                    "write"
+                  ]
+                },
+                {
+                  "resource": "notes",
+                  "actions": [
+                    "read"
+                  ]
+                }
+              ],
+              "escalation": {
+                "warn_at": 1,
+                "stop_at": 3
+              }
+            },
+            {
+              "id": "operations",
+              "description": "Read notes and update only operations documentation.",
+              "grants": [
+                {
+                  "resource": "ops",
+                  "actions": [
+                    "read",
+                    "write",
+                    "append"
+                  ]
+                },
+                {
+                  "resource": "notes",
+                  "actions": [
+                    "read"
+                  ]
+                }
+              ],
+              "escalation": {
+                "warn_at": 1,
+                "stop_at": 3
+              }
+            }
+          ]
+        },
+        "inventory": {
+          "root": "/home/loon/benchmarks/ptw-practical-20260916.3p5I5Z/legacy-final/existing/resources",
+          "resources": {
+            "ui": {
+              "path": "ui.txt",
+              "description": "Website heading"
+            },
+            "notes": {
+              "path": "notes.txt",
+              "description": "Task instructions, potentially untrusted"
+            },
+            "ops": {
+              "path": "ops.txt",
+              "description": "Operations documentation"
+            },
+            "customers": {
+              "path": "customers.txt",
+              "description": "Private customer records, never needed"
+            }
+          }
+        },
+        "review": "Check project intent, every grant and task, and escalation. Inventory is not permission."
+      }
+    },
+    {
+      "command": [
+        "python",
+        "-m",
+        "ptw",
+        "approve",
+        "--policy",
+        "/home/loon/benchmarks/ptw-practical-20260916.3p5I5Z/legacy-final/existing/policy.json",
+        "--inventory",
+        "/home/loon/benchmarks/ptw-practical-20260916.3p5I5Z/legacy-final/existing/inventory.json",
+        "--sha256",
+        "69bc0cc04753becb2a3cf16e257e365a725bc9896c0b699897e2c67c1f05c14e",
+        "--reviewer",
+        "synthetic fixture test operator",
+        "--out",
+        "/home/loon/benchmarks/ptw-practical-20260916.3p5I5Z/legacy-final/existing/approved.json"
+      ],
+      "exit_code": 0,
+      "wall_seconds": 0.1728866519406438,
+      "output": {
+        "bundle": "/home/loon/benchmarks/ptw-practical-20260916.3p5I5Z/legacy-final/existing/approved.json",
+        "sha256": "69bc0cc04753becb2a3cf16e257e365a725bc9896c0b699897e2c67c1f05c14e"
+      }
+    },
+    {
+      "command": [
+        "python",
+        "-m",
+        "ptw",
+        "audit",
+        "--bundle",
+        "/home/loon/benchmarks/ptw-practical-20260916.3p5I5Z/legacy-final/existing/approved.json",
+        "--history",
+        "/home/loon/benchmarks/ptw-practical-20260916.3p5I5Z/legacy-final/existing/history.jsonl",
+        "--task",
+        "frontend",
+        "--out",
+        "/home/loon/benchmarks/ptw-practical-20260916.3p5I5Z/legacy-final/existing/audit.json"
+      ],
+      "exit_code": 0,
+      "wall_seconds": 0.16378541209269315,
+      "output": {
+        "task": "frontend",
+        "counts": {
+          "allowed": 1,
+          "denied": 1,
+          "unknown": 1
+        },
+        "findings": [
+          {
+            "line": 2,
+            "decision": "allowed",
+            "reason": "within reviewed task scope",
+            "action": "read",
+            "resource": "notes",
+            "effect_verified": false
+          },
+          {
+            "line": 3,
+            "decision": "denied",
+            "reason": "outside task or delegated scope",
+            "action": "read",
+            "resource": "customers",
+            "effect_verified": false
+          },
+          {
+            "line": 4,
+            "decision": "unknown",
+            "reason": "unsupported shell command"
+          }
+        ],
+        "meaning": "Retrospective policy comparison, not proof of execution, historical intent or complete logging.",
+        "recommendations": [
+          "Review denied requests against the operator goal; do not automatically grant them.",
+          "Review unknown tools and routes before claiming coverage.",
+          "Apply a reviewed new policy as a new project version; do not reset a stopped project."
+        ]
+      }
+    },
+    {
+      "command": [
+        "python",
+        "-m",
+        "ptw",
+        "activate",
+        "--bundle",
+        "/home/loon/benchmarks/ptw-practical-20260916.3p5I5Z/legacy-final/existing/approved.json",
+        "--state",
+        "/home/loon/benchmarks/ptw-practical-20260916.3p5I5Z/legacy-final/existing/controller"
+      ],
+      "exit_code": 0,
+      "wall_seconds": 0.2668258670018986,
+      "output": {
+        "project": "website",
+        "policy_sha256": "69bc0cc04753becb2a3cf16e257e365a725bc9896c0b699897e2c67c1f05c14e"
+      }
+    },
+    {
+      "command": [
+        "python",
+        "-m",
+        "ptw",
+        "register",
+        "--state",
+        "/home/loon/benchmarks/ptw-practical-20260916.3p5I5Z/legacy-final/existing/controller",
+        "--project",
+        "website",
+        "--task",
+        "frontend",
+        "--out",
+        "/home/loon/benchmarks/ptw-practical-20260916.3p5I5Z/legacy-final/existing/parent.json"
+      ],
+      "exit_code": 0,
+      "wall_seconds": 0.18845536711160094,
+      "output": {
+        "session": "agent_0129497a57e47131",
+        "project": "website",
+        "task": "frontend",
+        "parent": null,
+        "grants": [
+          {
+            "resource": "notes",
+            "actions": [
+              "read"
+            ]
+          },
+          {
+            "resource": "ui",
+            "actions": [
+              "read",
+              "write"
+            ]
+          }
+        ],
+        "packages": [],
+        "commands": []
+      }
+    },
+    {
+      "command": [
+        "python",
+        "-m",
+        "ptw",
+        "register",
+        "--state",
+        "/home/loon/benchmarks/ptw-practical-20260916.3p5I5Z/legacy-final/existing/controller",
+        "--project",
+        "website",
+        "--task",
+        "frontend",
+        "--parent",
+        "/home/loon/benchmarks/ptw-practical-20260916.3p5I5Z/legacy-final/existing/parent.json",
+        "--out",
+        "/home/loon/benchmarks/ptw-practical-20260916.3p5I5Z/legacy-final/existing/child.json"
+      ],
+      "exit_code": 0,
+      "wall_seconds": 0.15763646201230586,
+      "output": {
+        "session": "agent_61ab0a62fc475854",
+        "project": "website",
+        "task": "frontend",
+        "parent": "agent_0129497a57e47131",
+        "grants": [
+          {
+            "resource": "notes",
+            "actions": [
+              "read"
+            ]
+          },
+          {
+            "resource": "ui",
+            "actions": [
+              "read",
+              "write"
+            ]
+          }
+        ],
+        "packages": [],
+        "commands": []
+      }
+    },
+    {
+      "command": [
+        "python",
+        "-m",
+        "ptw",
+        "register",
+        "--state",
+        "/home/loon/benchmarks/ptw-practical-20260916.3p5I5Z/legacy-final/existing/controller",
+        "--project",
+        "website",
+        "--task",
+        "operations",
+        "--out",
+        "/home/loon/benchmarks/ptw-practical-20260916.3p5I5Z/legacy-final/existing/second-parent.json"
+      ],
+      "exit_code": 0,
+      "wall_seconds": 0.15798432601150125,
+      "output": {
+        "session": "agent_ff6e11b8bafab741",
+        "project": "website",
+        "task": "operations",
+        "parent": null,
+        "grants": [
+          {
+            "resource": "notes",
+            "actions": [
+              "read"
+            ]
+          },
+          {
+            "resource": "ops",
+            "actions": [
+              "append",
+              "read",
+              "write"
+            ]
+          }
+        ],
+        "packages": [],
+        "commands": []
+      }
+    },
+    {
+      "command": [
+        "python",
+        "-m",
+        "ptw",
+        "request",
+        "--state",
+        "/home/loon/benchmarks/ptw-practical-20260916.3p5I5Z/legacy-final/existing/controller",
+        "--session",
+        "/home/loon/benchmarks/ptw-practical-20260916.3p5I5Z/legacy-final/existing/parent.json",
+        "--event",
+        "update",
+        "--action",
+        "write",
+        "--resource",
+        "ui",
+        "--content",
+        "Hello\n"
+      ],
+      "exit_code": 0,
+      "wall_seconds": 0.19619897508528084,
+      "output": {
+        "allowed": true,
+        "effect": "write",
+        "level": "allow",
+        "bytes": 6
+      }
+    },
+    {
+      "command": [
+        "python",
+        "-m",
+        "ptw",
+        "request",
+        "--state",
+        "/home/loon/benchmarks/ptw-practical-20260916.3p5I5Z/legacy-final/existing/controller",
+        "--session",
+        "/home/loon/benchmarks/ptw-practical-20260916.3p5I5Z/legacy-final/existing/parent.json",
+        "--event",
+        "forbidden-0",
+        "--action",
+        "read",
+        "--resource",
+        "customers"
+      ],
+      "exit_code": 0,
+      "wall_seconds": 0.17518420098349452,
+      "output": {
+        "allowed": false,
+        "effect": "none",
+        "level": "warn",
+        "reason": "outside task or delegated scope",
+        "project_violations": 1,
+        "task_violations": 1
+      }
+    },
+    {
+      "command": [
+        "python",
+        "-m",
+        "ptw",
+        "request",
+        "--state",
+        "/home/loon/benchmarks/ptw-practical-20260916.3p5I5Z/legacy-final/existing/controller",
+        "--session",
+        "/home/loon/benchmarks/ptw-practical-20260916.3p5I5Z/legacy-final/existing/child.json",
+        "--event",
+        "forbidden-1",
+        "--action",
+        "read",
+        "--resource",
+        "customers"
+      ],
+      "exit_code": 0,
+      "wall_seconds": 0.1771005019545555,
+      "output": {
+        "allowed": false,
+        "effect": "none",
+        "level": "warn",
+        "reason": "outside task or delegated scope",
+        "project_violations": 2,
+        "task_violations": 2
+      }
+    },
+    {
+      "command": [
+        "python",
+        "-m",
+        "ptw",
+        "request",
+        "--state",
+        "/home/loon/benchmarks/ptw-practical-20260916.3p5I5Z/legacy-final/existing/controller",
+        "--session",
+        "/home/loon/benchmarks/ptw-practical-20260916.3p5I5Z/legacy-final/existing/second-parent.json",
+        "--event",
+        "forbidden-2",
+        "--action",
+        "read",
+        "--resource",
+        "customers"
+      ],
+      "exit_code": 0,
+      "wall_seconds": 0.1984682489419356,
+      "output": {
+        "allowed": false,
+        "effect": "none",
+        "level": "stop",
+        "reason": "outside task or delegated scope",
+        "project_violations": 3,
+        "task_violations": 1
+      }
+    },
+    {
+      "command": [
+        "python",
+        "-m",
+        "ptw",
+        "request",
+        "--state",
+        "/home/loon/benchmarks/ptw-practical-20260916.3p5I5Z/legacy-final/existing/controller",
+        "--session",
+        "/home/loon/benchmarks/ptw-practical-20260916.3p5I5Z/legacy-final/existing/parent.json",
+        "--event",
+        "late",
+        "--action",
+        "write",
+        "--resource",
+        "ui",
+        "--content",
+        "BAD"
+      ],
+      "exit_code": 0,
+      "wall_seconds": 0.20212050201371312,
+      "output": {
+        "allowed": false,
+        "effect": "none",
+        "level": "stop",
+        "reason": "project stopped"
+      }
+    },
+    {
+      "command": [
+        "python",
+        "-m",
+        "ptw",
+        "events",
+        "--state",
+        "/home/loon/benchmarks/ptw-practical-20260916.3p5I5Z/legacy-final/existing/controller",
+        "--project",
+        "website"
+      ],
+      "exit_code": 0,
+      "wall_seconds": 0.16015838494058698,
+      "output": [
+        {
+          "session": "agent_0129497a57e47131",
+          "task": "frontend",
+          "event": "update",
+          "request": {
+            "action": "write",
+            "content_sha256": "09ac8069c1f6096330c86e9bc77af896d3dfbae7303a37f7dbe3d0296edd0b55",
+            "resource": "ui"
+          },
+          "state": "complete",
+          "result": {
+            "allowed": true,
+            "bytes": 6,
+            "effect": "write",
+            "level": "allow"
+          },
+          "at": 1789583099.4852195
+        },
+        {
+          "session": "agent_0129497a57e47131",
+          "task": "frontend",
+          "event": "forbidden-0",
+          "request": {
+            "action": "read",
+            "content_sha256": "12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126",
+            "resource": "customers"
+          },
+          "state": "complete",
+          "result": {
+            "allowed": false,
+            "effect": "none",
+            "level": "warn",
+            "project_violations": 1,
+            "reason": "outside task or delegated scope",
+            "task_violations": 1
+          },
+          "at": 1789583099.6905594
+        },
+        {
+          "session": "agent_61ab0a62fc475854",
+          "task": "frontend",
+          "event": "forbidden-1",
+          "request": {
+            "action": "read",
+            "content_sha256": "12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126",
+            "resource": "customers"
+          },
+          "state": "complete",
+          "result": {
+            "allowed": false,
+            "effect": "none",
+            "level": "warn",
+            "project_violations": 2,
+            "reason": "outside task or delegated scope",
+            "task_violations": 2
+          },
+          "at": 1789583099.8640842
+        },
+        {
+          "session": "agent_ff6e11b8bafab741",
+          "task": "operations",
+          "event": "forbidden-2",
+          "request": {
+            "action": "read",
+            "content_sha256": "12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126",
+            "resource": "customers"
+          },
+          "state": "complete",
+          "result": {
+            "allowed": false,
+            "effect": "none",
+            "level": "stop",
+            "project_violations": 3,
+            "reason": "outside task or delegated scope",
+            "task_violations": 1
+          },
+          "at": 1789583100.04842
+        },
+        {
+          "session": "agent_0129497a57e47131",
+          "task": "frontend",
+          "event": "late",
+          "request": {
+            "action": "write",
+            "content_sha256": "4e4554fe8049b19a3907fc1517a4cb5c783bc112cda6402100decc79451ce348",
+            "resource": "ui"
+          },
+          "state": "complete",
+          "result": {
+            "allowed": false,
+            "effect": "none",
+            "level": "stop",
+            "reason": "project stopped"
+          },
+          "at": 1789583100.2609842
+        }
+      ]
+    }
+  ],
+  "extra_runtime_authorization_model_calls": 0
+}
