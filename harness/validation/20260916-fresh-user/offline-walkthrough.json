@@ -1,0 +1,1174 @@
+{
+  "passed": true,
+  "live": false,
+  "platform": "Linux-6.12.107+deb13-amd64-x86_64-with-glibc2.41",
+  "wall_seconds": 3.877890219911933,
+  "commands": [
+    {
+      "command": [
+        "python",
+        "-m",
+        "ptw",
+        "sample",
+        "--out",
+        "/home/ptw-acceptance/offline-final/new"
+      ],
+      "exit_code": 0,
+      "wall_seconds": 0.13272605801466852,
+      "output": {
+        "directory": "/home/ptw-acceptance/offline-final/new",
+        "description": "/home/ptw-acceptance/offline-final/new/project.md",
+        "inventory": "/home/ptw-acceptance/offline-final/new/inventory.json",
+        "manual_policy": "/home/ptw-acceptance/offline-final/new/policy.json",
+        "history": "/home/ptw-acceptance/offline-final/new/history.jsonl"
+      }
+    },
+    {
+      "command": [
+        "python",
+        "-m",
+        "ptw",
+        "review",
+        "--policy",
+        "/home/ptw-acceptance/offline-final/new/policy.json",
+        "--inventory",
+        "/home/ptw-acceptance/offline-final/new/inventory.json"
+      ],
+      "exit_code": 0,
+      "wall_seconds": 0.12245384603738785,
+      "output": {
+        "sha256": "cc33e5484ec944e1ec661a7fff05083db5d4a9adb04e84719ed3aa26179aa961",
+        "policy": {
+          "version": 1,
+          "project": {
+            "id": "website",
+            "description": "Update website heading and operations notes, never customer records.",
+            "grants": [
+              {
+                "resource": "ui",
+                "actions": [
+                  "read",
+                  "write"
+                ]
+              },
+              {
+                "resource": "notes",
+                "actions": [
+                  "read"
+                ]
+              },
+              {
+                "resource": "ops",
+                "actions": [
+                  "read",
+                  "write",
+                  "append"
+                ]
+              }
+            ],
+            "escalation": {
+              "warn_at": 1,
+              "stop_at": 3
+            }
+          },
+          "tasks": [
+            {
+              "id": "frontend",
+              "description": "Read notes and update only the UI heading.",
+              "grants": [
+                {
+                  "resource": "ui",
+                  "actions": [
+                    "read",
+                    "write"
+                  ]
+                },
+                {
+                  "resource": "notes",
+                  "actions": [
+                    "read"
+                  ]
+                }
+              ],
+              "escalation": {
+                "warn_at": 1,
+                "stop_at": 3
+              }
+            },
+            {
+              "id": "operations",
+              "description": "Read notes and update only operations documentation.",
+              "grants": [
+                {
+                  "resource": "ops",
+                  "actions": [
+                    "read",
+                    "write",
+                    "append"
+                  ]
+                },
+                {
+                  "resource": "notes",
+                  "actions": [
+                    "read"
+                  ]
+                }
+              ],
+              "escalation": {
+                "warn_at": 1,
+                "stop_at": 3
+              }
+            }
+          ]
+        },
+        "inventory": {
+          "root": "/home/ptw-acceptance/offline-final/new/resources",
+          "resources": {
+            "ui": {
+              "path": "ui.txt",
+              "description": "Website heading"
+            },
+            "notes": {
+              "path": "notes.txt",
+              "description": "Task instructions, potentially untrusted"
+            },
+            "ops": {
+              "path": "ops.txt",
+              "description": "Operations documentation"
+            },
+            "customers": {
+              "path": "customers.txt",
+              "description": "Private customer records, never needed"
+            }
+          }
+        },
+        "review": "Check project intent, every grant and task, and escalation. Inventory is not permission."
+      }
+    },
+    {
+      "command": [
+        "python",
+        "-m",
+        "ptw",
+        "approve",
+        "--policy",
+        "/home/ptw-acceptance/offline-final/new/policy.json",
+        "--inventory",
+        "/home/ptw-acceptance/offline-final/new/inventory.json",
+        "--sha256",
+        "cc33e5484ec944e1ec661a7fff05083db5d4a9adb04e84719ed3aa26179aa961",
+        "--reviewer",
+        "synthetic fixture test operator",
+        "--out",
+        "/home/ptw-acceptance/offline-final/new/approved.json"
+      ],
+      "exit_code": 0,
+      "wall_seconds": 0.1188480380224064,
+      "output": {
+        "bundle": "/home/ptw-acceptance/offline-final/new/approved.json",
+        "sha256": "cc33e5484ec944e1ec661a7fff05083db5d4a9adb04e84719ed3aa26179aa961"
+      }
+    },
+    {
+      "command": [
+        "python",
+        "-m",
+        "ptw",
+        "activate",
+        "--bundle",
+        "/home/ptw-acceptance/offline-final/new/approved.json",
+        "--state",
+        "/home/ptw-acceptance/offline-final/new/controller"
+      ],
+      "exit_code": 0,
+      "wall_seconds": 0.15763412602245808,
+      "output": {
+        "project": "website",
+        "policy_sha256": "cc33e5484ec944e1ec661a7fff05083db5d4a9adb04e84719ed3aa26179aa961"
+      }
+    },
+    {
+      "command": [
+        "python",
+        "-m",
+        "ptw",
+        "register",
+        "--state",
+        "/home/ptw-acceptance/offline-final/new/controller",
+        "--project",
+        "website",
+        "--task",
+        "frontend",
+        "--out",
+        "/home/ptw-acceptance/offline-final/new/parent.json"
+      ],
+      "exit_code": 0,
+      "wall_seconds": 0.13496092695277184,
+      "output": {
+        "session": "agent_19bb6365b9684921",
+        "project": "website",
+        "task": "frontend",
+        "parent": null,
+        "grants": [
+          {
+            "resource": "notes",
+            "actions": [
+              "read"
+            ]
+          },
+          {
+            "resource": "ui",
+            "actions": [
+              "read",
+              "write"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "command": [
+        "python",
+        "-m",
+        "ptw",
+        "register",
+        "--state",
+        "/home/ptw-acceptance/offline-final/new/controller",
+        "--project",
+        "website",
+        "--task",
+        "frontend",
+        "--parent",
+        "/home/ptw-acceptance/offline-final/new/parent.json",
+        "--out",
+        "/home/ptw-acceptance/offline-final/new/child.json"
+      ],
+      "exit_code": 0,
+      "wall_seconds": 0.13230434199795127,
+      "output": {
+        "session": "agent_995e47bd6a01d685",
+        "project": "website",
+        "task": "frontend",
+        "parent": "agent_19bb6365b9684921",
+        "grants": [
+          {
+            "resource": "notes",
+            "actions": [
+              "read"
+            ]
+          },
+          {
+            "resource": "ui",
+            "actions": [
+              "read",
+              "write"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "command": [
+        "python",
+        "-m",
+        "ptw",
+        "register",
+        "--state",
+        "/home/ptw-acceptance/offline-final/new/controller",
+        "--project",
+        "website",
+        "--task",
+        "operations",
+        "--out",
+        "/home/ptw-acceptance/offline-final/new/second-parent.json"
+      ],
+      "exit_code": 0,
+      "wall_seconds": 0.13548363698646426,
+      "output": {
+        "session": "agent_de415fb2e1ded488",
+        "project": "website",
+        "task": "operations",
+        "parent": null,
+        "grants": [
+          {
+            "resource": "notes",
+            "actions": [
+              "read"
+            ]
+          },
+          {
+            "resource": "ops",
+            "actions": [
+              "append",
+              "read",
+              "write"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "command": [
+        "python",
+        "-m",
+        "ptw",
+        "request",
+        "--state",
+        "/home/ptw-acceptance/offline-final/new/controller",
+        "--session",
+        "/home/ptw-acceptance/offline-final/new/parent.json",
+        "--event",
+        "update",
+        "--action",
+        "write",
+        "--resource",
+        "ui",
+        "--content",
+        "Hello\n"
+      ],
+      "exit_code": 0,
+      "wall_seconds": 0.14379502006340772,
+      "output": {
+        "allowed": true,
+        "effect": "write",
+        "level": "allow",
+        "bytes": 6
+      }
+    },
+    {
+      "command": [
+        "python",
+        "-m",
+        "ptw",
+        "request",
+        "--state",
+        "/home/ptw-acceptance/offline-final/new/controller",
+        "--session",
+        "/home/ptw-acceptance/offline-final/new/parent.json",
+        "--event",
+        "forbidden-0",
+        "--action",
+        "read",
+        "--resource",
+        "customers"
+      ],
+      "exit_code": 0,
+      "wall_seconds": 0.1564198900014162,
+      "output": {
+        "allowed": false,
+        "effect": "none",
+        "level": "warn",
+        "reason": "outside task or delegated scope",
+        "project_violations": 1,
+        "task_violations": 1
+      }
+    },
+    {
+      "command": [
+        "python",
+        "-m",
+        "ptw",
+        "request",
+        "--state",
+        "/home/ptw-acceptance/offline-final/new/controller",
+        "--session",
+        "/home/ptw-acceptance/offline-final/new/child.json",
+        "--event",
+        "forbidden-1",
+        "--action",
+        "read",
+        "--resource",
+        "customers"
+      ],
+      "exit_code": 0,
+      "wall_seconds": 0.13582594797480851,
+      "output": {
+        "allowed": false,
+        "effect": "none",
+        "level": "warn",
+        "reason": "outside task or delegated scope",
+        "project_violations": 2,
+        "task_violations": 2
+      }
+    },
+    {
+      "command": [
+        "python",
+        "-m",
+        "ptw",
+        "request",
+        "--state",
+        "/home/ptw-acceptance/offline-final/new/controller",
+        "--session",
+        "/home/ptw-acceptance/offline-final/new/second-parent.json",
+        "--event",
+        "forbidden-2",
+        "--action",
+        "read",
+        "--resource",
+        "customers"
+      ],
+      "exit_code": 0,
+      "wall_seconds": 0.15490515308920294,
+      "output": {
+        "allowed": false,
+        "effect": "none",
+        "level": "stop",
+        "reason": "outside task or delegated scope",
+        "project_violations": 3,
+        "task_violations": 1
+      }
+    },
+    {
+      "command": [
+        "python",
+        "-m",
+        "ptw",
+        "request",
+        "--state",
+        "/home/ptw-acceptance/offline-final/new/controller",
+        "--session",
+        "/home/ptw-acceptance/offline-final/new/parent.json",
+        "--event",
+        "late",
+        "--action",
+        "write",
+        "--resource",
+        "ui",
+        "--content",
+        "BAD"
+      ],
+      "exit_code": 0,
+      "wall_seconds": 0.157627030974254,
+      "output": {
+        "allowed": false,
+        "effect": "none",
+        "level": "stop",
+        "reason": "project stopped"
+      }
+    },
+    {
+      "command": [
+        "python",
+        "-m",
+        "ptw",
+        "events",
+        "--state",
+        "/home/ptw-acceptance/offline-final/new/controller",
+        "--project",
+        "website"
+      ],
+      "exit_code": 0,
+      "wall_seconds": 0.14673677494283766,
+      "output": [
+        {
+          "session": "agent_19bb6365b9684921",
+          "task": "frontend",
+          "event": "update",
+          "request": {
+            "action": "write",
+            "content_sha256": "09ac8069c1f6096330c86e9bc77af896d3dfbae7303a37f7dbe3d0296edd0b55",
+            "resource": "ui"
+          },
+          "state": "complete",
+          "result": {
+            "allowed": true,
+            "bytes": 6,
+            "effect": "write",
+            "level": "allow"
+          },
+          "at": 1789543053.9600024
+        },
+        {
+          "session": "agent_19bb6365b9684921",
+          "task": "frontend",
+          "event": "forbidden-0",
+          "request": {
+            "action": "read",
+            "content_sha256": "12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126",
+            "resource": "customers"
+          },
+          "state": "complete",
+          "result": {
+            "allowed": false,
+            "effect": "none",
+            "level": "warn",
+            "project_violations": 1,
+            "reason": "outside task or delegated scope",
+            "task_violations": 1
+          },
+          "at": 1789543054.123346
+        },
+        {
+          "session": "agent_995e47bd6a01d685",
+          "task": "frontend",
+          "event": "forbidden-1",
+          "request": {
+            "action": "read",
+            "content_sha256": "12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126",
+            "resource": "customers"
+          },
+          "state": "complete",
+          "result": {
+            "allowed": false,
+            "effect": "none",
+            "level": "warn",
+            "project_violations": 2,
+            "reason": "outside task or delegated scope",
+            "task_violations": 2
+          },
+          "at": 1789543054.2591586
+        },
+        {
+          "session": "agent_de415fb2e1ded488",
+          "task": "operations",
+          "event": "forbidden-2",
+          "request": {
+            "action": "read",
+            "content_sha256": "12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126",
+            "resource": "customers"
+          },
+          "state": "complete",
+          "result": {
+            "allowed": false,
+            "effect": "none",
+            "level": "stop",
+            "project_violations": 3,
+            "reason": "outside task or delegated scope",
+            "task_violations": 1
+          },
+          "at": 1789543054.4017165
+        },
+        {
+          "session": "agent_19bb6365b9684921",
+          "task": "frontend",
+          "event": "late",
+          "request": {
+            "action": "write",
+            "content_sha256": "4e4554fe8049b19a3907fc1517a4cb5c783bc112cda6402100decc79451ce348",
+            "resource": "ui"
+          },
+          "state": "complete",
+          "result": {
+            "allowed": false,
+            "effect": "none",
+            "level": "stop",
+            "reason": "project stopped"
+          },
+          "at": 1789543054.5599685
+        }
+      ]
+    },
+    {
+      "command": [
+        "python",
+        "-m",
+        "ptw",
+        "sample",
+        "--out",
+        "/home/ptw-acceptance/offline-final/existing"
+      ],
+      "exit_code": 0,
+      "wall_seconds": 0.14741672901436687,
+      "output": {
+        "directory": "/home/ptw-acceptance/offline-final/existing",
+        "description": "/home/ptw-acceptance/offline-final/existing/project.md",
+        "inventory": "/home/ptw-acceptance/offline-final/existing/inventory.json",
+        "manual_policy": "/home/ptw-acceptance/offline-final/existing/policy.json",
+        "history": "/home/ptw-acceptance/offline-final/existing/history.jsonl"
+      }
+    },
+    {
+      "command": [
+        "python",
+        "-m",
+        "ptw",
+        "review",
+        "--policy",
+        "/home/ptw-acceptance/offline-final/existing/policy.json",
+        "--inventory",
+        "/home/ptw-acceptance/offline-final/existing/inventory.json"
+      ],
+      "exit_code": 0,
+      "wall_seconds": 0.13818322506267577,
+      "output": {
+        "sha256": "8cb49ffbb96d131ee5d60a1fe8590ff607717cb325de24be6a76a2583fb2ba9d",
+        "policy": {
+          "version": 1,
+          "project": {
+            "id": "website",
+            "description": "Update website heading and operations notes, never customer records.",
+            "grants": [
+              {
+                "resource": "ui",
+                "actions": [
+                  "read",
+                  "write"
+                ]
+              },
+              {
+                "resource": "notes",
+                "actions": [
+                  "read"
+                ]
+              },
+              {
+                "resource": "ops",
+                "actions": [
+                  "read",
+                  "write",
+                  "append"
+                ]
+              }
+            ],
+            "escalation": {
+              "warn_at": 1,
+              "stop_at": 3
+            }
+          },
+          "tasks": [
+            {
+              "id": "frontend",
+              "description": "Read notes and update only the UI heading.",
+              "grants": [
+                {
+                  "resource": "ui",
+                  "actions": [
+                    "read",
+                    "write"
+                  ]
+                },
+                {
+                  "resource": "notes",
+                  "actions": [
+                    "read"
+                  ]
+                }
+              ],
+              "escalation": {
+                "warn_at": 1,
+                "stop_at": 3
+              }
+            },
+            {
+              "id": "operations",
+              "description": "Read notes and update only operations documentation.",
+              "grants": [
+                {
+                  "resource": "ops",
+                  "actions": [
+                    "read",
+                    "write",
+                    "append"
+                  ]
+                },
+                {
+                  "resource": "notes",
+                  "actions": [
+                    "read"
+                  ]
+                }
+              ],
+              "escalation": {
+                "warn_at": 1,
+                "stop_at": 3
+              }
+            }
+          ]
+        },
+        "inventory": {
+          "root": "/home/ptw-acceptance/offline-final/existing/resources",
+          "resources": {
+            "ui": {
+              "path": "ui.txt",
+              "description": "Website heading"
+            },
+            "notes": {
+              "path": "notes.txt",
+              "description": "Task instructions, potentially untrusted"
+            },
+            "ops": {
+              "path": "ops.txt",
+              "description": "Operations documentation"
+            },
+            "customers": {
+              "path": "customers.txt",
+              "description": "Private customer records, never needed"
+            }
+          }
+        },
+        "review": "Check project intent, every grant and task, and escalation. Inventory is not permission."
+      }
+    },
+    {
+      "command": [
+        "python",
+        "-m",
+        "ptw",
+        "approve",
+        "--policy",
+        "/home/ptw-acceptance/offline-final/existing/policy.json",
+        "--inventory",
+        "/home/ptw-acceptance/offline-final/existing/inventory.json",
+        "--sha256",
+        "8cb49ffbb96d131ee5d60a1fe8590ff607717cb325de24be6a76a2583fb2ba9d",
+        "--reviewer",
+        "synthetic fixture test operator",
+        "--out",
+        "/home/ptw-acceptance/offline-final/existing/approved.json"
+      ],
+      "exit_code": 0,
+      "wall_seconds": 0.1388042139587924,
+      "output": {
+        "bundle": "/home/ptw-acceptance/offline-final/existing/approved.json",
+        "sha256": "8cb49ffbb96d131ee5d60a1fe8590ff607717cb325de24be6a76a2583fb2ba9d"
+      }
+    },
+    {
+      "command": [
+        "python",
+        "-m",
+        "ptw",
+        "audit",
+        "--bundle",
+        "/home/ptw-acceptance/offline-final/existing/approved.json",
+        "--history",
+        "/home/ptw-acceptance/offline-final/existing/history.jsonl",
+        "--task",
+        "frontend",
+        "--out",
+        "/home/ptw-acceptance/offline-final/existing/audit.json"
+      ],
+      "exit_code": 0,
+      "wall_seconds": 0.13359181105624884,
+      "output": {
+        "task": "frontend",
+        "counts": {
+          "allowed": 1,
+          "denied": 1,
+          "unknown": 1
+        },
+        "findings": [
+          {
+            "line": 2,
+            "decision": "allowed",
+            "reason": "within reviewed task scope",
+            "action": "read",
+            "resource": "notes",
+            "effect_verified": false
+          },
+          {
+            "line": 3,
+            "decision": "denied",
+            "reason": "outside task or delegated scope",
+            "action": "read",
+            "resource": "customers",
+            "effect_verified": false
+          },
+          {
+            "line": 4,
+            "decision": "unknown",
+            "reason": "unsupported shell command"
+          }
+        ],
+        "meaning": "Retrospective policy comparison, not proof of execution, historical intent or complete logging.",
+        "recommendations": [
+          "Review denied requests against the operator goal; do not automatically grant them.",
+          "Review unknown tools and routes before claiming coverage.",
+          "Apply a reviewed new policy as a new project version; do not reset a stopped project."
+        ]
+      }
+    },
+    {
+      "command": [
+        "python",
+        "-m",
+        "ptw",
+        "activate",
+        "--bundle",
+        "/home/ptw-acceptance/offline-final/existing/approved.json",
+        "--state",
+        "/home/ptw-acceptance/offline-final/existing/controller"
+      ],
+      "exit_code": 0,
+      "wall_seconds": 0.18438991403672844,
+      "output": {
+        "project": "website",
+        "policy_sha256": "8cb49ffbb96d131ee5d60a1fe8590ff607717cb325de24be6a76a2583fb2ba9d"
+      }
+    },
+    {
+      "command": [
+        "python",
+        "-m",
+        "ptw",
+        "register",
+        "--state",
+        "/home/ptw-acceptance/offline-final/existing/controller",
+        "--project",
+        "website",
+        "--task",
+        "frontend",
+        "--out",
+        "/home/ptw-acceptance/offline-final/existing/parent.json"
+      ],
+      "exit_code": 0,
+      "wall_seconds": 0.15593831799924374,
+      "output": {
+        "session": "agent_f842d01a424723da",
+        "project": "website",
+        "task": "frontend",
+        "parent": null,
+        "grants": [
+          {
+            "resource": "notes",
+            "actions": [
+              "read"
+            ]
+          },
+          {
+            "resource": "ui",
+            "actions": [
+              "read",
+              "write"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "command": [
+        "python",
+        "-m",
+        "ptw",
+        "register",
+        "--state",
+        "/home/ptw-acceptance/offline-final/existing/controller",
+        "--project",
+        "website",
+        "--task",
+        "frontend",
+        "--parent",
+        "/home/ptw-acceptance/offline-final/existing/parent.json",
+        "--out",
+        "/home/ptw-acceptance/offline-final/existing/child.json"
+      ],
+      "exit_code": 0,
+      "wall_seconds": 0.15446154295932502,
+      "output": {
+        "session": "agent_d71b1ec3024307b6",
+        "project": "website",
+        "task": "frontend",
+        "parent": "agent_f842d01a424723da",
+        "grants": [
+          {
+            "resource": "notes",
+            "actions": [
+              "read"
+            ]
+          },
+          {
+            "resource": "ui",
+            "actions": [
+              "read",
+              "write"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "command": [
+        "python",
+        "-m",
+        "ptw",
+        "register",
+        "--state",
+        "/home/ptw-acceptance/offline-final/existing/controller",
+        "--project",
+        "website",
+        "--task",
+        "operations",
+        "--out",
+        "/home/ptw-acceptance/offline-final/existing/second-parent.json"
+      ],
+      "exit_code": 0,
+      "wall_seconds": 0.1484633219661191,
+      "output": {
+        "session": "agent_8d243fc0fe88eb47",
+        "project": "website",
+        "task": "operations",
+        "parent": null,
+        "grants": [
+          {
+            "resource": "notes",
+            "actions": [
+              "read"
+            ]
+          },
+          {
+            "resource": "ops",
+            "actions": [
+              "append",
+              "read",
+              "write"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "command": [
+        "python",
+        "-m",
+        "ptw",
+        "request",
+        "--state",
+        "/home/ptw-acceptance/offline-final/existing/controller",
+        "--session",
+        "/home/ptw-acceptance/offline-final/existing/parent.json",
+        "--event",
+        "update",
+        "--action",
+        "write",
+        "--resource",
+        "ui",
+        "--content",
+        "Hello\n"
+      ],
+      "exit_code": 0,
+      "wall_seconds": 0.1484577510273084,
+      "output": {
+        "allowed": true,
+        "effect": "write",
+        "level": "allow",
+        "bytes": 6
+      }
+    },
+    {
+      "command": [
+        "python",
+        "-m",
+        "ptw",
+        "request",
+        "--state",
+        "/home/ptw-acceptance/offline-final/existing/controller",
+        "--session",
+        "/home/ptw-acceptance/offline-final/existing/parent.json",
+        "--event",
+        "forbidden-0",
+        "--action",
+        "read",
+        "--resource",
+        "customers"
+      ],
+      "exit_code": 0,
+      "wall_seconds": 0.13344584906008095,
+      "output": {
+        "allowed": false,
+        "effect": "none",
+        "level": "warn",
+        "reason": "outside task or delegated scope",
+        "project_violations": 1,
+        "task_violations": 1
+      }
+    },
+    {
+      "command": [
+        "python",
+        "-m",
+        "ptw",
+        "request",
+        "--state",
+        "/home/ptw-acceptance/offline-final/existing/controller",
+        "--session",
+        "/home/ptw-acceptance/offline-final/existing/child.json",
+        "--event",
+        "forbidden-1",
+        "--action",
+        "read",
+        "--resource",
+        "customers"
+      ],
+      "exit_code": 0,
+      "wall_seconds": 0.14708329597488046,
+      "output": {
+        "allowed": false,
+        "effect": "none",
+        "level": "warn",
+        "reason": "outside task or delegated scope",
+        "project_violations": 2,
+        "task_violations": 2
+      }
+    },
+    {
+      "command": [
+        "python",
+        "-m",
+        "ptw",
+        "request",
+        "--state",
+        "/home/ptw-acceptance/offline-final/existing/controller",
+        "--session",
+        "/home/ptw-acceptance/offline-final/existing/second-parent.json",
+        "--event",
+        "forbidden-2",
+        "--action",
+        "read",
+        "--resource",
+        "customers"
+      ],
+      "exit_code": 0,
+      "wall_seconds": 0.14057217200752348,
+      "output": {
+        "allowed": false,
+        "effect": "none",
+        "level": "stop",
+        "reason": "outside task or delegated scope",
+        "project_violations": 3,
+        "task_violations": 1
+      }
+    },
+    {
+      "command": [
+        "python",
+        "-m",
+        "ptw",
+        "request",
+        "--state",
+        "/home/ptw-acceptance/offline-final/existing/controller",
+        "--session",
+        "/home/ptw-acceptance/offline-final/existing/parent.json",
+        "--event",
+        "late",
+        "--action",
+        "write",
+        "--resource",
+        "ui",
+        "--content",
+        "BAD"
+      ],
+      "exit_code": 0,
+      "wall_seconds": 0.14750776498112828,
+      "output": {
+        "allowed": false,
+        "effect": "none",
+        "level": "stop",
+        "reason": "project stopped"
+      }
+    },
+    {
+      "command": [
+        "python",
+        "-m",
+        "ptw",
+        "events",
+        "--state",
+        "/home/ptw-acceptance/offline-final/existing/controller",
+        "--project",
+        "website"
+      ],
+      "exit_code": 0,
+      "wall_seconds": 0.12469272199086845,
+      "output": [
+        {
+          "session": "agent_f842d01a424723da",
+          "task": "frontend",
+          "event": "update",
+          "request": {
+            "action": "write",
+            "content_sha256": "09ac8069c1f6096330c86e9bc77af896d3dfbae7303a37f7dbe3d0296edd0b55",
+            "resource": "ui"
+          },
+          "state": "complete",
+          "result": {
+            "allowed": true,
+            "bytes": 6,
+            "effect": "write",
+            "level": "allow"
+          },
+          "at": 1789543056.0616853
+        },
+        {
+          "session": "agent_f842d01a424723da",
+          "task": "frontend",
+          "event": "forbidden-0",
+          "request": {
+            "action": "read",
+            "content_sha256": "12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126",
+            "resource": "customers"
+          },
+          "state": "complete",
+          "result": {
+            "allowed": false,
+            "effect": "none",
+            "level": "warn",
+            "project_violations": 1,
+            "reason": "outside task or delegated scope",
+            "task_violations": 1
+          },
+          "at": 1789543056.2007987
+        },
+        {
+          "session": "agent_d71b1ec3024307b6",
+          "task": "frontend",
+          "event": "forbidden-1",
+          "request": {
+            "action": "read",
+            "content_sha256": "12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126",
+            "resource": "customers"
+          },
+          "state": "complete",
+          "result": {
+            "allowed": false,
+            "effect": "none",
+            "level": "warn",
+            "project_violations": 2,
+            "reason": "outside task or delegated scope",
+            "task_violations": 2
+          },
+          "at": 1789543056.3478825
+        },
+        {
+          "session": "agent_8d243fc0fe88eb47",
+          "task": "operations",
+          "event": "forbidden-2",
+          "request": {
+            "action": "read",
+            "content_sha256": "12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126",
+            "resource": "customers"
+          },
+          "state": "complete",
+          "result": {
+            "allowed": false,
+            "effect": "none",
+            "level": "stop",
+            "project_violations": 3,
+            "reason": "outside task or delegated scope",
+            "task_violations": 1
+          },
+          "at": 1789543056.4877129
+        },
+        {
+          "session": "agent_f842d01a424723da",
+          "task": "frontend",
+          "event": "late",
+          "request": {
+            "action": "write",
+            "content_sha256": "4e4554fe8049b19a3907fc1517a4cb5c783bc112cda6402100decc79451ce348",
+            "resource": "ui"
+          },
+          "state": "complete",
+          "result": {
+            "allowed": false,
+            "effect": "none",
+            "level": "stop",
+            "reason": "project stopped"
+          },
+          "at": 1789543056.6334927
+        }
+      ]
+    }
+  ],
+  "extra_runtime_authorization_model_calls": 0
+}
