@@ -18,12 +18,17 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--live", action="store_true")
+    parser.add_argument("--propose", action="store_true", help="Generate and review policies from project descriptions")
     args = parser.parse_args()
     root = args.out.absolute()
     root.mkdir(mode=0o700, parents=True, exist_ok=False)
     calls, checks, projects = [], {}, []
     lock = threading.Lock()
     counter = 0
+    aliases, project_ids = {}, {}
+    source_root = Path(__file__).resolve().parents[1]
+    source_hashes = {str(p.relative_to(source_root)): hashlib.sha256(p.read_bytes()).hexdigest()
+                     for p in (source_root / "ptw").glob("*.py")}
     state = root / "controller"
     started, error = time.monotonic(), None
 
@@ -52,14 +57,21 @@ def main():
             counter += 1
             identity = "action-" + str(counter)
         source = root / (identity + ".json")
+        mapping = aliases.get(str(Path(session).parent), {})
+        req = dict(req)
+        req["resource"] = mapping.get(req["resource"], req["resource"])
+        if req["destination"]:
+            name, sep, path = req["destination"].partition(":")
+            req["destination"] = mapping.get(name, name) + sep + path
         save(source, req)
         return cli("action", "--state", state, "--session", session, "--event", identity, "--request", source, expected=expected)
 
-    def activate(directory, policy_path=None):
+    def activate(directory, policy_path=None, inventory_path=None):
         policy_path = policy_path or directory / "policy.json"
-        review = cli("review", "--policy", policy_path, "--inventory", directory / "inventory.json")
+        inventory_path = inventory_path or directory / "inventory.json"
+        review = cli("review", "--policy", policy_path, "--inventory", inventory_path)
         bundle = directory / "approved.json"
-        cli("approve", "--policy", policy_path, "--inventory", directory / "inventory.json", "--sha256", review["sha256"],
+        cli("approve", "--policy", policy_path, "--inventory", inventory_path, "--sha256", review["sha256"],
             "--reviewer", "synthetic documented walkthrough", "--out", bundle)
         project = review["policy"]["project"]["id"]
         cli("activate", "--bundle", bundle, "--state", state)
@@ -74,7 +86,8 @@ def main():
 
     def run_model(directory, session, text, label):
         task = directory / (label + ".md")
-        task.write_text(text)
+        task.write_text(text + "\nResource ID mapping for this reviewed project: " +
+                        json.dumps(aliases.get(str(directory), {})))
         result = cli("run", "--state", state, "--session", session, "--assignment", task,
                      "--max-steps", "35", "--out", directory / (label + ".json"))
         check(label + "_model_finished", result["outcome"] == "model_finished")
@@ -94,7 +107,36 @@ def main():
                     text=True, capture_output=True, timeout=120)
                 check("npm_lock_only_no_install", result.returncode == 0 and not (repo / "node_modules").exists())
             private_before = (repo / "private/customer.txt").read_bytes()
-            project = activate(example)
+            if args.propose:
+                draft = example / "review"
+                cli("prepare", "--repo", repo, "--description", example / "project.md",
+                    "--commands", example / "commands.json",
+                    "--requirements" if language == "python" else "--npm-lock",
+                    repo / ("requirements.txt" if language == "python" else "package-lock.json"), "--out", draft)
+                inv = load(draft / "inventory.json")
+                original = load(example / "inventory.json")
+                by_path = {r["path"]: n for n, r in inv["resources"].items()}
+                mapping = {n: by_path[r["path"]] for n, r in original["resources"].items()}
+                aliases[str(example)] = mapping
+                proposed = load(draft / "draft.json")
+                expected = load(example / "policy.json")
+                expected_by_task = {t["id"]: t for t in expected["tasks"]}
+                check(language + "_proposed_task_ids", set(expected_by_task) == {t["id"] for t in proposed["tasks"]})
+                # Automated approval is only for this fully specified synthetic
+                # fixture. Review semantic authority, not just schema validity.
+                for proposed_layer, expected_layer in [(proposed["project"], expected["project"])] + [
+                        (t, expected_by_task[t["id"]]) for t in proposed["tasks"]]:
+                    permitted = {mapping[g["resource"]]: set(g["actions"]) for g in expected_layer["grants"]}
+                    check(language + "_proposal_scope_" + proposed_layer["id"],
+                          all(set(g["actions"]) <= permitted.get(g["resource"], set()) for g in proposed_layer["grants"]))
+                rules = proposed["project"]["packages"]
+                check(language + "_proposal_package_thresholds",
+                      rules["deny_cvss_at_or_above"] == 9 and rules["min_release_age_days"] >= 3 and
+                      rules["allow_native_wheels"] is False and not rules["build_packages"])
+                project = activate(example, draft / "draft.json", draft / "inventory.json")
+            else:
+                project = activate(example)
+            project_ids[language] = project
             parent = register(example, project, "implementation")
             second = register(example, project, "verification")
             child = register(example, project, "readcheck", parent=parent, label="child")
@@ -162,7 +204,8 @@ def main():
             # Review a harmless, explicit new version on the existing repository.
             change_dir = example / "change"
             cli("change", "--state", state, "--project", project, "--task", "verification",
-                "--resource", "tests", "--action", "append", "--reason", "Permit appending a review note",
+                "--resource", aliases.get(str(example), {}).get("tests", "tests"),
+                "--action", "append", "--reason", "Permit appending a review note",
                 "--project-id", project + "-v2", "--out", change_dir)
             review = cli("review", "--policy", change_dir / "draft.json", "--inventory", change_dir / "inventory.json")
             cli("approve", "--policy", change_dir / "draft.json", "--inventory", change_dir / "inventory.json",
@@ -179,7 +222,7 @@ def main():
                   action(parent, request("read", "src", "calculator.py"), expected=1)["level"] == "stop")
             if language == "typescript":
                 check("unrelated_python_project_continued",
-                      cli("status", "--state", state, "--project", "python-demo-v2")["stopped"] == 0)
+                      cli("status", "--state", state, "--project", project_ids["python"] + "-v2")["stopped"] == 0)
         check("all_tests_completed", True)
     except Exception as exc:
         error = str(exc)
@@ -194,12 +237,17 @@ def main():
                 cli("monitor", "remove", "--state", state)
             except Exception as exc:
                 error = error or str(exc)
+        final_hashes = {str(p.relative_to(source_root)): hashlib.sha256(p.read_bytes()).hexdigest()
+                        for p in (source_root / "ptw").glob("*.py")}
+        if final_hashes != source_hashes:
+            error = error or "Source changed during run; development evidence only"
         report = {"successful": error is None, "error": error, "checks": checks,
                   "seconds": round(time.monotonic() - started, 3), "live_models": args.live,
                   "model": "gpt-5.6-sol" if args.live else None, "effort": "low" if args.live else None,
                   "commands": calls, "source_commit": subprocess.check_output(
                       ["git", "-C", str(Path(__file__).resolve().parents[2]), "rev-parse", "HEAD"], text=True).strip(),
                   "script_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+                  "source_sha256": source_hashes, "model_generated_policies": args.propose,
                   "evidence": "Real artifacts, physical repository changes, native processes and monitor restart. Security probes are scripted."}
         save(root / "report.json", report)
         print(json.dumps({k: v for k, v in report.items() if k != "commands"}, indent=2))

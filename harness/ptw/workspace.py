@@ -9,7 +9,7 @@ import stat
 import tempfile
 import time
 
-from .policy import Invalid, canonical, digest, obj, scope, validate
+from .policy import Invalid, OutsideScope, canonical, digest, obj, scope, validate
 from .workspace_policy import directory_fd, relative, resource_info
 
 MAX_FILE = 8 * 1024 * 1024
@@ -47,7 +47,7 @@ def entry_at(fd, name):
     if stat.S_ISDIR(info.st_mode):
         return {"kind": "dir"}
     if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
-        raise Invalid("Links and special files are not workspace resources")
+        raise OutsideScope("Links and special files are not workspace resources")
     opened = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=fd)
     try:
         actual = os.fstat(opened)
@@ -147,11 +147,8 @@ def authorize_diff(inv, allowed, before, after):
 def publish(inv, before, after):
     """Called under the project lock after full diff authorization/preflight."""
     changed = [p for p in before.keys() | after.keys() if not same(before.get(p), after.get(p))]
-    for full in sorted(changed, key=lambda p: (-p.count("/"), p)):
-        if full not in after:
-            with parent_fd(inv, full) as (fd, name):
-                (os.rmdir if before[full]["kind"] == "dir" else os.unlink)(name, dir_fd=fd)
-                os.fsync(fd)
+    # Materialize destinations before removing sources. An interrupted rename
+    # can leave both copies, but must not lose the only copy of the source.
     for full in sorted(changed, key=lambda p: (p.count("/"), p)):
         entry = after.get(full)
         if entry is None:
@@ -175,6 +172,11 @@ def publish(inv, before, after):
                     except FileNotFoundError:
                         pass
             os.fsync(fd)
+    for full in sorted(changed, key=lambda p: (-p.count("/"), p)):
+        if full not in after:
+            with parent_fd(inv, full) as (fd, name):
+                (os.rmdir if before[full]["kind"] == "dir" else os.unlink)(name, dir_fd=fd)
+                os.fsync(fd)
 
 
 class Workspace:
@@ -206,7 +208,8 @@ class Workspace:
 
     @staticmethod
     def meta(req):
-        return {"action": req.get("action"), "resource": req.get("resource"), "content": canonical(req)}
+        return {"action": req.get("action") if isinstance(req, dict) else None,
+                "resource": req.get("resource") if isinstance(req, dict) else None, "content": canonical(req)}
 
     def deny(self, db, actor, project, bundle, event, req, reason):
         return self.store.deny(db, actor, project, bundle, event, digest(req), self.meta(req), reason)
@@ -335,20 +338,29 @@ class Workspace:
             elif action == "rename":
                 # Destination uses resource:path, never an absolute host path.
                 dest_resource, sep, dest_path = req["destination"].partition(":")
-                relative(dest_path, empty=True)
+                try:
+                    relative(dest_path, empty=True)
+                except Invalid:
+                    return self.deny(db, actor, project, bundle, event, req, "Malformed rename destination")
                 dest = inv["resources"].get(dest_resource)
                 if not sep or dest is None or "create" not in allowed.get(dest_resource, set()):
                     return self.deny(db, actor, project, bundle, event, req, "Rename destination outside create scope")
                 if dest.get("kind", "file") == "file" and dest_path:
                     return self.deny(db, actor, project, bundle, event, req, "File destination cannot have children")
-                if old["kind"] != "file":
-                    return self.record(db, actor, event, req, "blocked", "Rename files individually; directory rename is not implicit recursive authority")
+                if "read" not in allowed.get(resource, set()):
+                    return self.deny(db, actor, project, bundle, event, req, "Rename also requires source read authority")
                 dest_full = dest["path"] + ("/" + dest_path if dest_path else "")
+                if dest_full == full or dest_full.startswith(full + "/"):
+                    return self.record(db, actor, event, req, "blocked", "Cannot move a path into itself")
                 with parent_fd(inv, dest_full) as (fd, name):
                     if entry_at(fd, name) is not None:
                         return self.record(db, actor, event, req, "conflict", "Rename will not overwrite an existing destination")
-                del after[full]
-                after[dest_full] = old
+                if old["kind"] == "dir":
+                    before = {p: e for p, e in scan(inv, [resource]).items() if p == full or p.startswith(full + "/")}
+                    after = {dest_full + p[len(full):]: e for p, e in before.items()}
+                else:
+                    del after[full]
+                    after[dest_full] = old
             reason = authorize_diff(inv, allowed, before, after)
             # Append permission never becomes general replacement permission.
             if action == "append" and reason and reason.startswith("write denied"):
@@ -379,6 +391,10 @@ class Workspace:
                 return self.record(db, actor, event, req, "blocked", "Cannot snapshot command inputs: " + str(exc))
         try:
             after, outcome = execute(self.store, token, definition, before, req["content"])
+        except OutsideScope as exc:
+            with self.store.locked() as db:
+                actor, project, bundle, prior = self.inspect(db, token, event, req)
+                return prior or self.deny(db, actor, project, bundle, event, req, str(exc))
         except (Invalid, OSError) as exc:
             with self.store.locked() as db:
                 actor, project, bundle, prior = self.inspect(db, token, event, req)

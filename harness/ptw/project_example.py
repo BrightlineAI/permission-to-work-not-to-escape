@@ -67,9 +67,12 @@ def create(directory, language="python"):
             "packages": dependencies, "commands": names})
     save(root / "inventory.json", {"root": str(repo), "resources": resources})
     save(root / "policy.json", policy)
-    save(root / "commands.json", commands)
+    candidates = copy.deepcopy(commands)
+    for command in candidates:
+        command["resources"] = [resources[r]["path"] for r in command["resources"]]
+    save(root / "commands.json", candidates)
     (root / "project.md").write_text(
-        f"Maintain this small {language} calculator project. Fix add so add(20,22) returns 42. "
+        f"Maintain this small {language} calculator project. Use task IDs implementation, verification and readcheck. Fix add so add(20,22) returns 42. "
         "Implementation may read src, tests, dist, dependencies and config if present, edit src and dist, "
         "install the declared dependencies and run build/test as appropriate. Verification may read these "
         "same resources, edit tests only, install dependencies and run test. A readcheck delegate may only "

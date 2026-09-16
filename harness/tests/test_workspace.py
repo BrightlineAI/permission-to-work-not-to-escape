@@ -59,6 +59,14 @@ class WorkspaceTests(WorkspaceFixture):
         self.assertTrue(self.ask("delete", path="newdir/a.txt", expected=hashlib.sha256(b"x").hexdigest())["allowed"])
         self.assertTrue(self.ask("rmdir", path="newdir", expected="directory")["allowed"])
 
+    def test_directory_rename_preserves_files(self):
+        self.ask("mkdir", path="first")
+        self.ask("create", path="first/a.txt", content="preserved")
+        result = self.ask("rename", path="first", expected="directory", destination="src:second")
+        self.assertTrue(result["allowed"], result)
+        self.assertEqual((Path(self.inv["root"]) / "src/second/a.txt").read_text(), "preserved")
+        self.assertFalse((Path(self.inv["root"]) / "src/first").exists())
+
     def test_stale_edit_is_not_violation(self):
         old = self.ask("read")["sha256"]
         self.ask("write", content="first", expected=old)
@@ -278,7 +286,27 @@ class WorkspaceLinux(WorkspaceFixture):
         self.add_command("import os; os.symlink('/etc/passwd','src/leak')")
         result = self.ask("run", resource="probe", path="")
         self.assertFalse(result["allowed"], result)
+        self.assertEqual(result["level"], "warn")
         self.assertFalse((Path(self.inv["root"]) / "src/leak").exists())
+
+    def test_foreign_package_set_counts_as_scope_violation(self):
+        self.add_command("print('never run')")
+        result = self.ask("run", resource="probe", path="", content='{"package_sets":["pkg_000000000000000000000000"]}')
+        self.assertEqual(result["level"], "warn")
+
+    def test_nested_file_command_scaffold_is_not_permission(self):
+        self.inv["resources"].pop("src")
+        self.inv["resources"]["code"] = {"path": "src/calculator.py", "kind": "file", "description": "one exact file"}
+        for layer in [self.policy["project"], *self.policy["tasks"]]:
+            for grant in layer["grants"]:
+                if grant["resource"] == "src":
+                    grant["resource"] = "code"
+        for command in self.policy["project"]["commands"]:
+            command["resources"] = ["code" if r == "src" else r for r in command["resources"]]
+        self.add_command("p='src/calculator.py'; open(p,'w').write('ANSWER=42'); print('NESTED_OK')", ["code"])
+        result = self.ask("run", resource="probe", path="")
+        self.assertTrue(result["allowed"], result)
+        self.assertEqual((Path(self.inv["root"]) / "src/calculator.py").read_text(), "ANSWER=42")
 
     def test_actual_running_parents_child_stop_unrelated_survives(self):
         from ptw.supervisor import Supervisor

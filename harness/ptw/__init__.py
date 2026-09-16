@@ -1,3 +1,3 @@
 """Local project policy harness. Frozen paper experiments are separate."""
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"

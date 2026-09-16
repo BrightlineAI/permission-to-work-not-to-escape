@@ -125,8 +125,8 @@ For a reproducible manual action, save a JSON request outside the repository:
 Use the returned sha256 as expected for write/append/delete/rename. Create
 never overwrites. Rename takes destination="resource:path" and checks both ends.
 Directory creation/removal uses mkdir/rmdir; removal requires an empty directory
-and expected="directory". Directory rename is intentionally explicit individual
-file moves, not implicit recursive authority. Repeat an identical event ID only
+and expected="directory". Directory rename checks every affected file against
+source read/delete and destination create permissions. Repeat an identical event ID only
 for transport retry; changed requests and edit retries need new IDs.
 
 Run names a reviewed command in resource, with content such as
@@ -191,6 +191,7 @@ The host, operator, controller and model runtime remain trusted.
     python harness/scripts/validate.py --linux --out /outside/new-validation
     python harness/scripts/repository_walkthrough.py --out /outside/new-walkthrough
     python harness/scripts/repository_walkthrough.py --live --out /outside/new-live-walkthrough
+    python harness/scripts/repository_walkthrough.py --live --propose --out /outside/description-to-work
 
 The first walkthrough uses real packages/processes and scripted requests. --live
 also runs genuine model tasks; it does not relabel scripted probes as model actions.

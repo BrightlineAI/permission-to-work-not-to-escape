@@ -101,7 +101,7 @@ def drive(store, session, assignment, *, model="gpt-5.6-sol", effort="low", max_
             "write/append/delete require expected=the current file sha256, never guess it. "
             "create creates a missing file; mkdir creates a missing directory; rmdir requires expected='directory'. "
             "Paths are relative to the named resource. For a file resource use path=''. "
-            "rename uses destination='resource:relative/path' and expected=source hash; destination must be absent. "
+            "rename uses destination='resource:relative/path' and expected=source hash (or 'directory'); destination must be absent. "
             "install reads the dependency resource/path; content is 'pypi' or 'npm'. Its receipt returns a package_set. "
             "run uses resource=reviewed command ID and content JSON {'package_sets':[installed IDs]}; no arbitrary args. "
             "Use run exit_code and actual test output, not allowed alone, to judge success. "

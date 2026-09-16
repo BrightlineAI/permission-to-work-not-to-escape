@@ -12,6 +12,12 @@ from .package_evidence import EvidenceError
 from .supervisor import Supervisor
 
 LIMIT = 512 * 1024 * 1024
+
+
+class UnsafeExport(EvidenceError):
+    """Export attempts a path/type operation outside the publication boundary."""
+
+
 WRAPPER = """
 import os,shutil,subprocess,sys,tarfile
 shutil.copytree('/seed','/target',dirs_exist_ok=True)
@@ -42,22 +48,22 @@ def extract_result(archive_path, destination):
             if (not parts or parts[0] != "result" or "\\" in member.name or
                     any(p in ("", ".", "..") for p in member.name.rstrip("/").split("/")) or
                     member.name in seen or not (member.isfile() or member.isdir() or member.issym())):
-                raise EvidenceError("Unsafe build output member")
+                raise UnsafeExport("Unsafe build output member")
             seen.add(member.name)
             if len(parts) == 1:
                 if not member.isdir():
-                    raise EvidenceError("Invalid build output root")
+                    raise UnsafeExport("Invalid build output root")
                 continue
             if member.issym():
                 link = Path(member.linkname)
                 intended = destination.joinpath(*parts[1:]).parent / link
                 if link.is_absolute() or not intended.resolve().is_relative_to(destination.resolve()):
-                    raise EvidenceError("Build output link escapes its package set")
+                    raise UnsafeExport("Build output link escapes its package set")
                 links.append(member)
         # A symlink may not be an ancestor of another output, even if it is created last.
         names = {m.name.rstrip("/") for m in links}
         if any(any(str(p) in names for p in PurePosixPath(m.name).parents) for m in members):
-            raise EvidenceError("Build output writes through a link")
+            raise UnsafeExport("Build output writes through a link")
         for member in members:
             parts = PurePosixPath(member.name).parts[1:]
             if not parts or member.issym():
@@ -78,9 +84,9 @@ def extract_result(archive_path, destination):
             path = destination.joinpath(*PurePosixPath(member.name).parts[1:])
             try:
                 if not path.resolve(strict=True).is_relative_to(destination.resolve()):
-                    raise EvidenceError("Build output link escapes its package set")
+                    raise UnsafeExport("Build output link escapes its package set")
             except (OSError, RuntimeError) as exc:
-                raise EvidenceError("Broken or cyclic build output link") from exc
+                raise UnsafeExport("Broken or cyclic build output link") from exc
 
 
 def run_build(store, token, command, target):

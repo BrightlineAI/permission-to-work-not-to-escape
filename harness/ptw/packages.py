@@ -11,15 +11,15 @@ import tarfile
 
 from .package_evidence import EvidenceError, PyPIEvidence, evaluate, pins, severity
 from .package_install import file_manifest, install_wheels, validate_wheels
-from .policy import Invalid, canonical, digest
+from .policy import Invalid, OutsideScope, canonical, digest
 
 
 def mounted_set(store, db, actor, identity):
     if not re.fullmatch(r"pkg_[0-9a-f]{24}", identity):
-        raise Invalid("Invalid package set identity")
+        raise OutsideScope("Invalid package set identity")
     row = db.execute("SELECT * FROM package_sets WHERE id=? AND project=?", (identity, actor["project"])).fetchone()
     if row is None or not set(json.loads(row["names"])) <= set(json.loads(actor["packages"])):
-        raise Invalid("Package set outside session scope")
+        raise OutsideScope("Package set outside session scope")
     directory = store.directory / "package-sets" / identity
     if file_manifest(directory) != json.loads(row["manifest"]):
         raise Invalid("Package set integrity check failed")

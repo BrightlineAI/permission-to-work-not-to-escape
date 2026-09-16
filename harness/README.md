@@ -2,7 +2,9 @@
 
 A small working extension of the [paper](../paper/submission.pdf). Describe a project, review its proposed policy, and run agents through shared controls.
 
-The usable prototype handles existing text files and [controlled Python and npm package installation](ECOSYSTEMS.md), including native Python libraries and JavaScript/TypeScript. It supports multiple independent agents, narrower tasks and delegates, shared escalation, and review of existing Codex logs. Project differences are JSON configuration, not custom code.
+The usable prototype handles [repository editing and reviewed build/test commands](PRACTICAL.md) and [controlled Python and npm package installation](ECOSYSTEMS.md), including native Python libraries and JavaScript/TypeScript. It supports multiple independent agents, narrower tasks and delegates, shared escalation, automatic monitoring, and review of existing Codex logs. Project differences are JSON configuration, not custom code.
+
+For ordinary Python or TypeScript repositories, start with the [version 0.4 walkthrough](PRACTICAL.md). The exact-file workflow below remains supported for older policies.
 
 ## Install on a Linux VPS
 
@@ -109,7 +111,7 @@ Use distinct event IDs for distinct attempts. A transport retry must reuse the s
     ptw events --state "$PTW_PROJECT/controller" --project website
     ptw stop --state "$PTW_PROJECT/controller" --project website
 
-For long running local workloads, keep termination reconciliation active in another operator terminal:
+Version 4 activation starts automatic monitoring. For older file-only policies and long running local workloads, keep termination reconciliation active in another operator terminal:
 
     ptw watch --state "$PTW_PROJECT/controller"
 
@@ -130,7 +132,7 @@ Use new output directories on each run. The live walkthrough makes real Codex ca
 
 Runtime policy decisions need no extra LLM calls. Codex still uses normal model calls to do its work. Policy drafting takes one call when valid, up to three if structural repair is needed. Drafts and validation feedback are retained; there is no automatic runtime policy widening.
 
-This is a bounded file resource adapter, not a drop in interceptor for every tool in an arbitrary existing Codex session. Existing sessions can be audited; protected execution starts through ptw run. Native tools are disabled or denied access to controlled resources. Delegation is registered through the trusted adapter, not arbitrary unregistered model subprocesses.
+This is a controlled adapter, not a drop in interceptor for every tool in an arbitrary existing Codex session. Existing sessions can be audited; protected execution starts through ptw run. Native tools are disabled or denied access to controlled resources. Delegation is registered through the trusted adapter, not arbitrary unregistered model subprocesses.
 
 The host, operator, Codex runtime and supervisor are trusted. Keep policy state away from unconfined programs running as your operator. A typed policy may still misunderstand your intent. Approval is a content bound operator workflow, not a cryptographic signature or proof that prose was translated correctly.
 

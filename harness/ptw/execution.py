@@ -1,14 +1,14 @@
 """Run reviewed commands in disposable trees; return data, never host writes."""
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import shutil
 import tempfile
 
-from .package_build import run_build
+from .package_build import UnsafeExport, run_build
 from .package_evidence import EvidenceError
 from .packages import mounted_set
-from .policy import Invalid, parse_json
+from .policy import Invalid, OutsideScope, parse_json
 from .supervisor import runtime_namespace
 from .workspace import MAX_ENTRIES, MAX_FILE, MAX_TREE, materialize, scan
 
@@ -81,6 +81,8 @@ def execute(store, token, definition, before, settings):
                     *definition["argv"]]
         try:
             run_build(store, token, command, target)
+        except UnsafeExport as exc:
+            raise OutsideScope("Command attempted unsafe output: " + str(exc)) from exc
         except EvidenceError as exc:
             raise Invalid(str(exc)) from exc
         receipt = target / RECEIPT
@@ -95,5 +97,13 @@ def execute(store, token, definition, before, settings):
         # Scan all outputs, not only the approved roots: unknown outputs must fail.
         inv = {"root": str(target), "resources": {
             "r" + str(i): {"path": p.name} for i, p in enumerate(sorted(target.iterdir()))}}
-        after = scan(inv, inv["resources"])
+        try:
+            after = scan(inv, inv["resources"])
+        except OutsideScope as exc:
+            raise OutsideScope("Command output links/special files are not authorized") from exc
+        scaffold = {str(parent) for path in before for parent in PurePosixPath(path).parents
+                    if str(parent) != "." and str(parent) not in before}
+        # materialize creates structural parents for exact nested resources.
+        # They are not new agent outputs, but new siblings under them still are.
+        after = {p: e for p, e in after.items() if not (p in scaffold and e["kind"] == "dir")}
         return after, outcome

@@ -68,6 +68,10 @@ class Invalid(ValueError):
     pass
 
 
+class OutsideScope(Invalid):
+    """A confirmed attempted capability violation, not an infrastructure failure."""
+
+
 def canonical(value):
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True, allow_nan=False)
 
