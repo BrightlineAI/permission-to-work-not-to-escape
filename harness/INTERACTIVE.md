@@ -1,7 +1,7 @@
 # Start once, then work in Codex
 
-Install the [Linux prerequisites and pinned tools](README.md#install-on-a-linux-vps),
-run `ptw doctor`, and authenticate Codex with your own account. Then, in your
+Use the [recoverable Linux installer](INSTALL.md), which runs doctor automatically,
+and authenticate with `ptw-codex login` using your own account. Then, in your
 new or existing repository:
 
     ptw codex
@@ -100,9 +100,11 @@ classified as an attack. That code is still confined, and commands have time lim
 
 ## The 30-second target
 
-Thirty seconds is the target for **reopening an installed, approved project**.
-It is not a promise for a cold installation, login, downloads, model latency,
-human review, or completing the coding task. Measure all of these separately.
+Thirty seconds is the target from **first installer invocation through fresh
+project review and protected readiness** on the declared supported profile.
+That target is not yet certified. Record downloads, cache state, model latency,
+human review and external login separately, and measure the first useful action.
+Reopening an installed, approved project is a separate warm measurement.
 The [Algol acceptance record](validation/interactive-20260916/README.md) measured
 6.18–7.03 seconds to reopen the four approved project fixtures.
 

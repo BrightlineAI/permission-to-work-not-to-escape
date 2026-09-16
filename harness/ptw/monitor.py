@@ -30,11 +30,11 @@ def quoted(text):
     return '"' + str(text).replace("\\", "\\\\").replace('"', '\\"').replace("%", "%%").replace("$", "$$") + '"'
 
 
-def service_text(directory):
+def service_text(directory, *, legacy=False):
     return "\n".join([
         "[Unit]", "Description=Permission to Work controller monitor", "",
         "[Service]", "Type=simple",
-        "ExecStart=" + " ".join(quoted(x) for x in [sys.executable, "-m", "ptw.monitor", "--state", str(directory)]),
+        "ExecStart=" + " ".join(quoted(x) for x in [sys.executable, *([] if legacy else ["-B"]), "-m", "ptw.monitor", "--state", str(directory)]),
         "Restart=always", "RestartSec=1", "UMask=0077", "NoNewPrivileges=yes", "",
         "[Install]", "WantedBy=default.target", ""])
 
@@ -88,7 +88,10 @@ def remove(store):
     unit = unit_for(store.directory)
     base = Path(os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config"))) / "systemd" / "user"
     destination = base / unit
-    if destination.is_symlink() or (destination.exists() and destination.read_text() != service_text(store.directory)):
+    # Permit removal of our exact previous unit format after projects stop.
+    # ensure() still requires the new format before starting a monitor.
+    owned_texts = {service_text(store.directory), service_text(store.directory, legacy=True)}
+    if destination.is_symlink() or (destination.exists() and destination.read_text() not in owned_texts):
         raise Invalid("Refusing to remove an unexpected monitor unit")
     if destination.exists():
         call("disable", "--now", unit)

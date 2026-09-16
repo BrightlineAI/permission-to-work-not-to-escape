@@ -118,7 +118,9 @@ class Supervisor:
             config = {"inventory": bundle["inventory"], "grants": json.loads(actor["grants"]),
                       "bindings": bindings, "nono": self.nono or os.environ.get("PTW_NONO") or shutil.which("nono"),
                       "package_mount": str(package_mount) if package_mount else None, "package_ecosystem": package_ecosystem}
-            command = [sys.executable, "-m", "ptw.worker", json.dumps(config), *argv]
+            # The user manager does not inherit the installer's bytecode setting.
+            # Keep installed source/receipt immutable when this service imports it.
+            command = [sys.executable, "-B", "-m", "ptw.worker", json.dumps(config), *argv]
             db.execute("INSERT INTO workloads(unit,project,session) VALUES(?,?,?)", (unit, actor["project"], actor["id"]))
             result = run(manager("systemd-run") + ["--quiet", "--collect", "--unit=" + unit, *service_identity(),
                           "--property=KillMode=control-group", "--property=NoNewPrivileges=yes",

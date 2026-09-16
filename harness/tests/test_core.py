@@ -278,6 +278,8 @@ class Fixture(unittest.TestCase):
     def test_private_state_required(self):
         target = self.root / "public-state"
         target.mkdir(mode=0o755)
+        target.chmod(0o755)  # mkdir's mode is masked by the invoking user's umask.
+        self.assertEqual(target.stat().st_mode & 0o777, 0o755)
         with self.assertRaises(Invalid):
             Store(target)
 

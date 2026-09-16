@@ -42,7 +42,9 @@ Run fresh benchmark workloads on an isolated Linux VPS using the [reproduction i
 
 The [project safety harness](harness/README.md) adds reviewed policies, narrower tasks,
 shared controls across agents, and auditing of selected Codex logs.
-With the [interactive quickstart](harness/INTERACTIVE.md), install once and run
+Use the [recoverable Linux installer](harness/INSTALL.md) from a compact, verified
+application artifact. Local release building is available; an online release is
+not yet published. With the [interactive quickstart](harness/INTERACTIVE.md), run
 `ptw codex` in a new or existing repository. Review the policy, then work in
 the normal Codex terminal. Edits, packages, builds, tests and delegates use
 shared controls underneath. [Python and npm package checks](harness/ECOSYSTEMS.md)

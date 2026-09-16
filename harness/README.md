@@ -11,6 +11,12 @@ and exact-file workflow below remain supported.
 
 ## Install on a Linux VPS
 
+For a compact installation without cloning the benchmark repository, use the
+[recoverable release installer](INSTALL.md). Its built version-specific entry
+command installs private tools, runs doctor automatically, and provides retry,
+upgrade, rollback and conservative uninstall. The online release is unpublished.
+The source installation below remains the legacy compatibility path.
+
 Use an ordinary operator account, not root. The tested platform is x86_64 Linux with systemd, bubblewrap 0.12.0, Node 22 and Python 3.12. The installer downloads pinned, checksum verified nono and uv releases, an isolated Python environment, and Codex CLI 0.154.0. It does not modify global packages.
 
 On a fresh Debian or Ubuntu host, an administrator may first need:

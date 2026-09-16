@@ -133,7 +133,7 @@ def bridge(state, session_path):
                    ("PATH", "XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS",
                     "PTW_SYSTEMD_SCOPE", "PTW_NONO", "PTW_UV") if key in os.environ]
     process, unit = supervisor.engine(session["token"],
-        ["/usr/bin/env", *environment, sys.executable, "-m", "ptw.mcp_server",
+        ["/usr/bin/env", *environment, sys.executable, "-B", "-m", "ptw.mcp_server",
          "--state", str(state), "--session", str(session_path)],
         stderr=sys.stderr.buffer, service_seconds=28800)
 
