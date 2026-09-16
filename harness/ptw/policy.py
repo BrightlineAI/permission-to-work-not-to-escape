@@ -136,8 +136,12 @@ def data_directory(path):
         raise Invalid("Use a data directory outside system runtime trees")
 
 
-def inventory(value):
-    validate(INVENTORY_SCHEMA, value)
+def inventory(value, workspace=False):
+    schema = copy.deepcopy(INVENTORY_SCHEMA)
+    if workspace:
+        schema["properties"]["resources"]["additionalProperties"]["properties"]["kind"] = {
+            "type": "string", "enum": ["file", "tree"]}
+    validate(schema, value)
     root = Path(value["root"])
     data_directory(root)
     if not root.is_absolute() or root != root.resolve() or not root.is_dir():
@@ -153,8 +157,13 @@ def inventory(value):
             raise Invalid("Two resources cannot alias the same path")
         paths.add(path)
         # Pin only ordinary files. Do not create targets implicitly during approval.
-        fd = open_resource(value, path, os.O_RDONLY)
-        os.close(fd)
+        if workspace:
+            from .workspace_policy import resource_info
+            name = next(k for k, v in value["resources"].items() if v is resource)
+            resource_info(value, name)
+        else:
+            fd = open_resource(value, path, os.O_RDONLY)
+            os.close(fd)
     return value
 
 
@@ -183,10 +192,14 @@ def open_resource(inv, relative, flags):
 
 def compile_policy(proposal, inv):
     version = proposal.get("version") if isinstance(proposal, dict) else None
-    validate({1: POLICY_SCHEMA, 2: PACKAGE_SCHEMA, 3: ECOSYSTEM_SCHEMA}.get(version, POLICY_SCHEMA), proposal)
-    inventory(inv)
+    if version == 4:
+        from .workspace_policy import validate_workspace
+        validate_workspace(proposal, inv)
+    else:
+        validate({1: POLICY_SCHEMA, 2: PACKAGE_SCHEMA, 3: ECOSYSTEM_SCHEMA}.get(version, POLICY_SCHEMA), proposal)
+    inventory(inv, workspace=version == 4)
     project = proposal["project"]
-    if version == 3 and not set(project["packages"]["build_packages"]) <= set(project["packages"]["allowed_names"]):
+    if version in (3, 4) and not set(project["packages"]["build_packages"]) <= set(project["packages"]["allowed_names"]):
         raise Invalid("Build authority expands project package scope")
     parent = scope(project["grants"])
     if not set(parent) <= set(inv["resources"]):

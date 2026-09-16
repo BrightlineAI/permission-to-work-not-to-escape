@@ -53,11 +53,15 @@ class Store:
                 CREATE TABLE IF NOT EXISTS package_sets(
                   id TEXT PRIMARY KEY, project TEXT NOT NULL, names TEXT NOT NULL,
                   manifest TEXT NOT NULL, created REAL NOT NULL);
+                CREATE TABLE IF NOT EXISTS monitor_health(
+                  id INTEGER PRIMARY KEY, at REAL NOT NULL, error TEXT NOT NULL);
             """)
             if "packages" not in {r[1] for r in db.execute("PRAGMA table_info(sessions)")}:
                 db.execute("ALTER TABLE sessions ADD COLUMN packages TEXT NOT NULL DEFAULT '[]'")
             if "ecosystem" not in {r[1] for r in db.execute("PRAGMA table_info(package_sets)")}:
                 db.execute("ALTER TABLE package_sets ADD COLUMN ecosystem TEXT NOT NULL DEFAULT 'pypi'")
+            if "commands" not in {r[1] for r in db.execute("PRAGMA table_info(sessions)")}:
+                db.execute("ALTER TABLE sessions ADD COLUMN commands TEXT NOT NULL DEFAULT '[]'")
             # Lock spans intent commit, effect and completion. A pending row visible after
             # acquiring it means the previous operator died before recording completion.
             rows = db.execute("SELECT DISTINCT s.project FROM events e JOIN sessions s ON s.id=e.session WHERE e.state=?", ("pending",)).fetchall()
@@ -96,12 +100,21 @@ class Store:
             for task in checked["policy"]["tasks"]:
                 db.execute("INSERT INTO task_counts(project,task) VALUES(?,?)", (project, task["id"]))
             for name, resource in inv["resources"].items():
+                if checked["policy"]["version"] == 4:
+                    from .workspace_policy import resource_info
+                    info = resource_info(inv, name)
+                    db.execute("INSERT INTO bindings VALUES(?,?,?,?)",
+                               (project, name, info.st_dev if info else 0, info.st_ino if info else 0))
+                    continue
                 fd = open_resource(inv, resource["path"], os.O_RDONLY)
                 try:
                     info = os.fstat(fd)
                     db.execute("INSERT INTO bindings VALUES(?,?,?,?)", (project, name, info.st_dev, info.st_ino))
                 finally:
                     os.close(fd)
+            if checked["policy"]["version"] == 4:
+                info = root.stat()
+                db.execute("INSERT INTO bindings VALUES(?,?,?,?)", (project, "", info.st_dev, info.st_ino))
             db.commit()
         return {"project": project, "policy_sha256": bundle["approval"]["sha256"]}
 
@@ -121,7 +134,7 @@ class Store:
             raise Invalid("Unknown project")
         return row, json.loads(row["bundle"])
 
-    def register(self, project, task, *, parent_token=None, grants=None, packages=None):
+    def register(self, project, task, *, parent_token=None, grants=None, packages=None, commands=None):
         """Trusted operator registers parents; authenticated delegation may only narrow."""
         with self.locked() as db:
             row, bundle = self.project(db, project)
@@ -138,6 +151,13 @@ class Store:
             requested = scope(grants) if grants is not None else allowed
             if not subset(requested, allowed):
                 raise Invalid("Session expands task scope")
+            command_names = target.get("commands", []) if commands is None else commands
+            if (not isinstance(command_names, list) or not all(isinstance(x, str) for x in command_names)
+                    or not set(command_names) <= set(target.get("commands", []))):
+                raise Invalid("Session expands task command scope")
+            definitions = {c["id"]: c for c in bundle["policy"]["project"].get("commands", [])}
+            if any("read" not in requested.get(r, set()) for c in command_names for r in definitions[c]["resources"]):
+                raise Invalid("Session command requires readable inputs")
             parent_id, depth = None, 0
             if parent_token:
                 parent = self.session(db, parent_token)
@@ -145,17 +165,21 @@ class Store:
                     raise Invalid("Delegate expands parent scope or changes project")
                 if not set(package_names) <= set(json.loads(parent["packages"])):
                     raise Invalid("Delegate expands parent package scope")
+                if not set(command_names) <= set(json.loads(parent["commands"])):
+                    raise Invalid("Delegate expands parent command scope")
                 parent_id, depth = parent["id"], parent["depth"] + 1
                 if depth > 16:
                     raise Invalid("Maximum delegation depth reached")
             sid = "agent_" + secrets.token_hex(8)
             token = secrets.token_urlsafe(32)
             serialized = [{"resource": r, "actions": sorted(a)} for r, a in sorted(requested.items())]
-            db.execute("INSERT INTO sessions(id,token_hash,project,task,parent,grants,depth,packages) VALUES(?,?,?,?,?,?,?,?)",
+            db.execute("INSERT INTO sessions(id,token_hash,project,task,parent,grants,depth,packages,commands) VALUES(?,?,?,?,?,?,?,?,?)",
                        (sid, hashlib.sha256(token.encode()).hexdigest(), project, task,
-                        parent_id, canonical(serialized), depth, canonical(sorted(set(package_names)))))
+                        parent_id, canonical(serialized), depth, canonical(sorted(set(package_names))),
+                        canonical(sorted(set(command_names)))))
             return {"session": sid, "project": project, "task": task, "parent": parent_id,
-                    "token": token, "grants": serialized, "packages": sorted(set(package_names))}
+                    "token": token, "grants": serialized, "packages": sorted(set(package_names)),
+                    "commands": sorted(set(command_names))}
 
     @staticmethod
     def reason(request, allowed):
@@ -297,6 +321,10 @@ class Store:
         with self.locked() as db:
             self.project(db, project)
             db.execute("UPDATE projects SET stopped=1,reason=? WHERE id=?", (reason, project))
+
+    @staticmethod
+    def stop_from_db(db, project, reason):
+        db.execute("UPDATE projects SET stopped=1,reason=? WHERE id=?", (reason, project))
 
     def status(self, project):
         with self.locked() as db:

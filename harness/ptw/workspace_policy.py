@@ -1,0 +1,98 @@
+"""Version 4: reviewed directory capabilities and named, confined commands."""
+import copy
+import os
+from pathlib import Path, PurePosixPath
+import stat
+
+from .policy import ECOSYSTEM_SCHEMA, ID, Invalid, obj, scope, validate
+
+FILE_ACTIONS = ["read", "write", "append", "create", "delete"]
+WORKSPACE_SCHEMA = copy.deepcopy(ECOSYSTEM_SCHEMA)
+WORKSPACE_SCHEMA["properties"]["version"]["const"] = 4
+COMMAND = obj({
+    "id": ID,
+    "argv": {"type": "array", "minItems": 1, "maxItems": 64,
+             "items": {"type": "string", "minLength": 1, "maxLength": 4096}},
+    "resources": {"type": "array", "minItems": 1, "maxItems": 128, "uniqueItems": True, "items": ID},
+    "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 120},
+})
+for node in [WORKSPACE_SCHEMA["properties"]["project"], WORKSPACE_SCHEMA["properties"]["tasks"]["items"]]:
+    node["properties"]["grants"]["items"]["properties"]["actions"]["items"]["enum"] = FILE_ACTIONS
+    node["required"].append("commands")
+WORKSPACE_SCHEMA["properties"]["project"]["properties"]["commands"] = {
+    "type": "array", "maxItems": 64, "items": COMMAND}
+WORKSPACE_SCHEMA["properties"]["tasks"]["items"]["properties"]["commands"] = {
+    "type": "array", "maxItems": 64, "uniqueItems": True, "items": ID}
+
+
+def relative(value, *, empty=False):
+    if empty and value == "":
+        return ""
+    if (not isinstance(value, str) or not value or len(value) > 1024 or
+            PurePosixPath(value).is_absolute() or "\\" in value or
+            any(ord(c) < 32 for c in value) or
+            any(p in ("", ".", "..") for p in value.split("/"))):
+        raise Invalid("Use a normalized relative path without traversal")
+    return value
+
+
+def directory_fd(path):
+    """Open a canonical directory without following any link."""
+    fd = os.open("/", os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        for part in Path(path).parts[1:]:
+            nxt = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+            os.close(fd)
+            fd = nxt
+        return fd
+    except BaseException:
+        os.close(fd)
+        raise
+
+
+def resource_info(inv, resource):
+    item = inv["resources"][resource]
+    path = Path(inv["root"]) / item["path"]
+    if item.get("kind", "file") == "tree":
+        fd = directory_fd(path)
+        try:
+            return os.fstat(fd)
+        finally:
+            os.close(fd)
+    from .policy import open_resource
+    try:
+        fd = open_resource(inv, item["path"], os.O_RDONLY)
+    except FileNotFoundError:
+        fd = directory_fd(path.parent)
+        os.close(fd)
+        return None
+    try:
+        return os.fstat(fd)
+    finally:
+        os.close(fd)
+
+
+def validate_workspace(policy, inv):
+    validate(WORKSPACE_SCHEMA, policy)
+    paths = [r["path"] for r in inv["resources"].values()]
+    for i, path in enumerate(paths):
+        for other in paths[i + 1:]:
+            if path == other or path.startswith(other + "/") or other.startswith(path + "/"):
+                raise Invalid("Workspace resources must not overlap")
+    grants = scope(policy["project"]["grants"])
+    commands = {}
+    for command in policy["project"]["commands"]:
+        if command["id"] in commands:
+            raise Invalid("Duplicate command ID")
+        if any("\x00" in a for a in command["argv"]):
+            raise Invalid("NUL in command")
+        if any("read" not in grants.get(r, set()) for r in command["resources"]):
+            raise Invalid("Commands require project read permission for their resources")
+        commands[command["id"]] = command
+    for task in policy["tasks"]:
+        if not set(task["commands"]) <= commands.keys():
+            raise Invalid("Task commands expand project scope")
+        task_grants = scope(task["grants"])
+        if any("read" not in task_grants.get(r, set())
+               for name in task["commands"] for r in commands[name]["resources"]):
+            raise Invalid("Task command requires read permission for every input resource")
