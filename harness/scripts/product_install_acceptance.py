@@ -2,13 +2,15 @@
 """Manager-run real local-artifact install/doctor/lifecycle evidence. No model calls."""
 import argparse
 import contextlib
+import errno
 import http.server
 import json
 import os
 from pathlib import Path
 import pty
 import select
-import shlex
+import shutil
+import signal
 import subprocess
 import sys
 import threading
@@ -16,6 +18,59 @@ import time
 
 from build_product_release import REPO, build, source_files
 from product_install import require, safe_path, sha, verify
+
+
+def terminal_output(argv, env, cwd, timeout=30, expected=0):
+    """Bounded real PTY; never leave a fixture shell or its children on failure."""
+    master, slave = pty.openpty()
+    process = None
+    transcript = bytearray()
+    try:
+        process = subprocess.Popen(argv, env=env, cwd=cwd, stdin=slave, stdout=slave,
+                                   stderr=slave, start_new_session=True)
+        os.close(slave)
+        slave = None
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if select.select([master], [], [], min(.1, max(0, deadline - time.monotonic())))[0]:
+                try:
+                    data = os.read(master, 65536)
+                except OSError as exc:
+                    if exc.errno == errno.EIO:  # Linux PTY slave closed.
+                        break
+                    raise
+                if not data:
+                    break
+                transcript.extend(data)
+                require(len(transcript) <= 1024 * 1024, "Terminal output limit exceeded")
+            elif process.poll() is not None:
+                break
+        remaining = max(.001, deadline - time.monotonic())
+        require(process.wait(timeout=remaining) == expected, "Fresh terminal command failed")
+        return bytes(transcript)
+    finally:
+        if process is not None:
+            with contextlib.suppress(ProcessLookupError):
+                os.killpg(process.pid, signal.SIGKILL)
+            process.wait(timeout=5)
+        os.close(master)
+        if slave is not None:
+            os.close(slave)
+
+
+def terminal_environment(home, environment):
+    """Only fixture startup files, no inherited source or shell configuration."""
+    env = {k: v for k, v in environment.items() if k in ("PATH", "LANG") or k.startswith("LC_")}
+    env.update(HOME=str(home), XDG_CONFIG_HOME=str(home / ".config"),
+               XDG_DATA_HOME=str(home / ".local/share"), XDG_CACHE_HOME=str(home / ".cache"),
+               HISTFILE="/dev/null", TERM="dumb")
+    return env
+
+
+def integration_line(guidance, prefix):
+    lines = [line.strip() for line in guidance.splitlines() if line.startswith("  " + prefix)]
+    require(len(lines) == 1, "Missing or ambiguous printed shell integration")
+    return lines[0] + "\n"
 
 
 def source_identity_command(installed):
@@ -32,7 +87,7 @@ def acceptance(out):
     result = {"passed": False, "model_calls": 0, "new_oauth_login_tested": False,
               "authentication_files_copied": False, "phases": records,
               "cache_profile": "new private install caches, host OS prerequisites preinstalled",
-              "terminal_profile": "fresh interactive bash with documented explicit shell integration for custom bin directory"}
+              "terminal_profile": "normal startup discovery in isolated fixture homes; printed integration for custom bin directory"}
     env = {k: v for k, v in os.environ.items() if k not in ("PYTHONPATH", "PYTHONHOME")}
     env["PYTHONDONTWRITEBYTECODE"] = "1"
     root, commands = out / "installation", out / "commands"
@@ -107,7 +162,7 @@ def acceptance(out):
             call(label, [*base, "--artifact", url + path, "--test-loopback-http"], expected=2, contains=message)
         call("incorrect-hash", [*base, "--artifact", artifact, "--sha256", "0" * 64], expected=2, contains="SHA-256 mismatch")
         before_install = time.monotonic()
-        call("cold-install-http-and-automatic-doctor", [*base, "--artifact", url + "/ok", "--test-loopback-http"])
+        guidance = call("cold-install-http-and-automatic-doctor", [*base, "--artifact", url + "/ok", "--test-loopback-http"])
         result["installer_through_doctor_seconds"] = round(time.monotonic() - before_install, 3)
         state = json.loads((root / "state.json").read_text())
         first = state["active"]
@@ -124,37 +179,44 @@ def acceptance(out):
         result["doctor"] = doctor
         verify(installed, state["releases"][first]["receipt"])
 
-        # A custom bin directory is intentionally outside normal OS discovery.
-        # Exercise exactly the documented fallback in a fresh real interactive PTY.
-        startup = out / "bashrc"
-        startup.write_text("export PATH=" + shlex.quote(str(commands)) + ':"$PATH"\n')
-        master, slave = pty.openpty()
-        transcript = bytearray()
-        terminal_record = {"phase": "fresh-terminal", "passed": False}
-        records.append(terminal_record)
-        try:
-            terminal = subprocess.Popen(["bash", "--noprofile", "--rcfile", str(startup), "-ic",
-                                         "ptw --version && ptw-install status"], env=env, cwd=out,
-                                        stdin=slave, stdout=slave, stderr=slave)
-            os.close(slave)
-            slave = None
-            deadline = time.monotonic() + 30
-            while time.monotonic() < deadline:
-                if select.select([master], [], [], .1)[0]:
-                    try:
-                        transcript.extend(os.read(master, 65536))
-                    except OSError:
-                        break
-                if terminal.poll() is not None:
-                    break
-            require(terminal.wait(timeout=5) == 0 and release["manifest"]["version"].encode() in transcript and
-                    first.encode() in transcript, "Fresh terminal commands failed")
-            terminal_record.update(passed=True, transcript_sha256=sha(transcript))
-        finally:
-            os.close(master)
-            if slave is not None:
-                os.close(slave)
-            save()
+        # Read the actual bootstrap output, then use normal startup-file discovery.
+        # Missing validation shells fail explicitly; they are not install dependencies.
+        for shell, flags, profile in (("bash", "-lic", ".bash_profile"), ("bash", "-ic", ".bashrc"),
+                                      ("zsh", "-lic", ".zprofile"), ("zsh", "-ic", ".zshrc"),
+                                      ("fish", "-ic", "fish_variables")):
+            terminal_record = {"phase": "fresh-terminal-" + shell + "-" + profile,
+                               "shell": shell, "flags": flags, "startup_file": profile, "passed": False}
+            records.append(terminal_record)
+            try:
+                executable = shutil.which(shell, path=env.get("PATH"))
+                require(executable, "Validation prerequisite missing: " + shell)
+                home = out / ("terminal-" + shell + "-" + profile)
+                home.mkdir()
+                terminal_env = terminal_environment(home, env)
+                require(str(commands) not in terminal_env.get("PATH", "").split(":"), "Terminal inherited command PATH")
+                startup_dir = home
+                if shell == "zsh":
+                    startup_dir = home / "custom-zdotdir"
+                    startup_dir.mkdir()
+                    terminal_env["ZDOTDIR"] = str(startup_dir)
+                if shell == "fish":
+                    terminal_output([executable, "-ic", integration_line(guidance, "fish_add_path ")], terminal_env, out)
+                    startup = home / ".config/fish/fish_variables"
+                else:
+                    startup = startup_dir / profile
+                    startup.write_text(integration_line(guidance, "export PATH="))
+                terminal_record["startup_path"] = str(startup)
+                terminal_record["startup_sha256"] = sha(startup.read_bytes())
+                # command -v works in all three shells and identifies both launchers.
+                transcript = terminal_output([executable, flags,
+                    "command -v ptw; command -v ptw-install; ptw --version && ptw-install status"], terminal_env, out)
+                require(all(value.encode() in transcript for value in (
+                    str(commands / "ptw"), str(commands / "ptw-install"), release["manifest"]["version"], first)),
+                    "Fresh terminal resolved unexpected commands")
+                verify(installed, state["releases"][first]["receipt"])
+                terminal_record.update(passed=True, transcript_sha256=sha(transcript))
+            finally:
+                save()
 
         call("same-version-retry", [*base, "--artifact", artifact])
         require(json.loads((root / "state.json").read_text())["active"] == first, "Retry changed installation identity")

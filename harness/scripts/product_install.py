@@ -636,6 +636,27 @@ def uninstall(root, state):
     return {"uninstalled": True, "retained": sorted(set(retained)), "receipt_retained": str(root / "state.json")}
 
 
+def shell_guidance(bin_dir):
+    path = str(bin_dir)
+    # Fish interprets escaped quotes/backslashes even inside single quotes.
+    fish_path = "'" + path.replace("\\", "\\\\").replace("'", "\\'") + "'"
+    return (
+        "Open a fresh login terminal. If ptw is still absent, use your shell's instructions:\n"
+        "sh: add the export line below to ~/.profile for login shells.\n"
+        "Bash: add it to the first readable login file: ~/.bash_profile, ~/.bash_login,\n"
+        "  then ~/.profile (create ~/.profile if none exists). For interactive non-login\n"
+        "  terminals, also add it to ~/.bashrc unless that file already sets this PATH.\n"
+        "zsh: add it to $ZDOTDIR/.zprofile for login shells and $ZDOTDIR/.zshrc for\n"
+        "  interactive terminals; use HOME when ZDOTDIR is unset. zsh does not read ~/.profile.\n"
+        "  export PATH=" + shlex.quote(path) + ':"$PATH"\n'
+        "fish: run this once interactively to persist it for future terminals:\n"
+        "  fish_add_path " + fish_path + "\n"
+        "  If your fish config defines a global fish_user_paths, put this command in\n"
+        "  that config after the definition instead.\n"
+        "No shell startup files were edited; absolute commands work immediately."
+    )
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Verified private Linux install; no sudo, login or project changes")
     parser.add_argument("action", nargs="?", choices=("install", "rollback", "uninstall", "status"), default="install")
@@ -682,10 +703,7 @@ def main(argv=None):
             print("Ready. Run " + shlex.quote(str(command)) + " doctor. For model tasks: " +
                   shlex.quote(str(command.with_name("ptw-codex"))) + " login (your own account).")
             if str(command.parent) not in os.environ.get("PATH", "").split(os.pathsep):
-                print("Open a fresh login terminal. If ptw is still absent, add this to ~/.profile (sh/bash/zsh login):\n" +
-                      "  export PATH=" + shlex.quote(str(command.parent)) + ':"$PATH"\n' +
-                      "For fish: fish_add_path " + shlex.quote(str(command.parent)) +
-                      "\nNo shell startup files were edited; absolute commands work immediately.")
+                print(shell_guidance(command.parent))
         return 0
     except (InstallError, OSError, ValueError, KeyError, TypeError, tarfile.TarError, zipfile.BadZipFile) as exc:
         print("PTW install: " + str(exc), file=sys.stderr)

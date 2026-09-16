@@ -7,8 +7,6 @@ import io
 import json
 import os
 from pathlib import Path
-import pty
-import select
 import shlex
 import signal
 import shutil
@@ -28,7 +26,8 @@ SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 import product_install as product
 import build_product_release as builder
-from product_install_acceptance import source_identity_command
+from product_install_acceptance import (integration_line, source_identity_command,
+                                        terminal_environment, terminal_output)
 
 
 def npm_fixture():
@@ -381,16 +380,134 @@ class InstallerTests(unittest.TestCase):
 
     def test_main_records_failed_attempt_and_prints_shell_fallback(self):
         path, digest = self.artifact()
+        home = self.base / "fixture-home"
+        home.mkdir()
+        for name in (".profile", ".bash_profile", ".bashrc", ".zprofile", ".zshrc", ".config/fish/config.fish"):
+            target = home / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text("# operator configuration\n")
+        before = product.snapshot(home)
         output = io.StringIO()
-        with contextlib.redirect_stdout(output), patch.dict(os.environ, {"PATH": "/usr/bin:/bin"}):
+        with contextlib.redirect_stdout(output), patch.dict(os.environ, {"PATH": "/usr/bin:/bin", "HOME": str(home)}):
             code = product.main(["--artifact", path, "--sha256", digest, "--root", str(self.root), "--bin-dir", str(self.bin)])
         self.assertEqual(code, 0)
-        self.assertIn("fish_add_path", output.getvalue())
+        self.assertIn(product.shell_guidance(self.bin), output.getvalue())
         self.assertIn("No shell startup files were edited", output.getvalue())
+        self.assertEqual(product.snapshot(home), before)
         with contextlib.redirect_stderr(io.StringIO()):
             code = product.main(["--artifact", path, "--sha256", "0" * 64, "--root", str(self.root)])
         self.assertEqual(code, 2)
         self.assertEqual(self.state()["attempts"][-1]["status"], "failed")
+
+    def terminal_fixture(self):
+        self.bin = self.base / "commands ' quote \\\\ $literal $(touch injected) `touch injected` ; [x]"
+        self.install()
+        home = self.base / "terminal-home"
+        home.mkdir()
+        env = terminal_environment(home, {**os.environ, "PATH": "/usr/bin:/bin", "SHELL": "/wrong/shell"})
+        return home, env, product.shell_guidance(self.bin)
+
+    def check_terminal(self, shell, flags, env):
+        executable = shutil.which(shell)
+        self.assertIsNotNone(executable, "Validation prerequisite missing: " + shell)
+        transcript = terminal_output([executable, flags,
+            "command -v ptw; command -v ptw-install; ptw --version && ptw-install status"], env, self.base)
+        for expected in (str(self.bin / "ptw"), str(self.bin / "ptw-install"), "0.5.0", self.state()["active"]):
+            self.assertIn(expected.encode(), transcript)
+        self.assertFalse((self.base / "injected").exists())
+        selected = self.state()["releases"][self.state()["active"]]
+        product.verify(self.root / "releases" / self.state()["active"], selected["receipt"])
+
+    def test_printed_bash_login_profile_precedence_and_interactive_startup(self):
+        home, env, guidance = self.terminal_fixture()
+        line = integration_line(guidance, "export PATH=")
+        # Each newly created higher-priority file must be the ONLY login file read.
+        profiles = (".profile", ".bash_login", ".bash_profile")
+        for index, name in enumerate(profiles):
+            with self.subTest(profile=name):
+                for lower in profiles[:index]:
+                    (home / lower).write_text("exit 91\n")
+                (home / name).write_text(line)
+                self.check_terminal("bash", "-lic", env)
+        (home / ".bashrc").write_text(line)
+        self.check_terminal("bash", "-ic", env)
+        # The integration preserves every inherited PATH entry, including spaces.
+        env["PATH"] = "/unrelated tools/bin:/usr/bin:/bin"
+        output = terminal_output(["bash", "-ic", 'printf "%s\\n" "$PATH"'], env, self.base)
+        self.assertIn((str(self.bin) + ":" + env["PATH"]).encode(), output)
+
+    def test_printed_sh_login_integration(self):
+        home, env, guidance = self.terminal_fixture()
+        (home / ".profile").write_text(integration_line(guidance, "export PATH="))
+        self.check_terminal("sh", "-lic", env)
+
+    def test_printed_zsh_login_interactive_and_zdotdir(self):
+        self.assertIsNotNone(shutil.which("zsh"), "Validation prerequisite missing: zsh")
+        home, env, guidance = self.terminal_fixture()
+        line = integration_line(guidance, "export PATH=")
+        (home / ".profile").write_text("exit 91\n")
+        for custom in (False, True):
+            with self.subTest(custom_zdotdir=custom):
+                directory = home
+                if custom:
+                    directory = home / "custom dotfiles"
+                    directory.mkdir()
+                    env["ZDOTDIR"] = str(directory)
+                    for name in (".zprofile", ".zshrc"):
+                        (home / name).write_text("exit 92\n")
+                (directory / ".zprofile").write_text(line)
+                self.check_terminal("zsh", "-lic", env)
+                (directory / ".zshrc").write_text(line)
+                self.check_terminal("zsh", "-ic", env)
+        env["PATH"] = "/unrelated tools/bin:/usr/bin:/bin"
+        output = terminal_output(["zsh", "-ic", 'printf "%s\\n" "$PATH"'], env, self.base)
+        self.assertIn((str(self.bin) + ":" + env["PATH"]).encode(), output)
+
+    def test_printed_fish_persists_once_without_changing_other_paths(self):
+        home, env, guidance = self.terminal_fixture()
+        executable = shutil.which("fish")
+        self.assertIsNotNone(executable, "Validation prerequisite missing: fish")
+        line = integration_line(guidance, "fish_add_path ")
+        env["PATH"] = "/unrelated tools/bin:/usr/bin:/bin"
+        terminal_output([executable, "-ic", line], env, self.base)
+        self.check_terminal("fish", "-ic", env)
+        # Retry must not duplicate the persistent path or lose unrelated entries.
+        # fish_add_path returns 1 when nothing needs adding (fish 4.0.2 source).
+        terminal_output([executable, "-ic", line], env, self.base, expected=1)
+        output = terminal_output([executable, "-ic", 'printf "%s\\n" $PATH'], env, self.base)
+        paths = output.decode().splitlines()
+        self.assertEqual(paths.count(str(self.bin)), 1)
+        self.assertTrue(all(p in paths for p in env["PATH"].split(":")))
+        # Also exercise the printed config-file alternative for a global setting.
+        (home / ".config/fish/config.fish").write_text("set -g fish_user_paths /unrelated/global\n" + line)
+        self.check_terminal("fish", "-ic", env)
+        output = terminal_output([executable, "-ic", 'printf "%s\\n" $PATH'], env, self.base)
+        self.assertIn(b"/unrelated/global", output)
+
+    def test_normal_user_bin_discovery_with_distribution_profile(self):
+        # The declared Debian/Ubuntu profile discovers ~/.local/bin by itself.
+        # Copy the OS template unchanged; do not add an export to make this pass.
+        profile = Path("/etc/skel/.profile")
+        self.assertTrue(profile.is_file(), "Validation requires the distribution's default login profile")
+        home = self.base / "normal-home"
+        home.mkdir()
+        (home / ".profile").write_bytes(profile.read_bytes())
+        self.bin = home / ".local/bin"
+        self.install()
+        env = terminal_environment(home, {**os.environ, "PATH": "/usr/bin:/bin"})
+        self.check_terminal("bash", "-lic", env)
+        self.assertEqual((home / ".profile").read_bytes(), profile.read_bytes())
+
+    def test_terminal_timeout_and_failure_are_not_passes(self):
+        home = self.base / "timeout-home"
+        home.mkdir()
+        env = terminal_environment(home, os.environ)
+        with self.assertRaisesRegex(product.InstallError, "command failed"):
+            terminal_output(["bash", "-ic", "exit 19"], env, self.base)
+        with self.assertRaises(subprocess.TimeoutExpired):
+            terminal_output(["bash", "-ic", "echo $$ > shell.pid; exec sleep 30"], env, self.base, timeout=.5)
+        pid = int((self.base / "shell.pid").read_text())
+        self.assertFalse(Path("/proc", str(pid)).exists(), "Timed-out fixture process survived")
 
     def test_invalid_receipt_and_traversal_refused(self):
         self.install()
@@ -405,29 +522,10 @@ class InstallerTests(unittest.TestCase):
         self.root = self.base / "owned space $literal ' quote"
         self.install()
         env = {**os.environ, "PATH": str(self.bin) + ":/usr/bin:/bin", "PYTHONPATH": "/unrelated/source"}
-        master, slave = pty.openpty()
-        try:
-            proc = subprocess.Popen(["bash", "--noprofile", "--norc", "-ic", "ptw --version; ptw-install status"],
-                                    env=env, cwd=self.base, stdin=slave, stdout=slave, stderr=slave)
-            os.close(slave)
-            slave = None
-            captured = bytearray()
-            deadline = time.monotonic() + 15
-            while time.monotonic() < deadline:
-                if select.select([master], [], [], .1)[0]:
-                    try:
-                        captured.extend(os.read(master, 65536))
-                    except OSError:
-                        break
-                if proc.poll() is not None:
-                    break
-            self.assertEqual(proc.wait(timeout=5), 0)
-            self.assertIn(b"0.5.0", captured)
-            self.assertIn(b'"active"', captured)
-        finally:
-            os.close(master)
-            if slave is not None:
-                os.close(slave)
+        captured = terminal_output(["bash", "--noprofile", "--norc", "-ic", "ptw --version && ptw-install status"],
+                                   env, self.base)
+        self.assertIn(b"0.5.0", captured)
+        self.assertIn(b'"active"', captured)
 
     def test_bootstrap_help_and_missing_integrity_in_terminal(self):
         entry = self.base / "install.sh"

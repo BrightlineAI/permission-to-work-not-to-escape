@@ -61,8 +61,28 @@ An unrelated command with one of those names causes a safe collision error.
 Open a fresh login terminal and run `ptw doctor`. On systems that do not discover
 the user bin directory, the installer prints the exact shell integration line
 and absolute command paths. It never edits startup files or removes PATH entries.
-For sh/bash add the printed line to `~/.profile`; for zsh use `~/.zprofile` if it
-does not read `~/.profile`; for fish use the printed `fish_add_path` command.
+Use the instructions for the shell your terminal actually launches; `SHELL` alone
+does not establish that. Keep existing startup configuration and PATH entries:
+
+- sh login shells: add the printed export line to `~/.profile`.
+- Bash login shells: add it to the first readable file in this order:
+  `~/.bash_profile`, `~/.bash_login`, `~/.profile`. Create `~/.profile` if none
+  exists. Interactive non-login terminals read `~/.bashrc`; add the line there
+  too unless that file already configures this PATH. A login profile may source
+  `~/.bashrc`, but Bash does not do that automatically.
+- zsh login shells: use `$ZDOTDIR/.zprofile`. Interactive terminals read
+  `$ZDOTDIR/.zshrc`. Use HOME in place of ZDOTDIR when ZDOTDIR is unset, including
+  when choosing the files to edit. zsh does not read `~/.profile`.
+- fish: run the printed `fish_add_path` command once interactively. It persists
+  through fish's universal variables. If your config defines a global
+  `fish_user_paths`, put the command in that config after the definition instead.
+  A repeated command can return status 1 when the path is already present;
+  verify with `ptw --version` in a fresh terminal.
+
+Then open the corresponding fresh terminal and run `ptw --version` and
+`ptw-install status`. The printed absolute commands work immediately even before
+shell integration. The installer does not edit these startup files on retry,
+upgrade or uninstall either; remove any integration you added yourself if desired.
 Use `--root /absolute/private/install --bin-dir /absolute/commands` for isolated
 test installations. Do not place project files inside installation storage.
 
@@ -151,6 +171,17 @@ It makes no model calls. It fails if native checks fail; unit-test doctor double
 are not installed-user evidence. Every output directory is new and outside the
 checkout. Do not publish private diagnostic output without review.
 
+Shell validation additionally requires Bash, zsh and fish on the validation host;
+ordinary installation only needs the user's chosen shell. Missing validation
+shells fail explicitly. The PTYs use isolated fixture homes with normal startup
+discovery, not alternate rcfile options. They execute the integration printed by
+the built bootstrap and check command resolution and unchanged installed receipts.
+Unit coverage also exercises Bash login-profile precedence, zsh with unset and
+custom ZDOTDIR, fish persistence/retry, quoted paths, PATH preservation and the
+Debian/Ubuntu default `/etc/skel/.profile` user-bin discovery behavior. The latter
+test requires that distribution template; other OS profiles need the documented
+integration fallback. No operator dotfiles are read or edited by these fixtures.
+
 ## Timing and evidence limits
 
 The initial sandbox revision on 2026-09-16 passed 39 of 41 focused tests using the
@@ -184,9 +215,25 @@ new regression tests; both HTTP tests again failed at socket creation with
 the same socket, user-bus and service-directory restrictions, without skips.
 Fresh release acceptance stopped during build at the uv download with unavailable
 DNS. Guard, documentation, evidence consistency and manifest checks passed.
-Fresh native acceptance against these fixes still requires the manager's
-unrestricted environment. No online release or complete first-project timing
-target is established by the earlier run.
+The later manager run `installer-1789595900511237381` passed all 15 native phases
+against the launcher-interpreter and escaped-monitor-path fixes, with all 44
+installer tests and 286 regression tests passing without skips. Installation
+through doctor measured 10.012 seconds under the recorded prerequisite/cache
+profile. Its terminal phase used an explicit Bash rcfile, so it did not establish
+correct login-profile guidance. This historical run predates the shell guidance
+and normal-startup PTY changes described above; fresh final-source manager
+acceptance is still required. No online release or complete first-project timing
+target is established by these runs.
+
+The shell-guidance revision passed 29 focused lifecycle/terminal tests locally,
+including real Bash, sh, zsh 5.9 and fish 4.0.2 fixture PTYs. Fish's no-change
+status is asserted explicitly along with persistence and duplicate prevention.
+These use small executable installation fixtures, not native doctor evidence.
+The initial system-Python attempt lacked MCP and validation shells; a subsequent
+manager-Python run exposed and corrected the fish retry-status test assumption.
+All attempts were retained outside the checkout. Native HTTP, systemd and release
+download validation still needs the manager environment: the sandbox denies
+socket creation and user-bus/service access, and outbound DNS is unavailable.
 
 Measure from the first installer invocation through automatic doctor, including
 downloads, failed attempts and retries. Declare OS prerequisites, network, Python,
@@ -205,6 +252,10 @@ evidence for the new path.
 
 ## Design sources
 
+- [Bash startup files](https://www.gnu.org/software/bash/manual/html_node/Bash-Startup-Files): first-readable login-profile precedence and separate interactive startup.
+- [zsh startup files](https://zsh.sourceforge.io/Doc/Release/Files.html): ZDOTDIR, HOME fallback and separate login/interactive files.
+- [fish_add_path](https://fishshell.com/docs/current/cmds/fish_add_path.html): persistence, duplicate handling and global-variable behavior.
+- [fish 4.0.2 function source](https://github.com/fish-shell/fish-shell/blob/4.0.2/share/functions/fish_add_path.fish): status 1 when no path needs adding.
 - [Python tarfile extraction guidance](https://docs.python.org/3/library/tarfile.html#extraction-filters): filters alone do not provide all resource and path checks. The installer validates all members and writes only regular files.
 - [uv command reference](https://docs.astral.sh/uv/reference/cli/): explicit interpreter selection, disabled interpreter downloads, hashes and wheel-only dependency installation.
 - [uv HTTP authentication](https://docs.astral.sh/uv/concepts/authentication/http/): dependency subprocesses use an empty netrc and private credential-store path, with keyring lookup disabled.

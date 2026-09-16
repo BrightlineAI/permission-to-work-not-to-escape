@@ -1,8 +1,9 @@
 # Start once, then work in Codex
 
 Use the [recoverable Linux installer](INSTALL.md), which runs doctor automatically,
-and authenticate with `ptw-codex login` using your own account. Then, in your
-new or existing repository:
+then open a fresh terminal. If `ptw` is absent, follow the installer's printed
+instructions for your shell. Authenticate with `ptw-codex login` using your own
+account. Then, in your new or existing repository:
 
     ptw codex
 
