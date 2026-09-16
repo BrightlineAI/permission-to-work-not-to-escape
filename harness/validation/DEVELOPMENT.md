@@ -26,4 +26,6 @@ All runs in this directory were made on algol-box-2-1, in the isolated `ptw-buil
 
 12. Latest development suite: 66 passed, no skips, in 3.57 seconds. This includes actual continuing/stopped file effects, not just stop acknowledgements. Separate clean installation acceptance follows.
 
-Checkpoint commit: 9d54bcb. Development environments and failed validation outputs are retained on the VPS.
+13. Separate account acceptance used a fresh unprivileged Linux account and a Git bundle of the committed source. Direct access to the private development directory was correctly unavailable; the bundle needed an explicit main branch checkout. The first install then found an inherited working directory/config discovery issue in uv. The installer now changes to its source directory and disables ambient uv configuration. A second, fresh installation is used for retesting.
+
+Checkpoints: 9d54bcb and 079974a. Development environments and failed validation outputs are retained on the VPS.
