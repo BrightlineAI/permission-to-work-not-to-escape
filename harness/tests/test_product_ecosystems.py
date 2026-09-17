@@ -887,6 +887,49 @@ class PrivateRegistryTests(unittest.TestCase):
 class PrivatePythonTests(unittest.TestCase):
     setUp = ProductEcosystemTests.setUp
 
+    @staticmethod
+    def resolution_diagnostic(stage):
+        # Manager retains test output after TemporaryDirectory cleanup. Project
+        # names, input text, URLs, argv, headers and raw errors are not exported.
+        report = {}
+        if (stage / 'resolver-tool.json').exists():
+            tool = load(stage / 'resolver-tool.json')
+            report['tool_sha256'] = tool['sha256']
+            report['runtime_sha256'] = tool['runtime']['sha256']
+        if (stage / 'resolution.json').exists():
+            receipt = load(stage / 'resolution.json')
+            report['outcome'] = receipt['outcome']
+            report['attempts'] = [{key: attempt[key] for key in (
+                'round', 'outcome', 'returncode', 'failure_category', 'stderr_signals',
+                'stderr_sha256', 'index') if key in attempt} for attempt in receipt['attempts']]
+        report['source_sha256'] = {name: hashlib.sha256(
+            (Path(__file__).resolve().parents[1] / name).read_bytes()).hexdigest()
+            for name in ('ptw/dependency_resolution.py', 'ptw/python_index.py',
+                         'ptw/registry.py', 'tests/test_product_ecosystems.py')}
+        return report
+
+    def test_resolution_failure_receipt_retains_only_bounded_diagnostics(self):
+        from ptw.dependency_resolution import resolver_failure_signals
+        secret = 'SYNTHETIC_PYTHON_TOKEN'
+        (self.repo / 'requirements.in').write_text('demo==1.0\n')
+        stderr = 'Failed to parse JSON: missing field at https://user:' + secret + '@private.invalid'
+        stage = self.root / 'diagnostic'
+        with self.assertRaises(ResolutionError):
+            resolve_python(self.repo, stage, RULES, provider=FixtureProvider(),
+                runner=lambda *a, **kw: SimpleNamespace(returncode=2, stderr=stderr))
+        report = self.resolution_diagnostic(stage)
+        attempt = report['attempts'][0]
+        self.assertEqual(attempt['returncode'], 2)
+        self.assertEqual(attempt['outcome'], 'unavailable')
+        self.assertEqual(attempt['stderr_signals'], ['metadata'])
+        self.assertEqual(attempt['stderr_sha256'], hashlib.sha256(stderr.encode()).hexdigest())
+        self.assertNotIn(secret, json.dumps(report))
+        self.assertNotIn('private.invalid', json.dumps(report))
+        self.assertEqual(resolver_failure_signals(''), [])
+        self.assertEqual(resolver_failure_signals(secret), [])
+        self.assertEqual(resolver_failure_signals('x' * 65536 + 'missing field'), [])
+        self.assertEqual(resolver_failure_signals('Operation not permitted'), ['permission'])
+
     def provider(self, endpoint='https://private.invalid', *, fixture=False):
         from ptw.registry import RoutedPyPIEvidence
         from ptw.policy import save
@@ -896,6 +939,125 @@ class PrivatePythonTests(unittest.TestCase):
         config = {'version': 1, 'packages': {'demo': {'registry': endpoint, 'advisories': endpoint,
             'credential_ref': str(credential)}}}
         return RoutedPyPIEvidence(config, fixture=fixture), config
+
+    def test_runtime_credentials_rejected_before_read_for_python_and_npm(self):
+        from ptw.registry import RoutedNpmEvidence, RoutedPyPIEvidence, outside_repository
+        alias = self.root / 'runtime-alias'
+        alias.symlink_to('/usr', target_is_directory=True)
+        paths = [str(Path(root) / 'ptw-synthetic/credential.json') for root in
+                 ('/usr', '/bin', '/sbin', '/lib', '/lib64', '/proc', '/sys', '/dev')]
+        paths += ['/usr/local/share/ptw-synthetic/credential.json',
+                  str(alias / 'ptw-synthetic/credential.json'),
+                  str(self.root / '../../usr/ptw-synthetic/credential.json'), '/']
+        for value in paths:
+            config = {'version': 1, 'packages': {'demo': {
+                'registry': 'https://private.invalid', 'advisories': 'https://private.invalid',
+                'credential_ref': value}}}
+            with self.subTest(path=value), patch('ptw.registry.private_json') as read:
+                with self.assertRaisesRegex(Invalid, 'outside system runtime trees'):
+                    outside_repository(config, self.repo)
+                for provider in (RoutedPyPIEvidence, RoutedNpmEvidence):
+                    with self.assertRaisesRegex(Invalid, 'outside system runtime trees'):
+                        provider(config)
+                read.assert_not_called()
+        for value in ('relative.json', None, 1):
+            config['packages']['demo']['credential_ref'] = value
+            with self.subTest(value=value), patch('ptw.registry.private_json') as read:
+                for provider in (RoutedPyPIEvidence, RoutedNpmEvidence):
+                    with self.assertRaises(Invalid):
+                        provider(config)
+                read.assert_not_called()
+
+    def test_setup_and_broker_reload_reject_runtime_credentials(self):
+        self.assert_setup_and_reload_reject('/usr/local/share/ptw-synthetic/credential.json',
+                                           'outside system runtime trees')
+
+    def test_metadata_mount_credentials_rejected_before_read(self):
+        from ptw.registry import RoutedNpmEvidence, RoutedPyPIEvidence, outside_repository
+        alias = self.root / 'ca-alias'
+        alias.symlink_to('/etc/ssl/certs', target_is_directory=True)
+        # No system credential is created or read. Even absent references must
+        # be rejected before the private-file reader is reached.
+        for value in ('/etc/ssl/certs/ptw-synthetic-credential.json', '/etc/ssl/certs',
+                      '/etc/resolv.conf', '/etc/hosts', str(alias / 'credential.json')):
+            config = {'version': 1, 'packages': {'demo': {
+                'registry': 'https://private.invalid', 'advisories': 'https://private.invalid',
+                'credential_ref': value}}}
+            with self.subTest(path=value), patch('ptw.registry.private_json') as read:
+                with self.assertRaisesRegex(Invalid, 'outside resolver and build host mounts'):
+                    outside_repository(config, self.repo)
+                for provider in (RoutedPyPIEvidence, RoutedNpmEvidence):
+                    with self.assertRaisesRegex(Invalid, 'outside resolver and build host mounts'):
+                        provider(config)
+                read.assert_not_called()
+        self.assert_setup_and_reload_reject('/etc/ssl/certs/ptw-synthetic-credential.json',
+                                           'outside resolver and build host mounts')
+
+    def test_resolved_mount_sources_rejected_during_setup_and_reload(self):
+        from ptw.registry import credential_path
+        source = self.root / 'host-ca-store'
+        source.mkdir()
+        alias = self.root / 'host-ca-link'
+        alias.symlink_to(source, target_is_directory=True)
+        stage = self.root / 'metadata-stage'
+        stage.mkdir()
+        with patch('ptw.dependency_resolution.METADATA_HOST_PATHS', (str(alias),)):
+            with patch('ptw.dependency_resolution.subprocess.run') as run:
+                run_metadata(['/usr/bin/true'], cwd=stage, env={}, capture_output=True,
+                             text=True, timeout=1)
+            argv = run.call_args.args[0]
+            self.assertTrue(any(argv[i:i + 3] == ['--ro-bind', str(source), str(alias)]
+                                for i in range(len(argv))))
+            self.assert_setup_and_reload_reject(str(source / 'credential.json'),
+                                               'outside resolver and build host mounts')
+            for value in (alias / 'credential.json', source / 'credential.json'):
+                with self.assertRaises(Invalid):
+                    credential_path(str(value))
+            # A sibling with the same prefix is not inside the mounted tree.
+            allowed = self.root / 'host-ca-store-private/credential.json'
+            self.assertEqual(credential_path(str(allowed)), allowed)
+        with patch('ptw.supervisor.RUNTIME_HOST_PATHS', (str(alias),)):
+            with self.assertRaisesRegex(Invalid, 'outside resolver and build host mounts'):
+                credential_path(str(source / 'credential.json'))
+
+    def assert_setup_and_reload_reject(self, value, message):
+        from contextlib import redirect_stdout
+        import io
+        from ptw.registry import provider_for
+        config = {'version': 1, 'packages': {'demo': {
+            'registry': 'https://private.invalid', 'advisories': 'https://private.invalid',
+            'credential_ref': value}}}
+        (self.repo / 'src').mkdir()
+        for ecosystem, language, option, dependencies in (
+                ('pypi', 'python', 'python_registry_config', 'python_dependencies'),
+                ('npm', 'javascript', 'npm_registry_config', 'npm_dependencies')):
+            with self.subTest(ecosystem=ecosystem):
+                directory = self.root / ecosystem
+                directory.mkdir()
+                config_path = self.root / (ecosystem + '-routes.json')
+                args = SimpleNamespace(language=language, goal='Private package import', editable='src',
+                    files='', warn_at=None, stop_at=None, history=None, model_proposal=False,
+                    **{option: str(config_path)})
+                with patch('ptw.registry.private_json', return_value=config) as read, \
+                        patch('ptw.dependency_resolution.resolve_python') as resolve, \
+                        patch('ptw.codex.require_login'), \
+                        patch('sys.stdin.isatty', return_value=True), \
+                        patch('ptw.onboarding.ensure') as ensure, redirect_stdout(io.StringIO()):
+                    with self.assertRaisesRegex(Invalid, message):
+                        onboarding.setup(self.repo, directory, args)
+                    read.assert_called_once_with(str(config_path))
+                    resolve.assert_not_called()
+                    ensure.assert_not_called()
+                self.assertFalse((self.repo / '.ptw').exists())
+                self.assertFalse(list(directory.rglob('project.json')))
+                identity = digest(config)
+                store = Store(directory / 'state')
+                bundle = {'inventory': {'root': str(self.repo)}, 'policy': {'project': {
+                    'packages': RULES, dependencies: {'registry_config_sha256': identity}}}}
+                with patch('ptw.registry.private_json', return_value=config) as read:
+                    with self.assertRaisesRegex(Invalid, message):
+                        provider_for(store, bundle, ecosystem)
+                    read.assert_called_once_with(store.directory / (ecosystem + '-registry-' + identity + '.json'))
 
     def document(self, endpoint='https://private.invalid'):
         raw = wheel_bytes('demo', '1.0')
@@ -959,6 +1121,46 @@ class PrivatePythonTests(unittest.TestCase):
                 provider.release('demo')
             self.assertNotIn('SYNTHETIC_PYTHON_TOKEN', str(error.exception))
 
+    def test_distinct_advisory_origin_receives_no_registry_authorization(self):
+        import io
+        provider, _ = self.provider()
+        provider.routes['demo']['advisories'] = 'https://advisory.invalid'
+        seen = []
+
+        def opened(request, **kwargs):
+            seen.append(request)
+            self.assertEqual(request.full_url, 'https://advisory.invalid/v1/query')
+            self.assertIsNone(request.get_header('Authorization'))
+            return io.BytesIO(json.dumps({'origin': 'https://private.invalid', 'name': 'demo',
+                'version': '1.0', 'coverage': 'complete', 'vulns': []}).encode())
+
+        with patch.object(provider.http, 'open', side_effect=opened):
+            self.assertEqual(provider.advisories('PyPI', 'demo', '1.0'), [])
+        self.assertEqual(len(seen), 1)
+
+    def test_private_wheel_embedded_identity_and_original_hash_are_authoritative(self):
+        import io
+        from ptw.package_install import validate_wheels
+        provider, _ = self.provider()
+        document, _ = self.document()
+        raw = wheel_bytes('demo', '1.0', extra={'demo-1.0.dist-info/METADATA':
+            b'Metadata-Version: 2.1\nName: different\nVersion: 1.0\n'})
+        document['urls'][0]['digests']['sha256'] = hashlib.sha256(raw).hexdigest()
+        with patch.object(provider, 'release', return_value=document), \
+                patch.object(provider, 'advisories', return_value=[]), \
+                patch.object(provider.http, 'open', return_value=io.BytesIO(raw)):
+            record = provider.assess('demo', '1.0')
+            wheel = self.root / record['filename']
+            provider.download(record, wheel)
+        with self.assertRaisesRegex(EvidenceError, 'identity differs'):
+            validate_wheels({'demo': wheel}, {'demo': '1.0'}, extended=True)
+        # Even a valid broker assessment cannot replace a reviewed digest.
+        bundle = {'policy': {'project': {'python_dependencies': {'artifacts': [
+            {k: v for k, v in {**record, 'sha256': 'a' * 64}.items()
+             if k in ('name', 'version', 'url', 'sha256')}]}}}}
+        with self.assertRaises(Invalid):
+            verify_artifacts(bundle, [record])
+
     def test_python_index_relative_links_and_source_archives(self):
         import io
         from ptw.python_index import WheelIndex
@@ -1014,6 +1216,62 @@ class PrivatePythonTests(unittest.TestCase):
                 with patch.object(provider, 'index', return_value=document), self.assertRaises(EvidenceError):
                     view.document('demo')
 
+    def test_python_wheel_http_head_and_get_share_checked_routes(self):
+        import io
+        from urllib.parse import urljoin, urlsplit
+        from ptw.python_index import WheelIndex
+        provider, _ = self.provider()
+        document, wheel = self.index_document()
+        view = WheelIndex(provider, self.root / 'wheel-view', time.monotonic() + 30)
+        # Exercise BaseHTTPRequestHandler's actual parsing and dispatch without
+        # opening a socket or starting a thread in the coding sandbox.
+        with patch('ptw.python_index.HTTPServer') as server, \
+                patch('ptw.python_index.threading.Thread'), \
+                patch.object(provider, 'index', return_value=document), \
+                patch.object(provider, 'download', side_effect=lambda record, path: path.write_bytes(wheel)) as download:
+            server.return_value.server_port = 12345
+            with view as endpoint:
+                handler = server.call_args.args[1]
+
+                def exchange(method, path, headers=''):
+                    incoming = io.BytesIO((method + ' ' + path + ' HTTP/1.0\r\n' + headers + '\r\n').encode())
+                    outgoing = io.BytesIO()
+                    connection = SimpleNamespace(makefile=lambda *a: incoming, sendall=outgoing.write)
+                    handler(connection, ('127.0.0.1', 12346), server.return_value)
+                    head, body = outgoing.getvalue().split(b'\r\n\r\n', 1)
+                    return head, body
+
+                listing_path = urlsplit(endpoint + 'demo/').path
+                headers, body = exchange('GET', listing_path)
+                self.assertIn(b'200 OK', headers)
+                entry = json.loads(body)['files'][0]
+                artifact_path = urlsplit(urljoin(endpoint + 'demo/', entry['url'])).path
+                headers, body = exchange('HEAD', artifact_path)
+                self.assertIn(b'200 OK', headers)
+                self.assertIn(('Content-Length: ' + str(len(wheel))).encode(), headers)
+                self.assertIn(b'Accept-Ranges: none', headers)
+                self.assertEqual(body, b'')
+                # A server without byte ranges returns the full checked wheel.
+                headers, body = exchange('GET', artifact_path, 'Range: bytes=0-7\r\n')
+                self.assertIn(b'200 OK', headers)
+                self.assertEqual(body, wheel)
+                download.assert_called_once()
+                for path in ('/wrong-prefix/files/wheel.whl', artifact_path + '?token=x',
+                             artifact_path.replace(entry['filename'], 'other.whl')):
+                    with self.subTest(path=path):
+                        headers, body = exchange('HEAD', path)
+                        self.assertNotIn(b'200 OK', headers)
+                        self.assertEqual(body, b'')
+                headers, _ = exchange('POST', artifact_path)
+                self.assertIn(b'501', headers)
+                (view.stage / next(iter(view.artifacts))).write_bytes(b'tampered')
+                for method in ('HEAD', 'GET'):
+                    headers, body = exchange(method, artifact_path)
+                    self.assertIn(b'502', headers)
+                    self.assertNotIn(b'tampered', body)
+                    self.assertNotIn(b'SYNTHETIC_PYTHON_TOKEN', headers + body)
+                self.assertEqual(view.error, 'Python metadata or artifact unavailable')
+
     def test_python_private_config_bound_in_provider_and_no_native_lock_fallback(self):
         from ptw.registry import provider_for
         from ptw.policy import save
@@ -1062,6 +1320,41 @@ class PrivatePythonTests(unittest.TestCase):
         self.assertNotIn('SYNTHETIC_PYTHON_TOKEN', transcript.getvalue() + json.dumps(bundle))
         self.assertNotIn(str(self.root / 'synthetic-credential.json'), json.dumps(bundle))
 
+    def test_private_setup_pty_reject_cancel_and_approve(self):
+        from test_product_onboarding import Terminal
+        from ptw.policy import save
+        _, config = self.provider()
+        config_path = self.root / 'routes.json'
+        save(config_path, config)
+        # Empty declarations keep this CLI/PTY test offline. The native test
+        # below proves package resolution separately; login/monitor are doubles.
+        (self.repo / 'requirements.in').write_text('')
+        (self.repo / 'src').mkdir()
+        for reply in ('reject', 'cancel', 'yes'):
+            terminal = Terminal([sys.executable, str(Path(__file__).with_name('test_product_onboarding.py')),
+                '--fixture', 'codex', '--repo', str(self.repo), '--goal', 'Private Python project',
+                '--language', 'python', '--editable', 'src', '--files', '', '--setup-only',
+                '--python-registry-config', str(config_path)], self.root / ('pty-' + reply),
+                env={'PTW_USER_STATE': str(self.root / 'operator')})
+            try:
+                terminal.expect('Approve exactly', 15)
+                terminal.send('details')
+                terminal.expect('registry_config_sha256', 5)
+                self.assertIn(digest(config), terminal.text)
+                terminal.send(reply)
+                terminal.wait(lambda: terminal.exited, 10)
+                self.assertNotIn('SYNTHETIC_PYTHON_TOKEN', terminal.text)
+                self.assertNotIn(str(self.root / 'synthetic-credential.json'), terminal.text)
+            finally:
+                terminal.close()
+            self.assertEqual((self.repo / 'requirements.in').read_text(), '')
+            if reply != 'yes':
+                self.assertFalse((self.repo / '.ptw').exists())
+                self.assertFalse((self.repo / 'ptw-requirements.txt').exists())
+                self.assertFalse(list((self.root / 'operator').rglob('project.json')))
+        policy = load(self.repo / '.ptw/policy.json')
+        self.assertEqual(policy['project']['python_dependencies']['registry_config_sha256'], digest(config))
+
     @unittest.skipUnless(os.environ.get('PTW_LINUX_TESTS') == '1', 'requires authenticated HTTP and native confinement')
     def test_native_private_python_resolution_install_import_and_bad_credentials(self):
         from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -1072,6 +1365,9 @@ class PrivatePythonTests(unittest.TestCase):
         from ptw.workflow import dispatch
         from ptw.workspace import request
         seen = []
+        mode = 'valid'
+        denial_effects = []
+        effects = {}
 
         class Handler(BaseHTTPRequestHandler):
             def log_message(self, *args):
@@ -1082,18 +1378,37 @@ class PrivatePythonTests(unittest.TestCase):
                 if seen[-1][1] != 'Bearer SYNTHETIC_PYTHON_TOKEN':
                     self.send_error(401)
                     return
+                if mode == 'unavailable':
+                    self.send_error(503)
+                    return
                 self.send_response(200)
                 self.send_header('Content-Length', str(len(raw)))
                 self.end_headers()
                 self.wfile.write(raw)
 
             def do_GET(self):
-                self.respond(raw if self.path.endswith('.whl') else
-                    json.dumps(index_document if self.path.startswith('/simple/') else document).encode())
+                release = copy.deepcopy(document)
+                if mode == 'release-identity':
+                    release['info']['name'] = 'different'
+                if mode == 'filename':
+                    release['urls'][0]['filename'] = 'different-1.0-py3-none-any.whl'
+                if mode == 'young':
+                    release['urls'][0]['upload_time_iso_8601'] = datetime.now(timezone.utc).isoformat()
+                self.respond((b'tampered' if mode == 'hash' else raw) if self.path.endswith('.whl') else
+                    json.dumps(index_document if self.path.startswith('/simple/') else release).encode())
 
             def do_POST(self):
-                self.respond(json.dumps({'origin': endpoint, 'name': 'demo', 'version': '1.0',
-                    'coverage': 'complete', 'vulns': []}).encode())
+                advisory = {'origin': endpoint, 'name': 'demo', 'version': '1.0',
+                            'coverage': 'complete', 'vulns': []}
+                if mode in ('origin', 'name', 'version'):
+                    advisory[mode] = 'mismatched'
+                if mode == 'missing':
+                    advisory.pop('coverage')
+                if mode == 'critical':
+                    advisory['vulns'] = [CRITICAL]
+                if mode == 'severity':
+                    advisory['vulns'] = [{'id': 'SYNTHETIC-MISSING-SEVERITY'}]
+                self.respond(b'{invalid' if mode == 'malformed' else json.dumps(advisory).encode())
 
         server = HTTPServer(('127.0.0.1', 0), Handler)
         endpoint = 'http://127.0.0.1:' + str(server.server_port)
@@ -1103,37 +1418,115 @@ class PrivatePythonTests(unittest.TestCase):
         thread.start()
         try:
             provider, _ = self.provider(endpoint, fixture=True)
+            credential = self.root / 'synthetic-credential.json'
+            credential_hash = hashlib.sha256(credential.read_bytes()).hexdigest()
+            injection = {'UV_INDEX_PASSWORD': 'SYNTHETIC_PYTHON_TOKEN',
+                         'PIP_INDEX_URL': 'https://user:SYNTHETIC_PYTHON_TOKEN@private.invalid/simple',
+                         'PYTHONPATH': str(self.root / 'injection'),
+                         'PYTHONSTARTUP': str(credential), 'NPM_TOKEN': 'SYNTHETIC_PYTHON_TOKEN'}
+            self.enterContext(patch.dict(os.environ, injection))
+            probe = ("import os\nfrom pathlib import Path\n"
+                "assert not any(k in os.environ for k in " + repr(tuple(k for k in injection if k != 'PYTHONPATH')) + ")\n"
+                "assert " + repr(injection['PYTHONPATH']) + " not in os.environ.get('PYTHONPATH', '')\n"
+                "try:\n    Path(" + repr(str(credential)) + ").read_bytes()\n"
+                "except OSError:\n    pass\nelse:\n    raise AssertionError('credential file visible')\n")
+            probed = []
+
+            def isolated_resolver(argv, **kwargs):
+                self.assertNotIn('SYNTHETIC_PYTHON_TOKEN', json.dumps([argv, kwargs['env']]))
+                if not probed:
+                    check = run_metadata(['/usr/bin/python3', '-I', '-S', '-c', probe], **kwargs)
+                    self.assertEqual(check.returncode, 0, 'Resolver credential isolation probe failed')
+                    probed.append(True)
+                return run_metadata(argv, **kwargs)
+
             (self.repo / 'requirements.in').write_text('demo>=1,<2\n')
-            result = resolve_python(self.repo, self.root / 'resolution', RULES, provider=provider)
+            result = resolve_python(self.repo, self.root / 'resolution', RULES, provider=provider,
+                                    runner=isolated_resolver)
             self.assertEqual(result['pins'], ['demo==1.0'])
+            self.assertEqual(probed, [True])
+            effects['resolver_isolation'] = True
             (self.repo / 'src').mkdir()
-            (self.repo / 'src/app.py').write_text("import demo, os; assert not any('SYNTHETIC_PYTHON_TOKEN' in v for v in os.environ.values()); print('PRIVATE_PYTHON_OK')\n")
+            (self.repo / 'src/app.py').write_text(probe +
+                "import demo\nassert demo.VALUE == 'SYNTHETIC_PACKAGE_OK'\nprint('PRIVATE_PYTHON_OK')\n")
             policy, inv = template(self.repo, 'private-python', 'Import authenticated wheel', {'src': 'tree'},
                 ['requirements.in'], [{'id': 'test', 'argv': [result['runtime']['executable'], 'src/app.py'],
                 'resources': ['src'], 'timeout_seconds': 15}], ['pypi:demo'], 1, 3)
             policy['project']['python_runtime'] = result['runtime']
             policy['project']['python_dependencies'] = {k: result[k] for k in ('inputs', 'pins', 'artifacts')}
             store = Store(self.root / 'controller')
-            store.activate(approve(policy, inv, digest(compile_policy(policy, inv)), 'synthetic fixture operator'))
+            bundle = approve(policy, inv, digest(compile_policy(policy, inv)), 'synthetic fixture operator')
+            store.activate(bundle)
+            unrelated = subprocess.Popen(['/usr/bin/sleep', '120'], env={'PATH': '/usr/bin:/bin'})
             try:
                 ensure(store)
                 actor = store.register('private-python', 'work')
+                control = PackageControl(store, provider=provider)
+                violations = 0
+                for mode in ('wrong-credentials', 'release-identity', 'filename', 'origin', 'name', 'version',
+                             'hash', 'missing', 'severity', 'malformed', 'unavailable', 'young', 'critical'):
+                    with self.subTest(mode=mode):
+                        provider.routes['demo']['authorization'] = ('Bearer INVALID_SYNTHETIC_TOKEN'
+                            if mode == 'wrong-credentials' else 'Bearer SYNTHETIC_PYTHON_TOKEN')
+                        denied = control.install(actor['token'], 'deny-' + mode, result['pins'])
+                        self.assertFalse(denied['allowed'], denied)
+                        self.assertEqual(denied['effect'], 'none')
+                        self.assertNotIn('package_set', denied)
+                        if mode in ('young', 'critical'):
+                            violations += 1
+                        else:
+                            self.assertFalse(denied['violation_counted'])
+                        self.assertEqual(store.status('private-python')['violations'], violations)
+                        self.assertFalse(list((store.directory / 'package-sets').glob('*')))
+                        self.assertFalse(list(store.directory.glob('package-stage-*')))
+                        with store.locked() as db:
+                            self.assertEqual(db.execute('SELECT COUNT(*) FROM package_sets').fetchone()[0], 0)
+                        self.assertNotIn('SYNTHETIC_PYTHON_TOKEN', json.dumps(denied))
+                        self.assertIsNone(unrelated.poll())
+                        denial_effects.append({'case': mode, 'effect': denied['effect'],
+                                               'violations': violations})
+                mode = 'valid'
+                # Exercise the existing build boundary, without adding source
+                # preparation or claiming the wheel install executes a backend.
+                from ptw.package_build import run_build
+                from ptw.supervisor import runtime_namespace
+                build = self.root / 'build-probe'
+                build.mkdir()
+                command = runtime_namespace() + ['--bind', str(build), '/target', '--chdir', '/target',
+                    '--', '/usr/bin/python3', '-I', '-S', '-c', probe +
+                    "Path('/target/isolation.txt').write_text('BUILD_ISOLATION_OK')\n"]
+                run_build(store, actor['token'], command, build)
+                self.assertEqual((build / 'isolation.txt').read_text(), 'BUILD_ISOLATION_OK')
+                effects['build_isolation'] = True
                 installed = PackageControl(store, provider=provider).install(actor['token'], 'install', result['pins'])
                 self.assertTrue(installed.get('allowed'), installed)
+                self.assertEqual(installed['policy_sha256'], bundle['approval']['sha256'])
+                self.assertEqual(store.status('private-python')['violations'], 2)
                 effect = dispatch(store, actor, 'import', request('run', 'test',
                     content=json.dumps({'package_sets': [installed['package_set']]})))
                 self.assertTrue(effect.get('allowed'), effect)
                 self.assertEqual(effect.get('exit_code'), 0, effect)
                 self.assertIn('PRIVATE_PYTHON_OK', effect['output'])
+                self.assertEqual((store.directory / 'package-sets' / installed['package_set'] /
+                    'demo/__init__.py').read_bytes(), b"VALUE = 'SYNTHETIC_PACKAGE_OK'\n")
+                effects['installed_and_imported'] = True
+                effects['application_isolation'] = True
                 self.assertNotIn('SYNTHETIC_PYTHON_TOKEN', json.dumps([installed, effect, result]))
                 for folder in (self.root / 'resolution', store.directory / 'package-sets'):
                     for path in folder.rglob('*'):
                         if path.is_file():
                             self.assertNotIn(b'SYNTHETIC_PYTHON_TOKEN', path.read_bytes())
             finally:
-                store.stop('private-python')
-                Supervisor(store).reconcile()
-                remove(store)
+                try:
+                    store.stop('private-python')
+                    Supervisor(store).reconcile()
+                    remove(store)
+                    self.assertIsNone(unrelated.poll())
+                    effects['unrelated_survived_stop'] = True
+                finally:
+                    unrelated.terminate()
+                    unrelated.wait(timeout=5)
+            self.assertEqual(hashlib.sha256(credential.read_bytes()).hexdigest(), credential_hash)
             provider.routes['demo']['authorization'] = 'Bearer INVALID_SYNTHETIC_TOKEN'
             with self.assertRaises(EvidenceError):
                 provider.assess('demo', '1.0')
@@ -1142,6 +1535,17 @@ class PrivatePythonTests(unittest.TestCase):
             server.shutdown()
             server.server_close()
             thread.join(timeout=5)
+            report = self.resolution_diagnostic(self.root / 'resolution')
+            report['denial_effects'] = denial_effects
+            report['physical_effects'] = effects
+            report['last_fixture_mode'] = mode
+            report['fixture_requests'] = {
+                'index': sum(path.startswith('/simple/') for path, _ in seen),
+                'artifact': sum(path.endswith('.whl') for path, _ in seen),
+                'advisory': sum(path == '/v1/query' for path, _ in seen),
+                'release': sum(path.startswith('/pypi/') for path, _ in seen),
+                'unauthorized': sum(auth != 'Bearer SYNTHETIC_PYTHON_TOKEN' for _, auth in seen)}
+            print('PRIVATE_PYTHON_RESOLUTION ' + json.dumps(report, sort_keys=True), flush=True)
 
 
 class DependencyRevisionTests(unittest.TestCase):

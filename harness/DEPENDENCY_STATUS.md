@@ -1,7 +1,8 @@
 # Dependency implementation status
 
 Task 3 is incomplete. These changes are an implementation subset, not a claim
-that all ordinary project formats work or that native acceptance has passed.
+that all ordinary project formats work or that full ecosystem acceptance has passed.
+The private-Python milestone has passed the focused native checks described below.
 The immutable PRODUCT_ACCEPTANCE.json requirements remain unchanged.
 
 ## Implemented in current source
@@ -93,7 +94,7 @@ select additional install groups: the setup's groups/extras stay bound. Use
 reject, cancel, EOF and interruption do not authorize publication. Successful
 revision ends old sessions, so start protected work again afterward.
 
-Python local/editable preparation, private Python routing, pnpm, Poetry updates,
+Python local/editable preparation, pnpm, Poetry updates,
 local executable/bin preparation and a unified preparation lifecycle for dynamic
 build dependencies remain ordinary required gaps. They are not waived or labeled
 unusual. The existing explicit registry source-build/lifecycle policies remain
@@ -117,6 +118,16 @@ owner-only file outside the repository:
 {"version":1,"packages":{"@company/example":{"registry":"https://packages.example.com","advisories":"https://advisories.example.com","credential_ref":"/absolute/operator/credential.json"}}}
 ```
 
+Credential references must also be outside system runtime trees (`/usr`, `/bin`,
+`/sbin`, `/lib`, `/lib64`, `/proc`, `/sys` and `/dev`) and the resolver's additional
+host mounts (`/etc/ssl/certs`, `/etc/resolv.conf` and `/etc/hosts`). Both the named
+paths and their resolved targets are excluded, including host mount aliases
+pointing into data directories. Workers can read these mounts even when a file
+is owner-only. Setup and broker reload reject these paths before reading credentials.
+Use an operator data directory outside the project, such as a private directory
+under the operator's home. Existing private-file ownership and symlink checks
+still apply.
+
 The credential file contains an `authorization` string. Configure exact package
 names, not a fallback registry; the broker must not send private names to public
 advisory services. The advisory endpoint is `/v1/query` and returns
@@ -125,6 +136,133 @@ Registry credentials go only to the configured registry origin. Redirects,
 credential-bearing URLs and credential echoes fail closed. Production requires
 HTTPS. Loopback HTTP is a test-only injection seam, unavailable to model callers.
 No real private account was tested.
+
+## Private Python setup and verification
+
+Current source implements exact-name Python routing with
+`ptw codex --python-registry-config /absolute/operator/python-routes.json`.
+Use the same external owner-only configuration and credential-file contract as
+private npm above, with canonical Python package names such as `company-example`.
+The approved bundle binds the configuration hash, not the credential contents.
+Requirements files and static PEP 621 declarations use native uv resolution
+through a credential-free wheel view. Private uv/Poetry locks currently fail
+closed pending a reviewed adapter; they are not silently re-resolved.
+
+The private registry must provide Simple API JSON at `/simple/NAME/`, including
+wheel hashes, sizes, upload times and runtime constraints, plus PyPI-compatible
+release JSON at `/pypi/NAME/VERSION/json`. Its configured advisory origin must
+provide the origin/name/version/complete-coverage envelope above. The broker
+fetches artifacts and supplies uv with local view URLs, without upstream
+authorization. Credentials are sent only to the configured registry origin;
+a distinct advisory origin receives no registry authorization. The resolver
+receives neither that header nor the operator's credential file.
+
+For an existing project with `company-example>=1,<2` in `requirements.in`:
+
+```sh
+ptw codex --python-registry-config /absolute/operator/python-routes.json --setup-only
+```
+
+Use `details` to inspect `registry_config_sha256`, input hashes, selected versions
+and package restrictions. Type `yes` only for the intended scope; `reject` or
+`cancel` leaves the project unpublished. Then use `ptw codex` to start protected
+work. Do not put authorization headers in project files, CLI arguments or model
+prompts. Provision the credential JSON separately through the operator's secret
+management workflow. Each private transitive name also needs an exact route.
+There is no private-to-public fallback for configured names. A registry without
+the required release and complete advisory evidence is blocked.
+
+Wrong credentials or unavailable/malformed evidence block installation without
+counting misconduct. A confirmed too-young or critical package request counts
+against the approved escalation policy. No denied install publishes a usable
+package set. Resolve operational failures in the operator configuration or
+service, then retry; do not disable age, CVSS or digest checks.
+
+The manager baseline for `PrivatePythonTests` passed seven unit tests and failed
+the native fixture during uv resolution, before installation or import. The
+next diagnostic manager run passed eight unit tests and again failed resolution:
+uv returned code 2 with HTTP-method/status signals after fetching one listing
+and before any artifact download. The wheel view implemented only GET, while
+the pinned uv client probes wheel metadata with HEAD. The view now handles HEAD
+through the same checked routes and bytes as GET, returns no response body,
+and advertises no byte-range support. uv can then use its full-wheel metadata
+path. The manager subsequently passed all ten private-Python tests, including
+real authenticated resolution, installation and protected import of the generated
+wheel. This is deterministic synthetic-fixture evidence, not an external private
+account test or model trajectory.
+
+The fixture emits a bounded
+`PRIVATE_PYTHON_RESOLUTION` summary into the manager's retained check log before
+temporary files are removed. It includes every recorded resolver attempt's
+return code, fixed diagnostic labels, metadata-view counts, fixture stage counts,
+and tool/runtime/source hashes. It excludes raw subprocess output, request URLs,
+headers, configuration and credential contents. Diagnostic labels describe text
+observations, not policy decisions or a proven root cause. The protected import
+must also assert the generated wheel's known exported value.
+
+The expanded suite adds install-denial effects for wrong credentials, release,
+filename and advisory identity, altered bytes, young/critical releases, missing
+coverage, malformed severity/JSON and service outage. It also probes the actual
+resolver, supervised build and protected application boundaries for ambient
+environment injection and attempted access to the external synthetic credential
+file, checks unchanged policy identity and verifies unrelated work survives stop.
+The manager passed all 13 private-Python tests with no failures or skips in
+6.868 seconds on 2026-09-17, including these expanded native assertions.
+All 13 denied installs published no package set. The eleven operational/evidence
+failures left the violation count at zero; young and critical requests raised
+it to one and two. The subsequent valid install and protected import succeeded
+under the unchanged policy, with both violations retained. Resolver, build and
+application isolation probes passed, and unrelated work survived project stop.
+The retained receipt is `check-probe-1-2-1.log` in manager run
+`task-8-1789612512736493724`; its test-source SHA-256 is
+`3a8da7bc8fef2c1426e031a9c8cbea6f97c57d6ba3aa2628a519e77419a172b7`.
+The same run passed the immutable-intent guard. Raw logs stay outside the checkout.
+The build probe exercises the existing offline boundary, not a new source-build
+adapter; wheel resolution never authorizes a build backend.
+
+Review then identified that an owner-only credential file in a system runtime
+tree could still be read through worker mounts. Credential validation now reuses
+the policy's data-directory restriction during setup and before broker reads,
+including reload. Synthetic tests reject runtime paths, symlink aliases, relative
+paths and malformed references for Python and npm before any credential read.
+The manager passed all 15 private-Python tests with no failures or skips in
+7.312 seconds on 2026-09-17, including the same native install, import, denial
+and isolation assertions. The retained receipt is `check-probe-2-0-1.log` in the
+same manager run; its test-source SHA-256 is
+`2b4486d0d2bbade4683a1beea0e169160c8119c12777c2fa745999e371d24180`.
+Its runtime-source hashes match that implementation, and the associated
+immutable-intent guard passed. This supersedes the earlier result for this
+milestone; it does not establish the remaining ecosystem gates.
+
+Fourteen non-native tests pass in the manager-prepared editable-source environment,
+including actual CLI PTY rejection, cancellation and approval with doubled
+login/monitor integrations. The in-memory HTTP handler test covers HEAD, full GET,
+cache reuse, rejected paths/methods and tampered bytes. Other unit cases check
+separate advisory-origin authorization and embedded wheel identity. These unit
+and PTY checks are separate from native installation evidence.
+
+The manager's subsequent `check-2-1.log` passed all 15 tests without skips in
+7.707 seconds, including runtime-tree path validation. Review then identified
+an additional accepted location: the resolver mounts `/etc/ssl/certs`, which
+the general runtime-tree restriction did not exclude. Credential validation now
+also uses the resolver and build runtime mount declarations, checking their
+resolved host targets. Synthetic tests cover CA-directory references, mount
+aliases pointing into data directories, setup and broker reload before credential
+reads, and an allowed sibling path. They never read credentials from system trees.
+Twenty selected non-native tests pass against this correction, including Python
+and npm routing and the existing CLI PTY review tests with mocked login/monitor
+integrations. The existing successful external-credential native journey remains
+unchanged; its manager rerun against this correction is pending. Earlier native
+results do not certify the added mount exclusions. This correction changes no
+tooling interface or dependency; local mount construction establishes the issue,
+so additional external research adds no evidence.
+
+The HEAD compatibility fix follows the pinned
+[uv 0.12.15 wheel client](https://github.com/astral-sh/uv/blob/0.12.15/crates/uv-client/src/registry_client.rs).
+The credential-free view follows the
+[Simple Repository API](https://packaging.python.org/en/latest/specifications/simple-repository-api/).
+The added denial and isolation tests reuse existing interfaces and dependencies;
+they introduce no new resolver or transport API.
 
 ## Validation and reproduction
 
@@ -163,7 +301,7 @@ It also probes a forbidden resource and checks its bytes. It records source
 hashes, every failed case and explicit uncovered requirements. Synthetic fixture
 approval is scripted; this is not a live model trajectory or full task gate.
 
-The current focused run executed 57 tests: 55 passed and two native tests failed
+An earlier broader focused run executed 57 tests: 55 passed and two native tests failed
 before their intended effects. Socket creation returned `Operation not permitted`
 for the authenticated fixture. Monitor service creation returned `Read-only file
 system` under the operator's systemd user directory. These failures were retained;
@@ -173,6 +311,8 @@ workspace import after an allowed source edit, excluded-source probes, and an
 unrelated-process control. The native workspace driver also found a missing
 staging-parent directory for nested manifests; that defect was fixed and gained
 a regression test. Its next attempt reached the systemd-directory restriction.
+The subsequent manager private-Python result above supersedes the private
+fixture's sandbox failure only; it does not establish the other ecosystem gates.
 Run native checks outside the model sandbox. The manager suite
 also needs its environment lock outside the worker's writable scope.
 
@@ -202,3 +342,14 @@ static-metadata guard. pnpm's native lock inspection is versioned and is not
 an npm converter: [pnpm list](https://pnpm.io/10.x/cli/list) and
 [pnpm install](https://pnpm.io/10.x/cli/install). Research establishes these
 interfaces, not successful confined integration.
+
+The Python wheel view uses the official
+[Simple Repository API](https://packaging.python.org/en/latest/specifications/simple-repository-api/)
+JSON representation; version 1.1 defines file size and upload-time metadata.
+The protocol and uv CLI documentation were checked for the private-Python
+diagnostic milestone. The subsequent HTTP-method fix follows the pinned
+[uv 0.12.15 registry client](https://github.com/astral-sh/uv/blob/0.12.15/crates/uv-client/src/registry_client.rs),
+whose `wheel_metadata_no_pep658` sends HEAD before trying range requests and
+streams the wheel when ranges are unsupported. No dependency, policy or
+confinement change was needed. Native success is limited to the measured
+synthetic private-Python journey above.

@@ -19,6 +19,9 @@ from .python_runtime import select, verify
 from .workspace_policy import relative
 
 
+METADATA_HOST_PATHS = ('/etc/resolv.conf', '/etc/ssl/certs', '/etc/hosts')
+
+
 class ResolutionError(Invalid):
     def __init__(self, outcome, message):
         self.outcome = outcome
@@ -33,6 +36,30 @@ def resolver_environment(stage):
             'XDG_CONFIG_HOME': str(home), 'XDG_CACHE_HOME': str(home / 'cache'),
             'UV_NO_PROGRESS': '1', 'UV_KEYRING_PROVIDER': 'disabled',
             'GIT_CONFIG_NOSYSTEM': '1', 'GIT_TERMINAL_PROMPT': '0'}
+
+
+def resolver_failure_signals(stderr):
+    """Fixed diagnostic labels only; native output can contain upstream secrets.
+
+    These are observations for debugging, never evidence of a policy violation.
+    Keep the raw output out of receipts and user-facing exceptions.
+    """
+    message = stderr[:65536].lower()
+    patterns = {
+        'argument': ('unexpected argument', 'unrecognized option', 'invalid value'),
+        'permission': ('operation not permitted', 'permission denied'),
+        'missing_path': ('no such file or directory', 'not found at'),
+        'interpreter': ('failed to query python', 'python interpreter', 'interpreter at'),
+        'network': ('dns', 'connect', 'network'),
+        'http_method': ('unsupported method', '501 not implemented'),
+        'http_status': ('client error', 'server error', 'status code'),
+        'metadata': ('deserialize', 'parse', 'invalid metadata', 'missing field'),
+        'archive': ('zip', 'central directory'),
+        'range_request': ('range request', 'range header'),
+        'solver': ('no solution found',),
+        'panic': ('panicked',),
+    }
+    return sorted(key for key, values in patterns.items() if any(v in message for v in values))
 
 
 def run_metadata(argv, *, cwd, env, capture_output, text, timeout):
@@ -50,7 +77,7 @@ def run_metadata(argv, *, cwd, env, capture_output, text, timeout):
     command += ['--bind', str(stage), '/resolution', '--chdir', '/resolution']
     if not executable.is_relative_to('/usr'):
         command += ['--ro-bind', str(executable), '/resolver']
-    for path in ('/etc/resolv.conf', '/etc/ssl/certs', '/etc/hosts'):
+    for path in METADATA_HOST_PATHS:
         if Path(path).exists():
             command += ['--ro-bind', str(Path(path).resolve()), path]
 
@@ -300,15 +327,22 @@ def resolve_python(root, stage, rules, *, executable=None, source=None, groups=(
             except subprocess.TimeoutExpired as exc:
                 attempt['outcome'] = 'timeout'
                 raise ResolutionError('budget_exhausted', 'native resolver timed out') from exc
+            finally:
+                if view is not None:
+                    attempt['index'] = {'requests': view.requests, 'documents': len(view.documents),
+                        'artifacts': len(view.artifacts), 'downloaded_bytes': view.downloaded,
+                        'failed': view.error is not None}
+            attempt['returncode'] = proc.returncode
+            if proc.returncode:
+                attempt['stderr_signals'] = resolver_failure_signals(proc.stderr)
+                attempt['stderr_sha256'] = hashlib.sha256(proc.stderr.encode()).hexdigest()
             if view is not None and view.error:
                 raise EvidenceError(view.error)
-            attempt['returncode'] = proc.returncode
             if proc.returncode:
                 # uv uses the same status for transport and constraint errors.
                 # Only its explicit solver diagnostic establishes a conflict.
                 conflict = proc.returncode == 1 and 'No solution found' in proc.stderr
                 attempt['outcome'] = 'unsatisfiable' if conflict else 'unavailable'
-                attempt['stderr_sha256'] = hashlib.sha256(proc.stderr.encode()).hexdigest()
                 attempt['failure_category'] = ('sandbox_permission' if any(s in proc.stderr for s in
                     ('Operation not permitted', 'Permission denied')) else
                     'network' if any(s in proc.stderr.lower() for s in ('dns', 'connect', 'network')) else

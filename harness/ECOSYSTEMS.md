@@ -142,7 +142,8 @@ Reports are saved even after a failed assertion. Registry evidence can change; a
 
 | Boundary | Safe next step |
 |---|---|
-| Private registries, Git sources, local editable packages and npm workspaces are not registry installs | Add a reviewed source identity/digest adapter and an explicit credential broker. Until then, separate application source from its public-registry dependency lock. Do not reinterpret local paths as public packages. |
+| Private Python registries need exact routes and complete origin-bound evidence | Use the [operator configuration contract](DEPENDENCY_STATUS.md#private-python-setup-and-verification). Requirements and static PEP 621 are supported; private native locks still fail closed. |
+| Git sources and Python local editable packages need source adapters | Do not reinterpret local paths as public packages. npm workspaces already use reviewed source descriptors; see the [current format matrix](DEPENDENCY_STATUS.md). |
 | A build needs absent headers or offline toolchains | Have an operator provision a reviewed runtime image, or supply checked build wheels. Do not let package code install system packages or access the host. |
 | Large packages or builds exceed limits | Review resource budgets and use a dedicated build runner before raising them. Current limits: 64 Python pins, 1024 distinct npm versions, 128 MiB per v3 download, 512 MiB per set/export, 768 MiB build memory, 180-second build timeout. |
 | Cargo, Maven, NuGet or other package managers | Add an ecosystem evidence/lock/installer adapter using their existing tooling and the same policy/controller/build supervisor. No adapter or vulnerability coverage is claimed yet. |

@@ -108,6 +108,14 @@ class WheelIndex:
                 pass
 
             def do_GET(self):
+                self.respond(head=False)
+
+            def do_HEAD(self):
+                # uv probes wheel headers before requesting metadata. Use the
+                # same checked bytes and routes as GET, with no response body.
+                self.respond(head=True)
+
+            def respond(self, *, head):
                 try:
                     if not self.path.startswith(prefix) or '?' in self.path or len(self.path) > 4096:
                         self.send_error(404)
@@ -125,8 +133,10 @@ class WheelIndex:
                     self.send_response(200)
                     self.send_header('Content-Type', content_type)
                     self.send_header('Content-Length', str(len(raw)))
+                    self.send_header('Accept-Ranges', 'none')
                     self.end_headers()
-                    self.wfile.write(raw)
+                    if not head:
+                        self.wfile.write(raw)
                 except (ValueError, TypeError, KeyError, AttributeError, OSError, EvidenceError):
                     view.error = 'Python metadata or artifact unavailable'
                     self.send_error(502, view.error)

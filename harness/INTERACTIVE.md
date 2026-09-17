@@ -114,8 +114,12 @@ unrestricted network access. [Package details and advanced adapters](ECOSYSTEMS.
 cover native wheels, explicit source builds and unsupported formats.
 
 This one-command path supports ordinary repositories, not every package layout.
-Configured private npm origins and npm workspace sources use separate broker and
-source bindings. Python editable sources, pnpm and dynamic Python metadata still
+Configured private Python/npm origins and npm workspace sources use separate broker and
+source bindings. For private Python, pass
+`--python-registry-config /absolute/operator/python-routes.json` at setup and
+review its bound hash in `details`. Credentials stay in an external operator
+file; see the [registry contract and measured coverage](DEPENDENCY_STATUS.md#private-python-setup-and-verification).
+Python editable sources, pnpm and dynamic Python metadata still
 need implementation. Install scripts require explicit build policy. Metadata such as package
 manifests is read only during agent work; dependency/scope changes need review.
 For a dependency change, use the operator terminal, for example

@@ -12,7 +12,7 @@ from urllib.request import Request
 
 from .npm import NAME, NpmEvidence
 from .package_evidence import EvidenceError, PyPIEvidence, index_urls
-from .policy import Invalid, parse_json
+from .policy import Invalid, data_directory, parse_json
 
 
 def provider_for(store, bundle, ecosystem='npm'):
@@ -34,6 +34,25 @@ def provider_for(store, bundle, ecosystem='npm'):
     return RoutedNpmEvidence(config) if ecosystem == 'npm' else RoutedPyPIEvidence(config, **options)
 
 
+def credential_path(value):
+    if not isinstance(value, str) or not Path(value).is_absolute():
+        raise Invalid('Credential references must be absolute paths')
+    path = Path(value)
+    # Same-user workers can read even owner-only files in runtime mounts.
+    data_directory(path)
+    from .dependency_resolution import METADATA_HOST_PATHS
+    from .supervisor import RUNTIME_HOST_PATHS
+    # Metadata tools add network configuration to the shared build/runtime
+    # namespace. Check both spellings and resolved sources, including mounts
+    # redirected to an otherwise valid data directory by host symlinks.
+    resolved = path.resolve()
+    for source in (*RUNTIME_HOST_PATHS, *METADATA_HOST_PATHS):
+        for exposed in (Path(source), Path(source).resolve()):
+            if path.is_relative_to(exposed) or resolved.is_relative_to(exposed):
+                raise Invalid('Credential references must be outside resolver and build host mounts')
+    return path
+
+
 def outside_repository(config, root):
     root = Path(root).resolve()
     if not isinstance(config, dict) or not isinstance(config.get('packages'), dict):
@@ -41,8 +60,8 @@ def outside_repository(config, root):
     for route in config['packages'].values():
         if not isinstance(route, dict) or not isinstance(route.get('credential_ref'), str):
             raise Invalid('Expected an external credential reference')
-        path = Path(route['credential_ref'])
-        if not path.is_absolute() or path.resolve().is_relative_to(root):
+        path = credential_path(route['credential_ref'])
+        if path.resolve().is_relative_to(root):
             raise Invalid('Credential references must be absolute and outside project source')
 
 
@@ -102,7 +121,7 @@ class RoutedNpmEvidence(NpmEvidence):
                     'registry', 'advisories', 'credential_ref'}:
                 raise Invalid('Private routes require exact name, registry, advisories and credential_ref')
             registry, advisories = (origin(route[k], fixture=fixture) for k in ('registry', 'advisories'))
-            credentials = private_json(route['credential_ref'])
+            credentials = private_json(credential_path(route['credential_ref']))
             if (not isinstance(credentials, dict) or set(credentials) != {'authorization'} or
                     not isinstance(credentials['authorization'], str) or
                     not 1 <= len(credentials['authorization']) <= 8192 or

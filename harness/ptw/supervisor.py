@@ -15,6 +15,9 @@ import time
 from .policy import Invalid, scope
 
 
+RUNTIME_HOST_PATHS = ("/usr", "/bin", "/lib", "/lib64", "/sbin")
+
+
 def run(argv, **kwargs):
     return subprocess.run(argv, capture_output=True, text=True, timeout=20, **kwargs)
 
@@ -42,8 +45,8 @@ def runtime_namespace():
                "--setenv", "PATH", "/usr/bin:/bin", "--setenv", "HOME", "/home/agent",
                "--dir", "/home/agent",
                "--setenv", "XDG_STATE_HOME", "/nono-state", "--dir", "/nono-state",
-               "--ro-bind", "/usr", "/usr"]
-    for path in ["/bin", "/lib", "/lib64", "/sbin"]:
+               "--ro-bind", RUNTIME_HOST_PATHS[0], RUNTIME_HOST_PATHS[0]]
+    for path in RUNTIME_HOST_PATHS[1:]:
         if Path(path).is_symlink():
             command += ["--symlink", os.readlink(path), path]
         elif Path(path).exists():
