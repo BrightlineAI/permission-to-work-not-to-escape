@@ -20,16 +20,16 @@ from .package_evidence import EvidenceError
 from .supervisor import runtime_namespace
 
 
-def target_environment():
+def target_environment(python='/usr/bin/python3'):
     try:
-        return _target_environment()
+        return _target_environment(python)
     except (OSError, subprocess.SubprocessError, ValueError, KeyError) as exc:
         raise EvidenceError("Cannot identify the confined Python interpreter") from exc
 
 
-def target_tags():
+def target_tags(python='/usr/bin/python3'):
     try:
-        result = subprocess.run(["/usr/bin/python3", "-I", "-S", "-c",
+        result = subprocess.run([python, "-I", "-S", "-c",
             "import sys,json; sys.path.insert(0,sys.argv[1]); from packaging.tags import sys_tags; "
             "print(json.dumps([str(t) for t in sys_tags()]))", str(Path(packaging.__file__).parent.parent)],
             capture_output=True, text=True, timeout=10, check=True)
@@ -38,8 +38,8 @@ def target_tags():
         raise EvidenceError("Cannot identify compatible Python wheel tags") from exc
 
 
-def _target_environment():
-    result = subprocess.run(["/usr/bin/python3", "-I", "-S", "-c",
+def _target_environment(python='/usr/bin/python3'):
+    result = subprocess.run([python, "-I", "-S", "-c",
         "import json,sys,platform; v=sys.implementation.version; "
         "iv=f'{v.major}.{v.minor}.{v.micro}'; "
         "iv += '' if v.releaselevel == 'final' else "
@@ -149,7 +149,7 @@ def validate_wheels(wheels, selected, environment=None, *, extended=False, extra
             raise EvidenceError("Python extras did not converge")
 
 
-def install_wheels(wheelhouse, target, evidence, *, extended=False):
+def install_wheels(wheelhouse, target, evidence, *, extended=False, python='/usr/bin/python3'):
     uv = os.environ.get("PTW_UV") or shutil.which("uv")
     if not uv or not Path(uv).is_file():
         raise EvidenceError("uv is required; no installation fallback")
@@ -162,7 +162,7 @@ def install_wheels(wheelhouse, target, evidence, *, extended=False):
         "--ro-bind", str(Path(uv).resolve()), "/uv",
         "--ro-bind", str(wheelhouse), "/wheels", "--bind", str(target), "/target",
         "--", "/uv", "--no-config", "--offline", "--no-cache", "--no-python-downloads",
-        "pip", "install", "--python", "/usr/bin/python3", "--target", "/target",
+        "pip", "install", "--python", python, "--target", "/target",
         "--no-deps", "--no-index", "--no-build", "--require-hashes", "--link-mode", "copy",
         "-r", "/wheels/install.txt"]
     try:
@@ -174,7 +174,8 @@ def install_wheels(wheelhouse, target, evidence, *, extended=False):
     if extended:
         # Executed by the workload's Python, never by the controller. Supports
         # ordinary .pth packages while retaining the same filesystem boundary.
-        (target / "sitecustomize.py").write_text("import site\nsite.addsitedir('/packages')\n")
+        (target / "sitecustomize.py").write_text(
+            "import pathlib,site\nsite.addsitedir(str(pathlib.Path(__file__).parent))\n")
 
 
 def file_manifest(directory):

@@ -23,6 +23,17 @@ For example, a root-file Python project can use:
 
     ptw codex --goal "Maintain this application" --language python --editable '' --files app.py,README.md
 
+For an existing backend/frontend layout, the current source also accepts:
+
+    ptw codex --language mixed --python-root backend --node-root frontend --editable backend/src,backend/tests,frontend/src,frontend/dist --files ''
+
+Select only paths needed by your project; nested parents must already exist.
+Python's declared runtime requirement is preserved and the selected interpreter
+is shown before approval. Current mixed support uses static Python declarations
+and ordinary npm locks. Local/workspace packages and additional native lock
+imports still need implementation. See [dependency status](DEPENDENCY_STATUS.md)
+before treating this as complete ecosystem support.
+
 Missing exact files may be created later through protected tools. No root-directory
 write grant is needed. Metadata remains read only. New directories, generated
 locks/configuration and the review copy are staged and published only after

@@ -4,6 +4,11 @@ A small working extension of the [paper](../paper/submission.pdf). Describe a pr
 
 The usable prototype handles [repository editing and reviewed build/test commands](PRACTICAL.md) and [controlled Python and npm package installation](ECOSYSTEMS.md), including native Python libraries and JavaScript/TypeScript. It supports multiple independent agents, narrower tasks and delegates, shared escalation, automatic monitoring, and review of existing Codex logs. Project differences are JSON configuration, not custom code.
 
+Current source extends typed setup with Python range resolution, reviewed system
+interpreters and mixed backend/frontend command roots. Full ordinary ecosystem
+support is not complete. See [dependency status](DEPENDENCY_STATUS.md) for the
+implemented subset, missing adapters and native checks still needed.
+
 For ordinary Python, JavaScript or TypeScript repositories, start with the
 [interactive quickstart](INTERACTIVE.md): install once, run `ptw codex`, review
 the policy, then work in the normal Codex terminal. The [automation workflow](PRACTICAL.md)

@@ -115,9 +115,10 @@ class PyPIEvidence:
     """Fixed public endpoints, no ambient proxy credentials or alternate index."""
     hosts = ("pypi.org", "api.osv.dev", "files.pythonhosted.org")
 
-    def __init__(self, *, native=False, sources=()):
+    def __init__(self, *, native=False, sources=(), python='/usr/bin/python3'):
         self.http = build_opener(ProxyHandler({}), NoRedirect())
         self.native, self.sources = native, set(sources)
+        self.python = python
 
     def fetch(self, url, data=None, limit=4 * 1024 * 1024):
         endpoint = urlsplit(url)
@@ -155,7 +156,7 @@ class PyPIEvidence:
             tags_order = None
             if self.native:
                 from .package_install import target_tags
-                tags_order = {tag: i for i, tag in enumerate(target_tags())}
+                tags_order = {tag: i for i, tag in enumerate(target_tags(self.python))}
             for item in release["urls"]:
                 if item.get("packagetype") != "bdist_wheel" or item.get("yanked") is not False:
                     continue

@@ -60,6 +60,8 @@ class Store:
                 db.execute("ALTER TABLE sessions ADD COLUMN packages TEXT NOT NULL DEFAULT '[]'")
             if "ecosystem" not in {r[1] for r in db.execute("PRAGMA table_info(package_sets)")}:
                 db.execute("ALTER TABLE package_sets ADD COLUMN ecosystem TEXT NOT NULL DEFAULT 'pypi'")
+            if "policy_sha256" not in {r[1] for r in db.execute("PRAGMA table_info(package_sets)")}:
+                db.execute("ALTER TABLE package_sets ADD COLUMN policy_sha256 TEXT")
             if "commands" not in {r[1] for r in db.execute("PRAGMA table_info(sessions)")}:
                 db.execute("ALTER TABLE sessions ADD COLUMN commands TEXT NOT NULL DEFAULT '[]'")
             if "closed" not in {r[1] for r in db.execute("PRAGMA table_info(sessions)")}:

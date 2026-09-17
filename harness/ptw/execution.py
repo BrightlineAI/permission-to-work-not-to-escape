@@ -15,10 +15,10 @@ from .workspace import MAX_ENTRIES, MAX_FILE, MAX_TREE, materialize, scan
 RECEIPT = ".ptw-command-result.json"
 WRAPPER = r"""
 import json,os,subprocess,sys,tempfile
-os.chdir('/target')
+os.chdir('/target' + ('/' + sys.argv[2] if sys.argv[2] else ''))
 with tempfile.TemporaryFile() as output:
     try:
-        result=subprocess.run(sys.argv[2:],stdin=subprocess.DEVNULL,stdout=output,
+        result=subprocess.run(sys.argv[3:],stdin=subprocess.DEVNULL,stdout=output,
                               stderr=subprocess.STDOUT,timeout=int(sys.argv[1]))
         code=result.returncode
     except subprocess.TimeoutExpired:
@@ -48,9 +48,15 @@ def execute(store, token, definition, before, settings):
     mounts = {}
     with store.locked() as db:
         actor = store.session(db, token)
-        project, _ = store.project(db, actor["project"])
+        project, bundle = store.project(db, actor["project"])
         if project["stopped"]:
             raise Invalid("Project stopped")
+        from .dependency_binding import verify_inputs
+        verify_inputs(bundle)
+        runtime = bundle['policy']['project'].get('python_runtime')
+        if runtime:
+            from .python_runtime import verify
+            verify(runtime)
         for identity in options.get("package_sets", []):
             mount = mounted_set(store, db, actor, identity)
             ecosystem = db.execute("SELECT ecosystem FROM package_sets WHERE id=?", (identity,)).fetchone()[0]
@@ -78,6 +84,7 @@ def execute(store, token, definition, before, settings):
                                 "PATH=/node-packages/node_modules/.bin:/usr/bin:/bin"]
         command += ["--", *permissions, "--", "/usr/bin/env", *environment,
                     "/usr/bin/python3", "-I", "-S", "-c", WRAPPER, str(definition["timeout_seconds"]),
+                    definition.get('cwd', ''),
                     *definition["argv"]]
         try:
             run_build(store, token, command, target)

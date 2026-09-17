@@ -16,6 +16,24 @@ COMMAND = obj({
     "resources": {"type": "array", "minItems": 1, "maxItems": 128, "uniqueItems": True, "items": ID},
     "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 120},
 })
+COMMAND['properties']['cwd'] = {'type': 'string', 'maxLength': 1024}
+WORKSPACE_SCHEMA['properties']['project']['properties']['python_runtime'] = obj({
+    'executable': {'type': 'string', 'minLength': 1},
+    'sha256': {'type': 'string', 'pattern': '^[0-9a-f]{64}$'},
+    'version': {'type': 'string'}, 'implementation': {'type': 'string'},
+    'abi': {'type': 'string'}, 'prefix': {'type': 'string'},
+    'requires_python': {'type': 'string'},
+})
+WORKSPACE_SCHEMA['properties']['project']['properties']['python_runtime']['properties']['version_request'] = {'type': 'string'}
+WORKSPACE_SCHEMA['properties']['project']['properties']['python_dependencies'] = obj({
+    'inputs': {'type': 'object', 'maxProperties': 64,
+               'additionalProperties': {'type': 'string', 'pattern': '^[0-9a-f]{64}$'}},
+    'pins': {'type': 'array', 'maxItems': 64, 'items': {'type': 'string'}},
+    'artifacts': {'type': 'array', 'maxItems': 64, 'items': obj({
+        'name': {'type': 'string'}, 'version': {'type': 'string'},
+        'url': {'type': 'string'}, 'sha256': {'type': 'string', 'pattern': '^[0-9a-f]{64}$'},
+    })},
+})
 for node in [WORKSPACE_SCHEMA["properties"]["project"], WORKSPACE_SCHEMA["properties"]["tasks"]["items"]]:
     node["properties"]["grants"]["items"]["properties"]["actions"]["items"]["enum"] = FILE_ACTIONS
     node["required"].append("commands")
@@ -74,6 +92,22 @@ def resource_info(inv, resource):
 
 def validate_workspace(policy, inv):
     validate(WORKSPACE_SCHEMA, policy)
+    if 'python_runtime' in policy['project']:
+        from .python_runtime import verify
+        verify(policy['project']['python_runtime'])
+    descriptor = policy['project'].get('python_dependencies')
+    if descriptor:
+        if 'python_runtime' not in policy['project']:
+            raise Invalid('Dependency resolution requires a reviewed Python runtime')
+        for name in descriptor['inputs']:
+            relative(name)
+        from .package_evidence import pins
+        chosen = pins(descriptor['pins'], extras={}) if descriptor['pins'] else {}
+        if not {'pypi:' + n for n in chosen} <= set(policy['project']['packages']['allowed_names']):
+            raise Invalid('Dependency resolution expands package scope')
+        if (len(descriptor['artifacts']) != len(chosen) or
+                {e['name']: e['version'] for e in descriptor['artifacts']} != chosen):
+            raise Invalid('Dependency artifact identities do not match pins')
     paths = [r["path"] for r in inv["resources"].values()]
     for i, path in enumerate(paths):
         for other in paths[i + 1:]:
@@ -82,6 +116,12 @@ def validate_workspace(policy, inv):
     grants = scope(policy["project"]["grants"])
     commands = {}
     for command in policy["project"]["commands"]:
+        cwd = relative(command.get('cwd', ''), empty=True)
+        if cwd and not any(inv['resources'][r]['path'] == cwd or
+                inv['resources'][r]['path'].startswith(cwd + '/') or
+                (inv['resources'][r].get('kind') == 'tree' and cwd.startswith(inv['resources'][r]['path'] + '/'))
+                for r in command['resources'] if r in inv['resources']):
+            raise Invalid('Command cwd must be inside its declared input layout')
         if command["id"] in commands:
             raise Invalid("Duplicate command ID")
         if any("\x00" in a for a in command["argv"]):

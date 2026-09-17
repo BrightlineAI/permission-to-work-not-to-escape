@@ -8,9 +8,11 @@ acceptance are still required; offline PTYs do not establish either.
 
 ## Scope and review
 
-Setup detects Python, JavaScript and TypeScript from ordinary root filenames and
-bounded configuration. `--editable src,tests` selects top-level directories;
-`--files README.md,app.py` selects exact top-level files, including missing files.
+Setup detects Python, JavaScript, TypeScript and Python/Node mixed layouts from
+bounded configuration. `--editable src,tests` selects directories;
+`--files README.md,app.py` selects exact files, including missing files.
+Nested source paths such as `backend/src,frontend/src` are accepted when their
+parents already exist without links. Overlapping scopes are rejected.
 Use an empty argument or `-` for no entries of that kind. Root-directory grants,
 traversal, hidden/control/credential paths, links and special files are rejected.
 Repository descriptions and previous logs never become permission sources.
@@ -58,10 +60,31 @@ and only known no-output syntax commands; arbitrary repository scripts are not
 assumed read only. Commands remain bounded by the existing workspace snapshot
 limits and 120-second timeout.
 
-Python execution still uses `/usr/bin/python3`; static requirements/pyproject and
-npm package locks retain their existing supported-format limits. Mixed projects,
-runtime selection, local/workspace/private packages and additional lock formats
-belong to the queued ecosystem work. This change does not claim those features.
+Python templates select an installed interpreter under `/usr` that satisfies the
+original `requires-python` and, when present, one numeric `.python-version`
+request. `--python /usr/bin/python3.12` explicitly selects the interpreter for
+review. No interpreter is downloaded. The executable hash, version, ABI and
+requirements are bound to approval, package preparation and command reuse.
+Existing older policies keep their original system-Python behavior.
+
+Root-level mixed manifests and `backend`/`frontend` layouts are detected. Use
+`--python-root backend --node-root frontend` for explicit roots; choose source
+directories within those roots. Commands receive their reviewed working directory
+inside the synthetic command tree. This grants no repository-root mount.
+
+Requirements `.in`/`.txt` files support bounded `-r`/`-c` includes, SHA256 hashes
+and markers. Static PEP 621 projects support extras and dependency groups,
+including group includes. Select `--python-extras web --python-groups test` as
+needed. The default groups are existing `dev` and `test` groups. If requirements
+and pyproject both declare dependencies, choose `--python-source` explicitly.
+Original declarations stay unchanged. uv performs compatibility resolution with
+an age cutoff and additive exclusions for confirmed unsafe versions, followed
+by the shared evidence evaluator and artifact checks.
+
+The ordinary lock/workspace/private-registry and dependency-revision portions
+of task 3 remain incomplete. See [current dependency status](DEPENDENCY_STATUS.md)
+for implemented paths, test evidence and pending native validation. These gaps
+are not classified as unusual formats or waived acceptance requirements.
 
 ## Publication and recovery
 

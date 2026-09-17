@@ -9,11 +9,11 @@ from packaging.version import Version
 
 from .package_build import run_build
 from .package_evidence import EvidenceError
-from .package_install import target_tags, validate_wheels
+from .package_install import target_environment, target_tags, validate_wheels
 from .supervisor import runtime_namespace
 
 
-def build_sources(store, token, artifacts, evidence, selected, *, allow_native=False):
+def build_sources(store, token, artifacts, evidence, selected, *, allow_native=False, python='/usr/bin/python3'):
     sources = [e for e in evidence if e.get("artifact_kind") == "sdist"]
     if not sources:
         return evidence
@@ -25,9 +25,9 @@ def build_sources(store, token, artifacts, evidence, selected, *, allow_native=F
     (artifacts / "build-pins.txt").write_text("".join(n + "==" + v + "\n" for n, v in selected.items()))
     wheel_records = [e for e in evidence if e not in sources]
     validate_wheels({e["name"]: artifacts / e["filename"] for e in wheel_records},
-                    selected, extended=True)
+                    selected, environment=target_environment(python), extended=True)
     result = list(wheel_records)
-    compatible = set(target_tags())
+    compatible = set(target_tags(python))
     for index, source in enumerate(sources):
         output = artifacts.parent / ("build-" + str(index))
         output.mkdir(mode=0o700)
@@ -36,7 +36,7 @@ def build_sources(store, token, artifacts, evidence, selected, *, allow_native=F
             "--bind", str(output), "/target", "--", "/uv",
             "--no-config", "--offline", "--no-cache", "--no-python-downloads", "build",
             "--wheel", "--no-sources", "--no-index", "--find-links", "/artifacts",
-            "--build-constraints", "/artifacts/build-pins.txt", "--python", "/usr/bin/python3",
+            "--build-constraints", "/artifacts/build-pins.txt", "--python", python,
             "--out-dir", "/target/out", "/artifacts/" + source["filename"]]
         run_build(store, token, command, output)
         wheels = list((output / "out").glob("*.whl"))
@@ -48,7 +48,7 @@ def build_sources(store, token, artifacts, evidence, selected, *, allow_native=F
             raise EvidenceError("Source build produced a different identity or incompatible wheel")
         if not allow_native and not any(t.interpreter == "py3" and t.abi == "none" and t.platform == "any" for t in tags):
             raise EvidenceError("Built native wheel needs explicit native-wheel policy authority")
-        validate_wheels({name: wheel}, selected, extended=True)
+        validate_wheels({name: wheel}, selected, environment=target_environment(python), extended=True)
         destination = artifacts / wheel.name
         with wheel.open("rb") as reader, destination.open("xb") as writer:
             shutil.copyfileobj(reader, writer)

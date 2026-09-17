@@ -4,6 +4,12 @@ This prototype checks package scope, known vulnerabilities and release age befor
 
 ## What works
 
+The table below describes the existing package installer. Current source adds
+bounded Python declaration resolution, reviewed system-runtime selection and
+mixed-project command roots through [typed setup](ONBOARDING.md). Task 3 is
+incomplete; its [status and evidence](DEPENDENCY_STATUS.md) separate tested units
+from pending native journeys and missing ordinary adapters.
+
 | Input | Installation and execution |
 |---|---|
 | Exact Python pins | Pure and compatible native wheels, dependency markers, extras and wheel data |
@@ -54,7 +60,7 @@ Review the actual policy. The draft proposes numpy only for the frontend task, n
       --package-set PASTE_PACKAGE_SET_ID -- /usr/bin/python3 -c \
       "import numpy; open('/resources/ui','w').write(str(int(numpy.array([1,2,3]).sum())))"
 
-The receipt supplies the package set ID. Check resources/ui.txt: it should contain 6. Launch returns before completion, so verify the file after a few seconds. The environment is mounted read only at /packages. The workload interpreter is /usr/bin/python3, not the installer's private Python.
+The receipt supplies the package set ID. Check resources/ui.txt: it should contain 6. Launch returns before completion, so verify the file after a few seconds. This legacy workflow mounts the environment read only at /packages and uses /usr/bin/python3. Current typed setup records a reviewed compatible system interpreter. The installer's private Python is not implicitly the application's interpreter.
 
 ### Extras and source builds
 
@@ -64,7 +70,11 @@ For python-source.txt, add --build pypi:stopit to package-draft. The supplied se
 
 The receipt records both the source artifact hash and the generated wheel hash. Builds run in a registered resource-limited namespace. They cannot see controller state, credentials or project resources, and a project stop terminates them.
 
-For an existing requirements file, supply a complete exact pin set, one name[optional-extra]==version per line. Whole-line comments and blank lines are accepted. Ranges, direct URLs and editable paths are not registry pins. Use your normal trusted locking workflow first; do not run an untrusted build backend outside the harness to create a lock.
+The low-level package-install command still requires complete exact pins, one
+name[optional-extra]==version per line. Typed setup can compile supported static
+requirements and pyproject declarations with ranges into reviewed exact pins.
+URLs and editable paths are not registry identities. Do not run an untrusted
+build backend outside the harness to prepare a lock.
 
 ## New project: npm and TypeScript
 

@@ -8,12 +8,8 @@ from pathlib import Path
 import re
 import secrets
 import shutil
-import subprocess
 import sys
 import time
-import tomllib
-
-from packaging.requirements import Requirement
 
 from .monitor import ensure
 from .policy import Invalid, approve, compile_policy, digest, load, parse_json, save
@@ -43,13 +39,18 @@ def data(path, limit=1024 * 1024):
 
 
 def detect(repo):
+    if ((repo / 'frontend/package.json').is_file() and
+            any((repo / ('backend/' + n)).is_file() for n in ('pyproject.toml', 'requirements.txt', 'requirements.in'))):
+        return 'mixed'
     if (repo / "package.json").exists():
+        if any((repo / n).exists() for n in ('pyproject.toml', 'requirements.in', 'requirements.txt')):
+            return 'mixed'
         meta = parse_json(data(repo / "package.json"))
         if not isinstance(meta, dict) or any(not isinstance(meta.get(k, {}), dict) for k in ("dependencies", "devDependencies")):
             raise Invalid("Expected package.json object and dependency maps")
         deps = {**meta.get("dependencies", {}), **meta.get("devDependencies", {})}
         return "typescript" if "typescript" in deps or (repo / "tsconfig.json").exists() else "javascript"
-    if any((repo / n).exists() for n in ("pyproject.toml", "requirements.txt")) or any(repo.glob("*.py")):
+    if any((repo / n).exists() for n in ("pyproject.toml", "requirements.in", "requirements.txt")) or any(repo.glob("*.py")):
         return "python"
     if any(repo.glob("*.ts")) or (repo / "tsconfig.json").exists():
         return "typescript"
@@ -57,59 +58,20 @@ def detect(repo):
 
 
 def resolve_python(repo, stage):
-    dependencies = []
-    if (repo / "requirements.txt").exists():
-        dependencies = [line.strip() for line in data(repo / "requirements.txt").splitlines()
-                        if line.strip() and not line.lstrip().startswith("#")]
-    elif (repo / "pyproject.toml").exists():
-        meta = tomllib.loads(data(repo / "pyproject.toml"))
-        project = meta.get("project", {})
-        if not isinstance(project, dict) or not isinstance(project.get("dependencies", []), list):
-            raise Invalid("Expected static Python project dependency list")
-        if not isinstance(project.get("dynamic", []), list) or not isinstance(meta.get("dependency-groups", {}), dict):
-            raise Invalid("Malformed Python dynamic fields or dependency groups")
-        if "dependencies" in project.get("dynamic", []):
-            raise Invalid("Dynamic Python dependencies need an operator supplied lock; no build backend runs during setup.")
-        dependencies = list(project.get("dependencies", []))
-        for group in ("dev", "test"):
-            entries = meta.get("dependency-groups", {}).get(group, [])
-            if not isinstance(entries, list):
-                raise Invalid("Python dependency groups must be lists")
-            for dependency in entries:
-                if not isinstance(dependency, str):
-                    raise Invalid("Nested dependency groups need an exported requirements file for this version.")
-                dependencies.append(dependency)
-    if not dependencies:
+    from .dependency_resolution import resolve_python as resolve
+    from .setup_templates import RULES
+    options = load(stage / 'python-options.json') if (stage / 'python-options.json').exists() else {}
+    result = resolve(repo, stage / 'python-resolution', RULES, **options)
+    save(stage / 'python-plan.json', result)
+    if not result['pins']:
         return None
-    for spec in dependencies:
-        if not isinstance(spec, str):
-            raise Invalid("Python dependencies must be requirement strings")
-        parsed = Requirement(spec)
-        if parsed.url:
-            raise Invalid("Python direct URLs/local packages need a reviewed source adapter.")
-    source = stage / "requirements.in"
-    source.write_text("\n".join(dependencies) + "\n")
-    output = stage / "requirements.txt"
-    uv = shutil.which("uv")
-    if not uv:
-        raise Invalid("uv is required to resolve Python dependencies.")
-    env = {k: v for k, v in os.environ.items() if not k.startswith(("UV_", "PIP_"))}
-    result = subprocess.run([uv, "--no-config", "--cache-dir", str(stage / "cache"), "pip", "compile",
-                             "--no-build", "--no-sources", "--python", "/usr/bin/python3",
-                             "--index-url", "https://pypi.org/simple",
-                             "--no-annotate", "--no-header", str(source), "--output-file", str(output)],
-                            capture_output=True, text=True, timeout=180, env=env)
-    if result.returncode:
-        raise Invalid("Python lock resolution failed without executing builds: " + result.stderr[-1000:])
-    from .package_evidence import pins
-    lines = [s.strip() for s in output.read_text().splitlines() if s.strip() and not s.startswith("#")]
-    pins(lines, extras={})
+    content = '\n'.join(result['pins']) + '\n'
     destination = repo / "ptw-requirements.txt"
     if destination.exists():
-        if data(destination) != output.read_text():
+        if data(destination) != content:
             raise Invalid("ptw-requirements.txt differs; review/update it explicitly before setup.")
     else:
-        destination.write_text(output.read_text())
+        destination.write_text(content)
     return destination
 
 
@@ -121,6 +83,8 @@ def resolve_npm(repo, stage):
         raise Invalid("Expected package.json object and dependency maps")
     if manifest.get("workspaces"):
         raise Invalid("npm workspaces require the separate workspace adapter; no unsafe fallback.")
+    if any((repo / name).exists() for name in ('pnpm-lock.yaml', 'yarn.lock')):
+        raise Invalid('pnpm/Yarn locks require explicit native import; refusing to replace the authoritative lock')
     has_dependencies = any(manifest.get(k) for k in
                            ("dependencies", "devDependencies", "optionalDependencies", "peerDependencies"))
     if lock.exists():
@@ -135,6 +99,9 @@ def resolve_npm(repo, stage):
                 return None
         from .npm import NpmPlan
         NpmPlan(resolved)
+        for key in ('dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies'):
+            if manifest.get(key, {}) != resolved['packages'][''].get(key, {}):
+                raise Invalid('package.json and package-lock.json disagree; review a native lock update')
         return lock
     if not has_dependencies:
         return None
@@ -152,13 +119,18 @@ def resolve_npm(repo, stage):
     folder = stage / "npm"
     folder.mkdir(mode=0o700)
     save(folder / "package.json", cleaned)
-    env = {k: v for k, v in os.environ.items() if not k.lower().startswith("npm_config_")}
-    result = subprocess.run([npm, "install", "--package-lock-only", "--ignore-scripts", "--no-audit", "--no-fund",
+    from .dependency_resolution import resolver_environment, run_metadata
+    from .setup_templates import RULES
+    from datetime import datetime, timezone
+    env = resolver_environment(folder)
+    cutoff = datetime.fromtimestamp(time.time() - RULES['min_release_age_days'] * 86400, timezone.utc).isoformat()
+    result = run_metadata([npm, "install", "--package-lock-only", "--ignore-scripts", "--no-audit", "--no-fund",
+                             '--before=' + cutoff,
                              "--registry=https://registry.npmjs.org", "--userconfig=/dev/null",
                              "--globalconfig=" + str(folder / "empty-global"), "--cache=" + str(folder / "cache")],
                             cwd=folder, capture_output=True, text=True, timeout=180, env=env)
     if result.returncode:
-        raise Invalid("npm metadata-only locking failed: " + result.stderr[-1000:])
+        raise Invalid("npm metadata-only locking failed; no unchecked fallback")
     resolved = load(folder / "package-lock.json")
     # The root name is metadata, not an installed registry identity.
     resolved["name"] = manifest.get("name", "project")
@@ -171,7 +143,13 @@ def resolve_npm(repo, stage):
     return lock
 
 
-def candidates(repo, language, editable, metadata, *, metadata_root=None):
+def candidates(repo, language, editable, metadata, *, metadata_root=None, python='/usr/bin/python3'):
+    if language == 'mixed':
+        commands = []
+        for kind in ('python', 'javascript'):
+            commands.extend({**c, 'id': kind + '-' + c['id']} for c in candidates(
+                repo, kind, editable, metadata, metadata_root=metadata_root, python=python))
+        return commands
     resources = sorted(set(editable + metadata))
     config = metadata_root or repo
     commands = []
@@ -216,7 +194,8 @@ def candidates(repo, language, editable, metadata, *, metadata_root=None):
         # Exact-file syntax checks do not execute repository code or publish writes.
         if len(js_files) == 1:
             commands.append(("syntax", ["/usr/bin/node", "--check", js_files[0]]))
-    return [{"id": name, "argv": argv, "resources": resources, "timeout_seconds": 120}
+    return [{"id": name, "argv": [python if arg == '/usr/bin/python3' else arg for arg in argv],
+             "resources": resources, "timeout_seconds": 120}
             for name, argv in commands]
 
 
@@ -247,6 +226,10 @@ def review_text(bundle):
     lines.append("All undeclared resources and direct network access are denied.")
     lines.append("Commands run confined; only permitted output changes reach this repository.")
     lines.append("Policy hash: " + digest(bundle))
+    if 'python_runtime' in policy['project']:
+        lines.append('Reviewed Python runtime: ' + json.dumps(policy['project']['python_runtime'], sort_keys=True))
+    if 'python_dependencies' in policy['project']:
+        lines.append('Reviewed dependency inputs and artifacts: ' + json.dumps(policy['project']['python_dependencies'], sort_keys=True))
     return "\n".join(lines)
 
 
@@ -281,9 +264,37 @@ def setup(repo, directory, args, previous=None):
     require_login()
     if not sys.stdin.isatty():
         raise Invalid("Setup requires a real terminal and explicit operator review.")
-    language = args.language or detect(repo) or ask("Language (python/javascript/typescript)", "python")
-    if language not in ("python", "javascript", "typescript"):
-        raise Invalid("Choose python, javascript or typescript.")
+    language = args.language or detect(repo) or ask("Language (python/javascript/typescript/mixed)", "python")
+    if language not in ("python", "javascript", "typescript", 'mixed'):
+        raise Invalid("Choose python, javascript, typescript or mixed.")
+    from .workspace_policy import directory_fd, relative
+    python_root = getattr(args, 'python_root', None)
+    node_root = getattr(args, 'node_root', None)
+    if python_root is None:
+        python_root = 'backend' if language == 'mixed' and (repo / 'backend').is_dir() and not any(
+            (repo / n).exists() for n in ('pyproject.toml', 'requirements.txt', 'requirements.in')) else ''
+    if node_root is None:
+        node_root = 'frontend' if language == 'mixed' and not (repo / 'package.json').exists() and (repo / 'frontend/package.json').exists() else ''
+    for root in (python_root, node_root):
+        relative(root, empty=True)
+        fd = directory_fd(repo / root)
+        os.close(fd)
+    roots = sorted(set(([python_root] if language in ('python', 'mixed') else []) +
+                       ([node_root] if language != 'python' else [])))
+    metadata_names = [str(Path(root) / name) for root in roots for name in METADATA]
+
+    def command_catalog(scope, metadata, shadow, python):
+        result = []
+        for kind, root in ([('python', python_root)] if language == 'python' else
+                           [('javascript', node_root)] if language != 'mixed' else
+                           [('python', python_root), ('javascript', node_root)]):
+            prefix = root + '/' if root else ''
+            editable = [n[len(prefix):] for n in scope if n.startswith(prefix)]
+            config = [n[len(prefix):] for n in metadata if n.startswith(prefix)]
+            for command in candidates(repo / root, kind, editable, config, metadata_root=shadow / root, python=python):
+                result.append({**command, 'id': (kind + '-' if language == 'mixed' else '') + command['id'],
+                    'resources': [prefix + n for n in command['resources']], **({'cwd': root} if root else {})})
+        return result
     goal = args.goal or ask("What should this project do, and what must it not do?")
     if not goal or len(goal) > 8000:
         raise Invalid("A project goal of 1 to 8000 characters is required.")
@@ -307,7 +318,7 @@ def setup(repo, directory, args, previous=None):
             raise Invalid("Use thresholds 1 <= warning <= stop <= 100.")
         scope = selected(repo, directories, files)
         # Metadata is copied into an external workspace. Resolvers may write only there.
-        inputs = {name: fingerprint(repo / name) for name in sorted(set(scope) | set(METADATA) | {".ptw"})}
+        inputs = {name: fingerprint(repo / name) for name in sorted(set(scope) | set(metadata_names) | {".ptw"})}
         inputs[""] = fingerprint(repo)
         if inputs[".ptw"] is not None:
             if inputs[".ptw"]["kind"] != "directory":
@@ -315,27 +326,49 @@ def setup(repo, directory, args, previous=None):
             inputs[".ptw/policy.json"] = fingerprint(repo / ".ptw/policy.json")
         shadow = stage / "metadata"
         shadow.mkdir()
-        for name in METADATA:
+        for root in roots:
+            (shadow / root).mkdir(parents=True, exist_ok=True)
+        for name in metadata_names:
             if inputs[name] is not None:
                 (shadow / name).write_text(data(repo / name, 8 * 1024 * 1024))
-        if language != "python" and not (shadow / "package.json").exists():
+        python_options = {key: getattr(args, flag) for key, flag in
+                          (('executable', 'python'), ('source', 'python_source')) if getattr(args, flag, None)}
+        for key in ('groups', 'extras'):
+            value = getattr(args, 'python_' + key, None)
+            if value is not None:
+                python_options[key] = split_scope(value)
+        if language in ('python', 'mixed'):
+            from .dependency_resolution import python_inputs
+            _, _, source_inputs, _ = python_inputs(repo / python_root, **{k: v for k, v in python_options.items() if k != 'executable'})
+            for local_name in source_inputs:
+                name = str(Path(python_root) / local_name)
+                inputs.setdefault(name, fingerprint(repo / name))
+                if name not in metadata_names:
+                    metadata_names.append(name)
+                destination = shadow / name
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                destination.write_text(data(repo / name, 8 * 1024 * 1024))
+            save(stage / 'python-options.json', python_options)
+        if language != "python" and not (shadow / node_root / "package.json").exists():
             manifest = {"name": "project", "version": "1.0.0", "private": True, "type": "module"}
             if language == "typescript":
                 manifest["devDependencies"] = {"typescript": "5.8.3"}
                 manifest["scripts"] = {"build": "tsc"}
-            save(shadow / "package.json", manifest)
+            save(shadow / node_root / "package.json", manifest)
             if language == "typescript":
-                save(shadow / "tsconfig.json", {"compilerOptions": {"target": "ES2022", "module": "NodeNext",
+                save(shadow / node_root / "tsconfig.json", {"compilerOptions": {"target": "ES2022", "module": "NodeNext",
                      "outDir": "dist", "strict": True},
                      "include": [name + "/**/*.ts" if kind == "tree" else name
                                  for name, kind in scope.items() if kind == "tree" or name.endswith(".ts")]})
         print("Preparing typed template; resolving dependency metadata without running project code...", flush=True)
-        requirements = resolve_python(shadow, stage) if language == "python" else None
-        npm_lock = resolve_npm(shadow, stage) if language != "python" else None
-        metadata = [name for name in METADATA if (shadow / name).exists()]
+        requirements = resolve_python(shadow / python_root, stage) if language in ('python', 'mixed') else None
+        npm_lock = resolve_npm(shadow / node_root, stage) if language != "python" else None
+        metadata = [name for name in metadata_names if (shadow / name).exists()]
         names = package_names(requirements, npm_lock)
         generated = {name: data(shadow / name, 8 * 1024 * 1024) for name in metadata if inputs[name] is None}
-        catalog = candidates(repo, language, list(scope), metadata, metadata_root=shadow)
+        python_plan = load(stage / 'python-plan.json') if (stage / 'python-plan.json').exists() else None
+        python = python_plan['runtime']['executable'] if python_plan else '/usr/bin/python3'
+        catalog = command_catalog(scope, metadata, shadow, python)
         identity = "repo-" + directory.name + "-" + secrets.token_hex(4)
         revision = 0
         while True:
@@ -350,6 +383,13 @@ def setup(repo, directory, args, previous=None):
                 generated["tsconfig.json"] = json.dumps(tsconfig, indent=2) + "\n"
             trees = [name for name, kind in scope.items() if kind == "tree" and not (repo / name).exists()]
             proposal, inv = template(repo, identity, goal, scope, metadata, catalog, names, warn, stop)
+            if python_plan:
+                proposal['project']['python_runtime'] = python_plan['runtime']
+                dependency_inputs = {str(Path(python_root) / name): value for name, value in python_plan['inputs'].items()}
+                if requirements:
+                    dependency_inputs[str(requirements.relative_to(shadow))] = hashlib.sha256(data(requirements).encode()).hexdigest()
+                proposal['project']['python_dependencies'] = {
+                    'inputs': dependency_inputs, 'pins': python_plan['pins'], 'artifacts': python_plan['artifacts']}
             if getattr(args, "model_proposal", False):
                 print("OPTIONAL MODEL PROPOSAL: additional model latency; authority remains fixed.", flush=True)
                 proposal, generation = optional_proposal(proposal, inv, trees, args.history,
@@ -382,7 +422,7 @@ def setup(repo, directory, args, previous=None):
                     inputs.setdefault(name, fingerprint(repo / name))
                 warn = int(ask("Warn after this many violations", str(warn)))
                 stop = int(ask("Stop the whole project after", str(stop)))
-                catalog = candidates(repo, language, list(scope), metadata, metadata_root=shadow)
+                catalog = command_catalog(scope, metadata, shadow, python)
                 revision += 1
                 continue
             if answer != "yes":
@@ -416,9 +456,12 @@ def short_review(bundle, generated, trees):
     writable = [inv["resources"][g["resource"]]["path"] for g in project["grants"] if "write" in g["actions"]]
     readonly = [inv["resources"][g["resource"]]["path"] for g in project["grants"] if g["actions"] == ["read"]]
     rules = project["packages"]
+    runtime = project.get('python_runtime')
     return "\n".join(["\nPROJECT POLICY REVIEW", "Goal: " + project["description"],
         "Editable: " + ", ".join(writable), "Read only: " + (", ".join(readonly) or "none"),
         "Commands: " + (", ".join(c["id"] for c in project["commands"]) or "none"),
+        'Python runtime: ' + (runtime['executable'] + ' (' + runtime['version'] +
+            '); requires-python ' + (runtime['requires_python'] or 'unspecified') if runtime else 'not selected'),
         "No test-suite success is implied by setup or a syntax check; tests must actually exist and pass.",
         "Packages: " + (", ".join(rules["allowed_names"]) or "none") +
         f"; minimum age {rules['min_release_age_days']} days; reject CVSS >= {rules['deny_cvss_at_or_above']}" +
@@ -450,7 +493,8 @@ def start(args):
             print("Current project history:", Store(record["state"]).status(record["project"]), flush=True)
             print("A new approval will stop all current project sessions. Existing history is retained.", flush=True)
             record = setup(repo, directory, args, previous=record)
-        elif (any(getattr(args, name, None) is not None for name in ("goal", "editable", "files", "language", "warn_at", "stop_at", "history"))
+        elif (any(getattr(args, name, None) is not None for name in ("goal", "editable", "files", "language", "warn_at", "stop_at", "history",
+                    'python', 'python_source', 'python_extras', 'python_groups', 'python_root', 'node_root'))
               or getattr(args, "model_proposal", False)):
             raise Invalid("This project already has an approved policy. Use ptw codex --revise to change it.")
     finally:

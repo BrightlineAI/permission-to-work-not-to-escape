@@ -54,6 +54,10 @@ shared controls underneath. [Python and npm package checks](harness/ECOSYSTEMS.m
 cover known vulnerabilities and release age. This prototype is separate from
 the paper's frozen experiments.
 
+Current dependency work adds reviewed Python runtime selection and mixed-project
+setup. [Full ecosystem acceptance remains incomplete](harness/DEPENDENCY_STATUS.md),
+including workspace/private packages and additional lock imports.
+
 The repository includes experimental policy, authorization, diagnostic and escalation components. See the [architecture](docs/architecture.md), [data availability](docs/evidence.md), [future work](docs/roadmap.md) and [contribution guide](CONTRIBUTING.md).
 
 Original code is [MIT licensed](LICENSE). Third-party materials retain their [own terms](THIRD_PARTY_NOTICES.md). Use [CITATION.cff](CITATION.cff) to cite the work.

@@ -6,7 +6,7 @@ import re
 from .policy import Invalid, compile_policy
 from .workspace_policy import FILE_ACTIONS, relative
 
-METADATA = ("pyproject.toml", "requirements.txt", "ptw-requirements.txt", "package.json",
+METADATA = ("pyproject.toml", '.python-version', "requirements.in", "requirements.txt", "ptw-requirements.txt", "package.json",
             "package-lock.json", "tsconfig.json", "uv.lock", "poetry.lock", "pnpm-lock.yaml", "yarn.lock")
 RULES = {"min_release_age_days": 3, "deny_cvss_at_or_above": 9,
          "evidence_max_age_seconds": 900, "allow_native_wheels": False, "build_packages": []}
@@ -18,14 +18,22 @@ def selected(repo, directories, files):
         for name in paths:
             relative(name)
             # Exact root files are useful; arbitrary control/secret files are not source scope.
-            if ("/" in name or name.startswith((".", "-")) or name in METADATA or
-                    name.lower() in {"node_modules", "venv", "__pycache__", "credentials", "secrets", "private",
+            if (any(part.startswith(('.', '-')) or part in METADATA for part in name.split('/')) or
+                    any(part.lower() in {"node_modules", "venv", "__pycache__", "credentials", "secrets", "private",
                                      "id_rsa", "id_ed25519", "agents.md"} or
-                    re.search(r"(?i)(secret|credential|\.pem$|\.key$|\.env(?:\.|$))", name)):
+                        re.search(r"(?i)(secret|credential|\.pem$|\.key$|\.env(?:\.|$))", part)
+                        for part in name.split('/'))):
                 raise Invalid("Choose explicit source directories/files, not secret or control paths: " + name)
-            if name in result:
+            if any(name == old or name.startswith(old + '/') or old.startswith(name + '/') for old in result):
                 raise Invalid("Duplicate or overlapping scope: " + name)
             path = repo / name
+            from .workspace_policy import directory_fd
+            import os
+            try:
+                fd = directory_fd(path.parent)
+                os.close(fd)
+            except OSError as exc:
+                raise Invalid('Source parent must already exist without links: ' + name) from exc
             if path.is_symlink() or (path.exists() and (path.is_dir() if kind == "file" else not path.is_dir())):
                 raise Invalid("Scope kind differs from existing path: " + name)
             if kind == "file" and path.exists() and not path.is_file():
@@ -37,7 +45,8 @@ def selected(repo, directories, files):
 
 
 def suggestions(repo):
-    directories = [n for n in ("src", "public", "tests", "dist", "lib", "test") if (repo / n).is_dir()]
+    directories = [prefix + n for prefix in ('', 'backend/', 'frontend/')
+                   for n in ("src", "public", "tests", "dist", "lib", "test") if (repo / (prefix + n)).is_dir()]
     files = [p.name for p in sorted(repo.iterdir()) if p.is_file() and not p.is_symlink()
              and (p.suffix in (".py", ".js", ".ts", ".tsx", ".jsx") or p.name == "README.md")]
     return directories or ([] if files else ["src", "tests"]), files[:50]

@@ -10,7 +10,7 @@ import concurrent.futures
 import tarfile
 
 from .package_evidence import EvidenceError, PyPIEvidence, evaluate, pins, severity
-from .package_install import file_manifest, install_wheels, validate_wheels
+from .package_install import file_manifest, install_wheels, target_environment, validate_wheels
 from .policy import Invalid, OutsideScope, canonical, digest
 
 
@@ -20,6 +20,17 @@ def mounted_set(store, db, actor, identity):
     row = db.execute("SELECT * FROM package_sets WHERE id=? AND project=?", (identity, actor["project"])).fetchone()
     if row is None or not set(json.loads(row["names"])) <= set(json.loads(actor["packages"])):
         raise OutsideScope("Package set outside session scope")
+    _, bundle = store.project(db, actor['project'])
+    from .dependency_binding import verify_inputs
+    verify_inputs(bundle)
+    if row['policy_sha256'] is not None and row['policy_sha256'] != bundle['approval']['sha256']:
+        raise Invalid('Package set belongs to an obsolete policy revision')
+    runtime = bundle['policy']['project'].get('python_runtime')
+    if runtime:
+        from .python_runtime import verify
+        verify(runtime)
+        if row['policy_sha256'] is None:
+            raise Invalid('Legacy package set lacks reviewed runtime binding; install again')
     directory = store.directory / "package-sets" / identity
     if file_manifest(directory) != json.loads(row["manifest"]):
         raise Invalid("Package set integrity check failed")
@@ -87,6 +98,15 @@ class PackageControl:
             if result is not None:
                 return result
         rules = bundle["policy"]["project"]["packages"]
+        from .dependency_binding import verify_artifacts, verify_inputs, verify_selection
+        verify_inputs(bundle)
+        if request['resource'] == 'pypi':
+            verify_selection(bundle, selected, extras)
+        runtime = bundle['policy']['project'].get('python_runtime')
+        python = '/usr/bin/python3'
+        if runtime:
+            from .python_runtime import verify
+            python = verify(runtime)
         extended = bundle["policy"]["version"] >= 3
         if extras and not extended:
             raise Invalid("Python extras require a reviewed version 3 policy")
@@ -96,7 +116,7 @@ class PackageControl:
             provider = self.provider or NpmEvidence()
         else:
             provider = self.provider or PyPIEvidence(native=rules.get("allow_native_wheels", False),
-                sources=[x[5:] for x in rules.get("build_packages", []) if x.startswith("pypi:")])
+                sources=[x[5:] for x in rules.get("build_packages", []) if x.startswith("pypi:")], python=python)
         evidence, reasons, error, target = [], [], None, None
         # Slow, fallible preparation holds neither the project lock nor a pending
         # effect. Concurrent stops can proceed, and no agent sees staging files.
@@ -118,6 +138,8 @@ class PackageControl:
                 for record in records:
                     evidence.append(record)
                     reasons.extend(evaluate(record, rules))
+                if not plan:
+                    verify_artifacts(bundle, evidence)
                 if not reasons:
                     wheelhouse = staging / "wheels"
                     wheelhouse.mkdir(mode=0o700)
@@ -146,10 +168,11 @@ class PackageControl:
                                for e in evidence):
                             raise EvidenceError("Python source build needs explicit policy authority")
                         install_evidence = build_sources(self.store, token, wheelhouse, evidence, selected,
-                            allow_native=rules.get("allow_native_wheels", False))
+                            allow_native=rules.get("allow_native_wheels", False), python=python)
                         wheels = {e["name"]: wheelhouse / e["filename"] for e in install_evidence}
-                        validate_wheels(wheels, selected, extended=extended, extras=extras)
-                        install_wheels(wheelhouse, target, install_evidence, **({"extended": True} if extended else {}))
+                        validate_wheels(wheels, selected, environment=target_environment(python), extended=extended, extras=extras)
+                        install_wheels(wheelhouse, target, install_evidence,
+                                       **({'python': python} if runtime else {}), **({"extended": True} if extended else {}))
                     manifest = file_manifest(target)
             except (EvidenceError, OSError, ValueError, tarfile.TarError) as exc:
                 error = str(exc)
@@ -157,6 +180,17 @@ class PackageControl:
                 actor, project, current, result = self.inspect(db, token, event, selected, request, request_hash)
                 if result is not None:
                     return result
+                if current['approval']['sha256'] != bundle['approval']['sha256']:
+                    error = 'Policy changed during dependency preparation; retry under the current revision'
+                try:
+                    verify_inputs(current)
+                except Invalid as exc:
+                    error = str(exc)
+                if runtime:
+                    try:
+                        verify(runtime)
+                    except Invalid as exc:
+                        error = str(exc)
                 try:
                     reasons = [e["name"] + "==" + e["version"] + ": " + r
                                for e in evidence for r in evaluate(e, current["policy"]["project"]["packages"])]
@@ -193,10 +227,10 @@ class PackageControl:
                                                    "withdrawn": v.get("withdrawn")} for v in e["vulnerabilities"]]}
                                     for e in evidence]}
                     db.execute("BEGIN IMMEDIATE")
-                    db.execute("INSERT INTO package_sets(id,project,names,manifest,created,ecosystem) VALUES(?,?,?,?,?,?)",
+                    db.execute("INSERT INTO package_sets(id,project,names,manifest,created,ecosystem,policy_sha256) VALUES(?,?,?,?,?,?,?)",
                                (identity, actor["project"],
                                 canonical(sorted(self.scope_names(selected, ecosystem, current["policy"]["version"]))),
-                                canonical(manifest), time.time(), ecosystem))
+                                canonical(manifest), time.time(), ecosystem, current['approval']['sha256']))
                     db.execute("UPDATE events SET response=?,state='complete' WHERE session=? AND event=?",
                                (canonical(response), actor["id"], event))
                     db.commit()
