@@ -57,12 +57,15 @@ def provision(directory, *, executable='/usr/bin/python3', lock=None):
             lock_path.write_bytes(Path(lock).read_bytes())
         commands.append(base + ['pip', 'install', '--python', runtime['executable'],
             '--target', str(directory / 'payload'), '--index-url', 'https://pypi.org/simple',
-            '--only-binary', ':all:', '--require-hashes', '--no-deps', '-r', str(lock_path)])
+            '--only-binary', ':all:', '--require-hashes', '--no-deps', '--compile-bytecode',
+            '-r', str(lock_path)])
         for command in commands:
             proc = subprocess.run(command, env=env, capture_output=True, timeout=180)
             if proc.returncode:
                 receipt['diagnostic_sha256'] = hashlib.sha256(proc.stderr).hexdigest()
                 raise ResolutionError('unavailable', 'Poetry tool provisioning failed; see private receipt')
+        # Hash precompiled bytecode too. Repeated offline -B processes can read
+        # it without recompiling the pinned tools or writing to their payload.
         receipt.update(files=payload(directory / 'payload'),
                        lock_sha256=hashlib.sha256(lock_path.read_bytes()).hexdigest())
         # Version checks use -S and an explicit path, so .pth/startup hooks never run.

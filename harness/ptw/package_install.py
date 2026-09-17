@@ -53,7 +53,7 @@ def _target_environment(python='/usr/bin/python3'):
     return env
 
 
-def validate_wheels(wheels, selected, environment=None, *, extended=False, extras=None):
+def validate_wheels(wheels, selected, environment=None, *, extended=False, extras=None, roots=None):
     """No resolver, imports or build backend: the input must close its dependencies."""
     env = environment or target_environment()
     occupied, expanded, metadata_by_name = set(), 0, {}
@@ -124,11 +124,18 @@ def validate_wheels(wheels, selected, environment=None, *, extended=False, extra
                 raise
             raise EvidenceError("Invalid wheel metadata") from exc
     if extended:
-        validate_dependencies(metadata_by_name, selected, env, extras=extras)
+        validate_dependencies(metadata_by_name, selected, env, extras=extras, roots=roots)
 
 
-def validate_dependencies(metadata_by_name, selected, env, *, extras=None):
-    """Check wheel or installed distribution metadata without executing it."""
+def validate_dependencies(metadata_by_name, selected, env, *, extras=None, roots=None):
+    """Check metadata, optionally requiring exactly the graph reached from roots.
+
+    Roots and their extras must come from the selected manifest declarations,
+    never from lock labels or exported pins. None retains closure-only callers.
+    """
+    if roots is not None and (set(metadata_by_name) != set(selected) or
+                              not set(roots) <= set(selected)):
+        raise EvidenceError('Missing metadata or selected manifest dependency')
     for name, meta in metadata_by_name.items():
         if (len(meta.get_all('Name', [])) != 1 or len(meta.get_all('Version', [])) != 1 or
                 canonicalize_name(meta['Name']) != name or Version(meta['Version']) != Version(selected[name])):
@@ -139,10 +146,13 @@ def validate_dependencies(metadata_by_name, selected, env, *, extras=None):
             raise EvidenceError('Distribution does not support the confined Python interpreter')
     if metadata_by_name:
         # Resolve extras to a fixed point, including extras requested transitively.
-        active = {name: set((extras or {}).get(name, [])) for name in metadata_by_name}
+        active = {name: {canonicalize_name(x) for x in (extras or {}).get(name, [])}
+                  for name in (metadata_by_name if roots is None else roots)}
         for _ in range(1024):
             changed = False
             for name, meta in metadata_by_name.items():
+                if name not in active:
+                    continue
                 available = {canonicalize_name(x) for x in meta.get_all("Provides-Extra", [])}
                 if not active[name] <= available:
                     raise EvidenceError("Unknown requested extra for " + name)
@@ -154,6 +164,9 @@ def validate_dependencies(metadata_by_name, selected, env, *, extras=None):
                     if dep.url or dependency not in selected or not dep.specifier.contains(selected[dependency], prereleases=True):
                         raise EvidenceError("Missing, incompatible or nonregistry dependency: " + dependency)
                     requested = {canonicalize_name(x) for x in dep.extras}
+                    if roots is not None and dependency not in active:
+                        active[dependency] = set()
+                        changed = True
                     if dependency in active and not requested <= active[dependency]:
                         active[dependency].update(requested)
                         changed = True
@@ -161,6 +174,9 @@ def validate_dependencies(metadata_by_name, selected, env, *, extras=None):
                 break
         else:
             raise EvidenceError("Python extras did not converge")
+        if roots is not None and set(active) != set(selected):
+            raise EvidenceError('Locked export contains packages outside selected manifest dependency graph: ' +
+                                ', '.join(sorted(set(selected) - set(active))))
 
 
 def install_wheels(wheelhouse, target, evidence, *, extended=False, python='/usr/bin/python3'):

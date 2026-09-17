@@ -27,6 +27,12 @@ It does not use ambient registry configuration or credentials. `tool.json`
 records interpreter, installer, lock and payload hashes. Failed attempts remain
 in that directory; choose a new directory for retry. Provisioning writes one
 terminal receipt and marks it ready only after the pinned version checks pass.
+Provisioning compiles the pinned tools to bytecode using uv's
+[`--compile-bytecode`](https://docs.astral.sh/uv/reference/cli/#uv-pip-install--compile-bytecode).
+The receipt hashes those files too; changed or missing bytecode fails verification.
+Offline processes retain `-B` and the read-only payload, reusing that bytecode
+without writing caches. Existing verified tool directories remain usable;
+provision a new directory to obtain the startup optimization.
 Provisioning requires public PyPI access. Reconstruct the same tool environment
 with `python -m ptw.poetry_tool NEW_DIRECTORY --lock
 REVIEWED_DIRECTORY/tools.lock`, using the same system Python. Omitting `--lock`
@@ -73,6 +79,11 @@ validation must reject it before installation. A fresh project can also be
 rejected at the operator review, without publishing setup. URL/VCS/private/local
 Poetry sources and dynamic metadata need separate source support and fail closed
 here. No backend executes during locked export.
+Changing only lock groups or markers cannot add installation authority. Import
+requires exactly the packages reachable from active declarations in the selected
+manifest groups/extras through checked wheel dependencies. A disconnected extra
+package is rejected even with a current manifest hash and valid artifact hashes.
+Transitive extras are followed until no new dependencies become active.
 
 For reviewed dependency changes in an activated project, for example adding
 `idna` when it is not already declared:
@@ -93,19 +104,28 @@ Existing dependency markers and extras remain attached when updating its range.
 
 For a negative terminal flow, repeat an update and enter `reject` or `cancel`,
 or press Ctrl-D at the review. The manifest, lock and installed policy remain
-unchanged. Revisions exclude versions whose validated registry listing has no
-wheel admitted by the reviewed runtime and wheel policy, including prior lock
-preferences. Poetry can then select an older compatible version within the
-original constraint. An exact pin with no admitted wheel, or forbidden by
+unchanged. Runtime-active dependencies require a wheel admitted by the reviewed
+runtime and wheel policy, including prior lock preferences. Poetry can then
+select an older compatible version within the original constraint. Revisions
+retain native lock preferences; adding a range does not guarantee the newest
+permitted release. An active exact pin with no admitted wheel, or forbidden by
 age/CVSS, is unsatisfiable even when an older version would be safe. Registry
 and advisory evidence outages abort without misconduct counts.
 If inputs change during review, repeat from the new inputs. Interrupted
 publication uses the existing recoverable revision journal; rollback never
 revives revoked sessions or clears a project stop.
 
+The complete lock retains dependencies inactive on Linux, such as a declaration
+with `sys_platform == 'win32'`, and their transitive dependencies. Foreign wheels
+provide bounded, hash-checked metadata only; they cannot authorize installation.
+Metadata still requires valid publication-age and advisory evidence. A package
+also reached through an active dependency must have an admitted runtime wheel.
+Original manifest constraints and wheel dependency declarations remain intact.
+This supports complete lock maintenance, not execution on other platforms.
+
 ## Validation and sources
 
-The suite contains 35 tests, including native Python constraint syntax and
+The suite includes native Python constraint syntax and
 legacy/PEP 735 group handling. It covers locked export, protected imports,
 add/remove/update, compatible age/CVSS and transitive
 fallback, unsatisfiable pins, terminal details/reject/cancel/EOF/approval,
@@ -115,13 +135,11 @@ selected extras and runtime markers. These tests use synthetic wheels/advisories
 and real Poetry tooling, controller operations and protected execution, without
 model calls. Full product and fresh-install acceptance remain separate.
 
-The manager's full check passed all 35 tests without skips in 1071.768 seconds,
-including native add/update fallback, incompatible lock preferences, exact pins
-and evidence outages. The receipt, `check-probe-3-1-1.log`, is retained under
-manager run `task-10-1789659791581349556`, with passing guard and diff checks.
-The tested source, `harness/tests/test_product_poetry.py`, has SHA-256
-`645783b6271fd9b9ceefbcf1cc03ae99966b52e662ee3754c80f6126abaa6008`.
-Runtime and test code are unchanged by the subsequent documentation update.
+Focused manager checks cover manifest-rooted reachability, native add/update
+fallback, incompatible lock preferences, exact pins, evidence outages and
+inactive-platform preservation, including a transitive dependency shared with
+an active path. Full acceptance of the current changes remains pending; focused
+passes do not replace the complete native suite.
 
 After installing this checkout in the [isolated source-test environment](README.md#run-the-tests),
 run on the Linux VPS with an active systemd user session and native tools:
@@ -131,7 +149,10 @@ PTW_LINUX_TESTS=1 python -B -m unittest discover -s harness/tests -p test_produc
 ```
 
 The fixture provisions the maintained tool lock in a fresh retained directory
-and prints its evidence location. It covers missing/conflicting lock entries,
+and prints its evidence location. It creates the baseline lock with native Poetry
+once per suite, then copies its bytes into each test's fresh project directory.
+Exports, edits, resolutions and protected operations still run separately for
+each scenario. It covers missing/conflicting lock entries,
 stale locks, forged hashes, wheel dependency closure, malformed evidence and
 tool failure as well as useful work and an unrelated process. No native skips
 count as acceptance. Source tests must import the editable current checkout in
@@ -143,8 +164,9 @@ network access in the tool namespace, source archives or backend execution.
 Original constraints remain intact; forbidden candidates are excluded, including
 transitive versions and prior lock preferences. Native solving, lock serialization
 and export are followed by independent wheel-graph and artifact checks. Locked
-import also checks the actual wheel graph, including requested extras and runtime
-markers, rather than trusting lock dependency metadata. Work is bounded by
+import also checks the actual wheel graph rooted in active manifest declarations,
+including requested extras and runtime markers, rather than trusting lock
+dependency metadata or exported surplus packages. Work is bounded by
 180 seconds, eight policy exclusions and 256 candidate assessments. Exhaustion
 aborts without weakening policy. Wheel-only public registry Poetry projects are
 the admitted boundary; local/private Poetry preparation remains separate work.
@@ -155,6 +177,9 @@ supplies group/extra selection and hashed requirements.
 [Locker](https://github.com/python-poetry/poetry/blob/2.2.1/src/poetry/packages/locker.py)
 supplies native freshness checks. These interfaces informed the implementation;
 their documentation is not evidence that the integration passes.
+The pinned [export walker](https://github.com/python-poetry/poetry-plugin-export/blob/1.9.0/src/poetry_plugin_export/walker.py)
+uses lock group/marker labels; independent manifest-rooted wheel validation
+prevents those labels from expanding the selected graph.
 The pinned [core Factory](https://github.com/python-poetry/poetry-core/blob/2.2.1/src/poetry/core/factory.py)
 owns Python constraint parsing and legacy/PEP 735 group discovery.
 Its [version ranges](https://github.com/python-poetry/poetry-core/blob/2.2.1/src/poetry/core/constraints/version/version_range.py)
@@ -162,6 +187,13 @@ provide normalized constraints for the existing system-runtime selector.
 The pinned [Repository](https://github.com/python-poetry/poetry/blob/2.2.1/src/poetry/repositories/repository.py)
 and [Solver](https://github.com/python-poetry/poetry/blob/2.2.1/src/poetry/puzzle/solver.py)
 interfaces provide native constraint selection over brokered metadata.
+The pinned [Provider](https://github.com/python-poetry/poetry/blob/2.2.1/src/poetry/puzzle/provider.py)
+propagates transitive markers and applies marker overrides before supplying
+requirements to the solver. Runtime compatibility narrows those native solver
+requirements without rewriting package declarations. This avoids depending on
+marker-sensitive candidate caching: the pinned
+[version solver](https://github.com/python-poetry/poetry/blob/2.2.1/src/poetry/mixology/version_solver.py)
+caches candidate lists by identity and filters them by version constraints.
 The existing [packaging wheel parser](https://packaging.pypa.io/en/stable/utils.html#packaging.utils.parse_wheel_filename)
 supplies wheel tags for candidate filtering, using the reviewed interpreter's
 existing tag probe when native wheels are allowed and `py3-none-any` otherwise.

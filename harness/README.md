@@ -13,7 +13,9 @@ examples, missing adapters and native checks still needed.
 The [Poetry guide](POETRY.md) describes reproducible isolated tooling, locked
 import and reviewed add/remove/update. Native manager checks cover Python
 constraints, dependency-group preservation and compatible wheel selection.
-The manager's full Poetry check passed all 35 tests without skips.
+Focused native checks cover manifest-rooted reachability and inactive platform
+branches, including dependencies shared with active paths. Full acceptance of
+the current Poetry changes remains pending.
 Broader ecosystem and installed-user acceptance remain separate.
 
 For ordinary Python, JavaScript or TypeScript repositories, start with the

@@ -14,7 +14,7 @@ from packaging.version import Version
 
 from .dependency_resolution import ResolutionError, checked_requirement, metadata
 from .package_evidence import EvidenceError, PyPIEvidence, evaluate
-from .package_install import target_tags
+from .package_install import target_environment, target_tags
 from .policy import Invalid, save
 from .python_lock import export_lock, static_lock_project
 from .python_runtime import verify
@@ -27,13 +27,16 @@ import json, sys
 from pathlib import Path
 from cleo.io.null_io import NullIO
 from poetry.factory import Factory
-from poetry.core.constraints.version import Version
+from poetry.core.constraints.version import Version, VersionUnion
 from poetry.core.packages.package import Package
 from poetry.core.packages.dependency import Dependency
 from poetry.repositories.repository import Repository
 from poetry.repositories.repository_pool import RepositoryPool
 from poetry.puzzle.solver import Solver
 from poetry.puzzle.exceptions import SolverProblemError
+from poetry.puzzle.provider import Provider
+from poetry.mixology.incompatibility import Incompatibility
+from poetry.mixology.term import Term
 
 config = json.loads(sys.argv[1])
 catalog = json.loads(Path('catalog.json').read_text())
@@ -71,6 +74,27 @@ class Wheels(Repository):
             package.add_dependency(dependency)
         return package
 
+class RuntimeProvider(Provider):
+    def incompatibilities_for(self, dependency_package):
+        result = []
+        for incompatibility in super().incompatibilities_for(dependency_package):
+            terms = []
+            for term in incompatibility.terms:
+                dependency = term.dependency
+                marker = dependency.transitive_marker.intersect(self._overrides_marker_intersection)
+                if not term.is_positive() and marker.without_extras().validate(config['environment']):
+                    if dependency.name not in catalog['versions']:
+                        need('versions', dependency.name)
+                    # Narrow native solver requirements after marker propagation
+                    # and overrides. Search caches and lock preferences then see
+                    # the same constraints; wheel declarations remain unchanged.
+                    admitted = VersionUnion.of(*(Version.parse(v)
+                        for v in catalog['compatible'][dependency.name]))
+                    dependency = dependency.with_constraint(dependency.constraint.intersect(admitted))
+                terms.append(Term(dependency, term.is_positive()))
+            result.append(Incompatibility(terms, incompatibility.cause))
+        return result
+
 poetry = Factory().create_poetry(Path.cwd(), disable_plugins=True)
 if not poetry.package.python_constraint.allows(Version.parse(config['runtime']['version'])):
     raise ValueError('project excludes reviewed runtime')
@@ -84,8 +108,10 @@ locked = [repository.package(p.name, p.version)
           for p in poetry.locker.locked_repository().packages
           if (p.name, str(p.version)) not in excluded and p.name not in config['upgrade']]
 try:
-    solved = Solver(poetry.package, RepositoryPool([repository]), [], locked, NullIO()).solve(
-        use_latest=config['upgrade']).get_solved_packages()
+    pool = RepositoryPool([repository])
+    solver = Solver(poetry.package, pool, [], locked, NullIO())
+    solver._provider = RuntimeProvider(poetry.package, pool, NullIO(), locked=locked)
+    solved = solver.solve(use_latest=config['upgrade']).get_solved_packages()
 except SolverProblemError:
     result(dict(outcome='unsatisfiable'))
 else:
@@ -104,6 +130,21 @@ def compatible_versions(document, tags):
         if any(str(tag) in tags for tag in wheel_tags):
             versions.add(str(version))
     return sorted(versions)
+
+
+def metadata_record(index, name, version):
+    """Checked foreign-wheel data for complete locking, never install authority."""
+    document = index.document(name)
+    candidates = [r for r in index.artifacts.values()
+                  if r['name'] == name and r['version'] == version]
+    if not candidates:
+        raise EvidenceError('No registry wheel metadata for Poetry candidate')
+    record = dict(min(candidates, key=lambda r: r['filename']))
+    item = next(f for f in document['files'] if f['filename'] == record['filename'])
+    record.update(published_at=item['upload-time'], checked_at=time.time(),
+        vulnerabilities=index.provider.advisories('PyPI', name, version),
+        artifact_kind='bdist_wheel', source='Checked registry listing and OSV; metadata only')
+    return record
 
 
 def wheel_metadata(path, record):
@@ -164,7 +205,8 @@ def update_poetry_lock(root, stage, rules, *, executable, groups=('dev', 'test')
     stage.mkdir(parents=True, exist_ok=False)
     started, attempts, outcome, inputs = time.monotonic(), [], 'invalid', {}
     excluded, records, wheels = set(), {}, {}
-    catalog = {'versions': {}, 'metadata': {}}
+    catalog = {'versions': {}, 'compatible': {}, 'metadata': {}}
+    metadata_only = set()
 
     def remaining():
         value = started + seconds - time.monotonic()
@@ -204,6 +246,14 @@ def update_poetry_lock(root, stage, rules, *, executable, groups=('dev', 'test')
         index = WheelIndex(provider, stage / 'unused-index', started + seconds)
         tags = (set(target_tags(runtime['executable'])) if rules.get('allow_native_wheels', False)
                 else {'py3-none-any'})
+        environment = target_environment(runtime['executable'])
+
+        def listing(name):
+            if name not in catalog['versions']:
+                document = index.document(name)
+                catalog['versions'][name] = document['versions']
+                catalog['compatible'][name] = compatible_versions(document, tags)
+
         downloaded, rejection_rounds = 0, 0
         for step in range(512):
             remaining()
@@ -216,7 +266,8 @@ def update_poetry_lock(root, stage, rules, *, executable, groups=('dev', 'test')
             attempt = dict(step=step + 1, outcome='running', excluded=sorted(excluded),
                 catalog_sha256=hashlib.sha256(catalog_text.encode()).hexdigest())
             attempts.append(attempt)
-            proc = run(SOLVE, dict(runtime=runtime, upgrade=upgrade, excluded=sorted(excluded)),
+            proc = run(SOLVE, dict(runtime=runtime, environment=environment,
+                upgrade=upgrade, excluded=sorted(excluded)),
                 cwd=stage, timeout=remaining(), directory=directory)
             attempt.update(returncode=proc.returncode, stderr_sha256=hashlib.sha256(proc.stderr.encode()).hexdigest())
             remaining()
@@ -241,23 +292,24 @@ def update_poetry_lock(root, stage, rules, *, executable, groups=('dev', 'test')
             if not isinstance(name, str) or canonicalize_name(name, validate=True) != name:
                 raise Invalid('Invalid native Poetry metadata name')
             if response['kind'] == 'versions' and version is None and name not in catalog['versions']:
-                catalog['versions'][name] = compatible_versions(index.document(name), tags)
+                listing(name)
                 attempt['outcome'] = 'metadata'
                 continue
             if (response['kind'] != 'metadata' or not isinstance(version, str) or
                     str(Version(version)) != version or (name, version) in records):
                 raise Invalid('Invalid or repeated native Poetry metadata request')
-            # Lock preferences request metadata directly, bypassing _find_packages.
-            # Apply the same compatibility gate before assessing those versions.
-            if name not in catalog['versions']:
-                catalog['versions'][name] = compatible_versions(index.document(name), tags)
+            listing(name)
             if version not in catalog['versions'][name]:
                 excluded.add((name, version))
-                attempt['outcome'] = 'incompatible_wheel'
+                attempt['outcome'] = 'unavailable_wheel'
                 continue
             if len(records) >= max_assessments:
                 raise ResolutionError('budget_exhausted', 'Poetry candidate assessment limit reached')
-            record = provider.assess(name, version)
+            if version in catalog['compatible'][name]:
+                record = provider.assess(name, version)
+            else:
+                record = metadata_record(index, name, version)
+                metadata_only.add((name, version))
             remaining()
             if record.get('name') != name or record.get('version') != version:
                 raise EvidenceError('Candidate evidence identity mismatch')
@@ -275,6 +327,8 @@ def update_poetry_lock(root, stage, rules, *, executable, groups=('dev', 'test')
                 raise EvidenceError('Poetry metadata requires a checked registry wheel')
             wheel = stage / ('artifact-' + str(len(records)) + '.whl')
             provider.download(record, wheel)
+            if 'size' in record and wheel.stat().st_size != record['size']:
+                raise EvidenceError('Poetry metadata wheel size differs from listing')
             downloaded += wheel.stat().st_size
             if downloaded > 512 * 1024 * 1024:
                 raise ResolutionError('budget_exhausted', 'Poetry download budget exhausted')
@@ -287,7 +341,7 @@ def update_poetry_lock(root, stage, rules, *, executable, groups=('dev', 'test')
 
         class Assessed:
             def assess(self, name, version):
-                if (name, version) not in wheels:
+                if (name, version) not in wheels or (name, version) in metadata_only:
                     raise EvidenceError('Native lock contains an unassessed candidate')
                 return records[name, version]
 

@@ -439,6 +439,10 @@ def export_lock(root, stage, rules, *, executable=None, source=None, groups=('de
         resolved = compiled_pins(exported, environment)
         selected_extras = {}
         selected = pins(resolved, extras=selected_extras) if resolved else {}
+        roots = set() if lock_name == 'poetry.lock' else None
+        if roots is not None:
+            # Exported extras are lock-controlled and cannot create authority.
+            selected_extras = {}
         for line in [*declarations, *constraints]:
             declaration = checked_requirement(line)
             if declaration.marker and not any(declaration.marker.evaluate({**environment, 'extra': e})
@@ -447,6 +451,8 @@ def export_lock(root, stage, rules, *, executable=None, source=None, groups=('de
             name = canonicalize_name(declaration.name)
             if line in declarations:
                 selected_extras.setdefault(name, []).extend(declaration.extras)
+                if roots is not None:
+                    roots.add(name)
             if ((name in selected and not declaration.specifier.contains(selected[name], prereleases=True)) or
                     (line in declarations and name not in selected)):
                 raise Invalid('Locked export violates an original dependency constraint')
@@ -494,7 +500,8 @@ def export_lock(root, stage, rules, *, executable=None, source=None, groups=('de
             # Lock metadata and exporter output are untrusted declarations.
             # Require the actual checked wheels to close their dependency graph,
             # including extras that the exporter strips from exact pins.
-            validate_wheels(wheels, selected, environment, extended=True, extras=selected_extras)
+            validate_wheels(wheels, selected, environment, extended=True,
+                            extras=selected_extras, roots=roots)
             if time.monotonic() - started >= seconds:
                 raise ResolutionError('budget_exhausted', 'Poetry locked validation deadline reached')
             for name, sha in inputs.items():

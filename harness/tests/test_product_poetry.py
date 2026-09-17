@@ -11,6 +11,7 @@ import tomllib
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
+from packaging.specifiers import SpecifierSet
 
 from ptw import poetry_tool
 from ptw.dependency_resolution import ResolutionError
@@ -102,6 +103,42 @@ class PoetryBoundaryTests(unittest.TestCase):
         self.repo = self.root / 'repo'
         self.repo.mkdir()
 
+    def test_manifest_rooted_graph_empty_disconnected_and_extra_fixed_point(self):
+        from email.parser import Parser
+        from packaging.markers import default_environment
+        from ptw.package_install import validate_dependencies
+
+        def metadata(name, requirements=(), extras=()):
+            return Parser().parsestr('Name: ' + name + '\nVersion: 1.0\n' +
+                ''.join('Requires-Dist: ' + r + '\n' for r in requirements) +
+                ''.join('Provides-Extra: ' + e + '\n' for e in extras))
+
+        env = {**default_environment(), 'extra': ''}
+        graph = {'demo': metadata('demo'), 'unused': metadata('unused', ['other']),
+                 'other': metadata('other', ['unused'])}
+        selected = {name: '1.0' for name in graph}
+        # Closure alone accepts this disconnected component; root validation
+        # must not let it authorize itself, even if the supplied extras say so.
+        validate_dependencies(graph, selected, env)
+        for roots in (set(), {'demo'}):
+            with self.subTest(roots=roots), self.assertRaisesRegex(EvidenceError, 'outside selected manifest'):
+                validate_dependencies(graph, selected, env, roots=roots, extras={'unused': []})
+        validate_dependencies({}, {}, env, roots=set())
+        with self.assertRaisesRegex(EvidenceError, 'Missing metadata'):
+            validate_dependencies({}, selected, env, roots={'demo'})
+
+        graph = {'demo': metadata('demo', ['helper', 'bonus; extra == "feature"'], ['feature']),
+                 'helper': metadata('helper', ['demo[feature]']),
+                 'bonus': metadata('bonus')}
+        selected = {name: '1.0' for name in graph}
+        # The cycle expands an already visited root's extras. Revisit it so its
+        # newly active edge reaches bonus; insertion order must not affect this.
+        for ordered in (graph, dict(reversed(list(graph.items())))):
+            validate_dependencies(ordered, selected, env, roots={'demo'})
+        graph['helper'] = metadata('helper', ['demo[feature]; python_version < "2"'])
+        with self.assertRaisesRegex(EvidenceError, 'outside selected manifest.*bonus'):
+            validate_dependencies(graph, selected, env, roots={'demo'})
+
     def test_candidate_tags_preserve_versions_and_evidence_failures(self):
         from ptw.poetry_resolution import compatible_versions
         from ptw.python_index import WheelIndex
@@ -129,6 +166,29 @@ class PoetryBoundaryTests(unittest.TestCase):
         with patch.dict(os.environ, {'PTW_POETRY_TOOL': ''}), self.assertRaisesRegex(Invalid, 'no ambient fallback'):
             poetry_tool.verified()
 
+    def test_foreign_metadata_is_checked_data_not_install_assessment(self):
+        import time
+        from ptw.poetry_resolution import metadata_record, wheel_metadata
+        from ptw.python_index import WheelIndex
+        from ptw.package_evidence import evaluate
+        provider = CompatibilityProvider()
+        index = WheelIndex(provider, self.root, time.monotonic() + 30)
+        record = metadata_record(index, 'demo', '1.5')
+        self.assertEqual(record['filename'], 'demo-1.5-cp313-cp313-win_amd64.whl')
+        self.assertEqual(provider.assessments, [])
+        self.assertEqual(evaluate(record, RULES), [])
+        wheel = self.root / 'foreign.whl'
+        provider.download(record, wheel)
+        self.assertEqual(wheel_metadata(wheel, record)['files'][0]['hash'], 'sha256:' + record['sha256'])
+        wheel.write_bytes(b'changed')
+        with self.assertRaisesRegex(EvidenceError, 'digest'):
+            wheel_metadata(wheel, record)
+        provider.outage = 'advisory'
+        with self.assertRaisesRegex(EvidenceError, 'advisory outage'):
+            metadata_record(index, 'demo', '1.5')
+        with self.assertRaisesRegex(EvidenceError, 'No registry wheel'):
+            metadata_record(index, 'demo', '9.0')
+
     def provision_fixture(self, directory, *, failure=None, lock=None):
         """Exercise real receipt/file handling without network or native tools."""
         def run(command, **kwargs):
@@ -140,6 +200,7 @@ class PoetryBoundaryTests(unittest.TestCase):
             if phase == 'compile':
                 (directory / 'tools.lock').write_text('fixture hashed lock\n')
             elif phase == 'install':
+                self.assertIn('--compile-bytecode', command)
                 (directory / 'payload').mkdir()
                 (directory / 'payload/module.py').write_text('pass\n')
             return subprocess.CompletedProcess(command, 0, b'', b'')
@@ -182,16 +243,29 @@ class PoetryBoundaryTests(unittest.TestCase):
                         poetry_tool.verified(directory)
 
     def test_payload_link_and_content_changes_fail_closed(self):
+        import py_compile
         tool = self.root / 'tool'
         (tool / 'payload').mkdir(parents=True)
         file = tool / 'payload/module.py'
         file.write_text('pass\n')
+        bytecode = Path(py_compile.compile(str(file), doraise=True))
+        compiled = bytecode.read_bytes()
         (tool / 'tools.lock').write_text('fixture\n')
         receipt = dict(outcome='ready', pins=poetry_tool.PINS, runtime=identify('/usr/bin/python3'),
             files=poetry_tool.payload(tool / 'payload'),
             lock_sha256=hashlib.sha256((tool / 'tools.lock').read_bytes()).hexdigest())
         (tool / 'tool.json').write_text(json.dumps(receipt))
         self.assertEqual(poetry_tool.verified(tool)[1], receipt)
+        self.assertIn(str(bytecode.relative_to(tool / 'payload')), receipt['files'])
+        for replacement in (b'changed bytecode', None):
+            with self.subTest(bytecode=replacement):
+                if replacement is None:
+                    bytecode.unlink()
+                else:
+                    bytecode.write_bytes(replacement)
+                with self.assertRaisesRegex(Invalid, 'changed'):
+                    poetry_tool.verified(tool)
+                bytecode.write_bytes(compiled)
         file.write_text('changed\n')
         with self.assertRaisesRegex(Invalid, 'changed'):
             poetry_tool.verified(tool)
@@ -475,13 +549,31 @@ class PoetryNativeTests(unittest.TestCase):
         print('POETRY_TOOL_EVIDENCE ' + str(cls.evidence), flush=True)
         cls.tool = poetry_tool.provision(cls.evidence / 'tool',
             lock=Path(__file__).resolve().parents[1] / 'poetry-tools.lock')
+        # Compilation happens only at explicit provisioning, and its output is
+        # part of the verified, read-only tool payload used by every native call.
+        _, receipt = poetry_tool.verified(cls.tool)
+        if not any(name.startswith('poetry/__pycache__/factory.') and name.endswith('.pyc')
+                   for name in receipt['files']):
+            raise AssertionError('Provisioned Poetry factory bytecode is missing')
+        cls.baseline = cls.evidence / 'baseline'
+        cls.baseline.mkdir()
+        cls.make_baseline(cls.baseline)
+        cls.baseline_files = {name: (cls.baseline / name).read_bytes()
+                              for name in ('pyproject.toml', 'poetry.lock')}
 
     def setUp(self):
         PoetryBoundaryTests.setUp(self)
         self.enterContext(patch.dict(os.environ, {'PTW_POETRY_TOOL': str(self.tool)}))
         self.provider = FixtureProvider()
         self.manifest = self.repo / 'pyproject.toml'
-        self.manifest.write_text('[tool.poetry]\nname="sample"\nversion="1.0"\npackage-mode=false\n'
+        for name, content in self.baseline_files.items():
+            (self.repo / name).write_bytes(content)
+
+    @classmethod
+    def make_baseline(cls, root):
+        # Serialize once with real Poetry per fresh suite environment. Each
+        # test receives independent bytes; all exports/edits/solves stay native.
+        (root / 'pyproject.toml').write_text('[tool.poetry]\nname="sample"\nversion="1.0"\npackage-mode=false\n'
             '[tool.poetry.dependencies]\npython="^3.11"\ndemo="^1.0"\n'
             'bonus={version="^1.0",optional=true}\n'
             '[tool.poetry.extras]\nfeature=["bonus"]\n'
@@ -508,9 +600,11 @@ for name, group in [('demo','main'),('bonus','main'),('helper','test'),('unused'
     packages[package]=TransitivePackageInfo(0,{group},{group:marker})
 poetry.locker.set_lock_data(poetry.package,packages)
 '''
-        config = {n: self.provider.assess(n, '1.0')['sha256'] for n in ('demo', 'bonus', 'helper', 'unused')}
-        result = poetry_tool.run(script, config, cwd=self.repo, timeout=30)
-        self.assertEqual(result.returncode, 0, result.stderr[-2000:])
+        provider = FixtureProvider()
+        config = {n: provider.assess(n, '1.0')['sha256'] for n in ('demo', 'bonus', 'helper', 'unused')}
+        result = poetry_tool.run(script, config, cwd=root, timeout=30, directory=cls.tool)
+        if result.returncode:
+            raise AssertionError(result.stderr[-2000:])
 
     def export(self, name='export', **options):
         return export_lock(self.repo, self.root / name, RULES, provider=self.provider, **options)
@@ -652,6 +746,73 @@ path.write_text(tomlkit.dumps(document))
                         self.export(mode)
                 self.assertEqual(self.provider.downloads, 2)
                 self.assertEqual((self.repo / 'poetry.lock').read_text(), altered)
+
+    def test_native_manifest_reachability_rejects_forged_selection(self):
+        manifest = self.manifest.read_bytes()
+        lock_path = self.repo / 'poetry.lock'
+        original = lock_path.read_bytes()
+        original_hash = tomllib.loads(original.decode())['metadata']['content-hash']
+        script = '''
+import json, sys, tomlkit
+from pathlib import Path
+config=json.loads(sys.argv[1])
+path=Path('poetry.lock')
+document=tomlkit.parse(path.read_text())
+for package in document['package']:
+    name=package['name']
+    if name in config['names']:
+        package['groups']=['main']
+        package['markers']='*'
+        package['optional']=False
+    if name in config['hashes']:
+        package['files'][0]['hash']='sha256:'+config['hashes'][name]
+path.write_text(tomlkit.dumps(document))
+'''
+        for mode in ('group', 'extra-marker', 'disconnected', 'transitive-extras'):
+            with self.subTest(mode=mode):
+                lock_path.write_bytes(original)
+                names = ['unused'] if mode == 'group' else ['bonus']
+                wheels = {}
+                if mode == 'disconnected':
+                    names = ['unused', 'helper']
+                    wheels = {n: wheel_bytes(n, '1.0', requires=[d])
+                              for n, d in [('unused', 'helper'), ('helper', 'unused')]}
+                elif mode == 'transitive-extras':
+                    names = ['helper', 'unused', 'bonus']
+                    for name, requires, extra in [
+                            ('demo', ['helper[feature]', 'bonus; extra == "again"'], 'again'),
+                            ('helper', ['unused; extra == "feature"'], 'feature'),
+                            ('unused', ['demo[again]'], None)]:
+                        metadata = ('Metadata-Version: 2.1\nName: ' + name + '\nVersion: 1.0\n' +
+                            ''.join('Requires-Dist: ' + r + '\n' for r in requires) +
+                            ('Provides-Extra: ' + extra + '\n' if extra else '')).encode()
+                        wheels[name] = wheel_bytes(name, '1.0', extra={
+                            name + '-1.0.dist-info/METADATA': metadata})
+                self.provider = FixtureProvider(wheels=wheels)
+                hashes = {n: self.provider.assess(n, '1.0')['sha256'] for n in wheels}
+                result = poetry_tool.run(script, {'names': names, 'hashes': hashes},
+                                         cwd=self.repo, timeout=30)
+                self.assertEqual(result.returncode, 0, result.stderr[-2000:])
+                altered = lock_path.read_bytes()
+                document = tomllib.loads(altered.decode())
+                self.assertEqual(document['metadata']['content-hash'], original_hash)
+                # All artifact hashes remain valid. Only wheel edges rooted in
+                # demo can authorize additional exports when no groups/extras
+                # are selected, regardless of the lock's labels and cycles.
+                for package in document['package']:
+                    self.assertEqual(package['files'][0]['hash'], 'sha256:' +
+                                     self.provider.assess(package['name'], '1.0')['sha256'])
+                if mode == 'transitive-extras':
+                    exported = self.export(mode, groups=(), extras=())
+                    self.assertEqual(set(exported['pins']),
+                                     {'demo==1.0', 'helper==1.0', 'unused==1.0', 'bonus==1.0'})
+                else:
+                    with self.assertRaisesRegex(EvidenceError, 'outside selected manifest'):
+                        self.export(mode, groups=(), extras=())
+                    self.assertEqual(load(self.root / mode / 'resolution.json')['outcome'],
+                                     'unavailable_evidence')
+                self.assertEqual(self.manifest.read_bytes(), manifest)
+                self.assertEqual(lock_path.read_bytes(), altered)
 
     def test_native_forged_hash_age_cvss_and_evidence_outage(self):
         for name, changes in [('digest', {'sha256': '0' * 64}),
@@ -838,6 +999,80 @@ p.locker.set_lock_data(p.package,p.locker.locked_packages())
                 self.assertEqual(receipt['outcome'], 'unsatisfiable' if mode == 'exact' else 'unavailable_evidence')
                 self.assertFalse(set(self.provider.assessments) & self.provider.incompatible)
                 self.assertEqual((self.repo / 'poetry.lock').read_bytes(), original['poetry.lock'])
+
+    def platform_fixture(self, *, shared=False):
+        self.provider = CompatibilityProvider()
+        self.provider.incompatible = {('winonly', '1.0'), ('child', '1.5')}
+        self.provider.versions['winonly'] = ['1.0']
+        self.provider.requirements['winonly', '1.0'] = ['child>=1,<2']
+        if shared:
+            # Same child reached through both an inactive and an active parent.
+            self.provider.requirements['added', '1.5'] = ['child>=1,<2']
+        self.manifest.write_text(self.manifest.read_text().replace('demo="^1.0"',
+            'demo="^1.0"\nwinonly={version="==1.0",markers="sys_platform == \'win32\'"}'))
+        script = '''
+import json, sys
+from pathlib import Path
+from poetry.factory import Factory
+from poetry.core.packages.package import Package
+from poetry.core.packages.dependency import Dependency
+from poetry.core.version.markers import parse_marker
+from poetry.packages.transitive_package_info import TransitivePackageInfo
+config=json.loads(sys.argv[1])
+poetry=Factory().create_poetry(Path.cwd(), disable_plugins=True)
+packages=poetry.locker.locked_packages()
+for name, version in [('winonly','1.0'),('child','1.5')]:
+    package=Package(name, version)
+    package.python_versions='>=3.11'
+    package.files=config[name]
+    if name == 'winonly':
+        package.add_dependency(Dependency('child','>=1,<2'))
+    packages[package]=TransitivePackageInfo(0, {'main'}, {'main':parse_marker('sys_platform == "win32"')})
+poetry.locker.set_lock_data(poetry.package, packages)
+'''
+        files = {}
+        for name, version in [('winonly', '1.0'), ('child', '1.5')]:
+            item = self.provider.index(name)['files'][self.provider.versions[name].index(version)]
+            files[name] = [{'file': item['filename'], 'hash': 'sha256:' + item['hashes']['sha256']}]
+        result = poetry_tool.run(script, files, cwd=self.repo, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stderr[-2000:])
+
+    def test_native_solver_preserves_inactive_platform_lock_and_transitives(self):
+        self.platform_fixture()
+        original_lock = (self.repo / 'poetry.lock').read_bytes()
+        before = tomllib.loads(self.manifest.read_text())['tool']['poetry']['dependencies']['winonly']
+        for operation, specs in [('add', ['added>=1,<2']), ('update', ['demo>=1,<2'])]:
+            result = self.revise('platform-' + operation, operation, specs)
+            self.assertEqual((self.repo / 'poetry.lock').read_bytes(), original_lock)
+            self.assertNotIn('winonly', {p.split('==')[0] for p in result['pins']})
+            self.assertNotIn('child', {p.split('==')[0] for p in result['pins']})
+            packages = {p['name']: p for p in tomllib.loads(result['files']['poetry.lock'])['package']}
+            self.assertEqual(packages['winonly']['version'], '1.0')
+            self.assertEqual(packages['child']['version'], '1.5')
+            self.assertIn('win32', str(packages['child']['markers']))
+            self.assertEqual(SpecifierSet(packages['winonly']['dependencies']['child']), SpecifierSet('>=1,<2'))
+            self.assertEqual(before, tomllib.loads(self.manifest.read_text())['tool']['poetry']['dependencies']['winonly'])
+            self.assertFalse(set(self.provider.assessments) & self.provider.incompatible)
+            (self.repo / 'poetry.lock').write_text(result['files']['poetry.lock'])
+            original_lock = (self.repo / 'poetry.lock').read_bytes()
+
+    def test_native_solver_shared_platform_path_requires_compatible_wheel(self):
+        self.platform_fixture(shared=True)
+        original_lock = (self.repo / 'poetry.lock').read_bytes()
+        # Only added 1.5 requires child. A range permits Poetry to keep the
+        # locked foreign child by choosing added 1.0, which never exercises
+        # the shared active path. Require that path without relaxing assertions.
+        result = self.revise('shared-platform', 'add', ['added==1.5'])
+        self.assertIn('child==1.0', result['pins'])
+        self.assertIn('added==1.5', result['pins'])
+        self.assertNotIn('winonly==1.0', result['pins'])
+        self.assertEqual((self.repo / 'poetry.lock').read_bytes(), original_lock)
+        packages = {p['name']: p for p in tomllib.loads(result['files']['poetry.lock'])['package']}
+        self.assertEqual(packages['winonly']['version'], '1.0')
+        self.assertEqual(packages['child']['version'], '1.0')
+        self.assertEqual(SpecifierSet(packages['winonly']['dependencies']['child']), SpecifierSet('>=1,<2'))
+        self.assertEqual(SpecifierSet(packages['added']['dependencies']['child']), SpecifierSet('>=1,<2'))
+        self.assertFalse(set(self.provider.assessments) & self.provider.incompatible)
 
     def test_native_solver_exact_pin_outage_and_budget_fail_closed(self):
         original = {p.name: p.read_bytes() for p in self.repo.iterdir() if p.is_file()}
