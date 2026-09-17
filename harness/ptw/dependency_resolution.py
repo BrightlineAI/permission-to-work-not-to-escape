@@ -1,5 +1,6 @@
 """Bounded native resolution. Compatibility belongs to uv, safety to evaluate."""
 from datetime import datetime, timezone
+from contextlib import nullcontext
 import hashlib
 import os
 from pathlib import Path
@@ -217,7 +218,7 @@ def compiled_pins(content, environment):
 
 
 def resolve_python(root, stage, rules, *, executable=None, source=None, groups=('dev', 'test'), extras=(),
-                   provider=None, runner=None, max_rounds=8, max_assessments=256, seconds=180):
+                   provider=None, runner=None, max_rounds=8, max_assessments=256, seconds=180, registry_config=None):
     """Resolve compatible candidates, exclude confirmed violations, retain every attempt.
 
     Provider/runner injection is a test seam, never model-controlled configuration.
@@ -233,6 +234,8 @@ def resolve_python(root, stage, rules, *, executable=None, source=None, groups=(
                 not isinstance(seconds, (int, float)) or not 0 < seconds <= 180):
             raise Invalid('Resolution budgets may only narrow the fixed limits')
         if any((root / name).exists() for name in ('uv.lock', 'poetry.lock')):
+            if registry_config is not None or getattr(provider, 'routes', None):
+                raise Invalid('Private Python native locks require a reviewed source adapter; use explicit requirements or static PEP 621 authority')
             from .python_lock import export_lock
             result = export_lock(root, stage / 'native-lock', rules, executable=executable,
                 source=source, groups=groups, extras=extras, provider=provider, runner=runner, seconds=seconds)
@@ -253,8 +256,13 @@ def resolve_python(root, stage, rules, *, executable=None, source=None, groups=(
             'sha256': hashlib.sha256(Path(uv).read_bytes()).hexdigest(), 'runtime': runtime,
             'inputs': inputs, 'cutoff_policy': rules})
         runner = runner or run_metadata
-        provider = provider or PyPIEvidence(native=rules.get('allow_native_wheels', False),
-                                           python=runtime['executable'])
+        if registry_config is not None:
+            from .registry import RoutedPyPIEvidence
+            if provider is not None:
+                raise Invalid('Select one Python evidence provider')
+            provider = RoutedPyPIEvidence(registry_config, native=rules.get('allow_native_wheels', False),
+                                         python=runtime['executable'])
+        provider = provider or PyPIEvidence(native=rules.get('allow_native_wheels', False), python=runtime['executable'])
         if isinstance(provider, PyPIEvidence):
             provider.deadline = started + seconds
         source_path, output = stage / 'requirements.in', stage / 'resolved.txt'
@@ -279,11 +287,21 @@ def resolve_python(root, stage, rules, *, executable=None, source=None, groups=(
                     '--constraint', str(constraint_path), str(source_path), '--output-file', str(output)]
             attempt = {'round': index + 1, 'excluded': sorted([list(x) for x in excluded]), 'outcome': 'running'}
             attempts.append(attempt)
+            from .registry import RoutedPyPIEvidence
+            from .python_index import WheelIndex
+            view = (WheelIndex(provider, stage / ('index-' + str(index)), started + seconds)
+                    if isinstance(provider, RoutedPyPIEvidence) else None)
             try:
-                proc = runner(argv, cwd=stage, env=env, capture_output=True, text=True, timeout=remaining)
+                with view if view is not None else nullcontext(None) as endpoint:
+                    if endpoint:
+                        argv[argv.index('--index-url') + 1] = endpoint
+                    proc = runner(argv, cwd=stage, env=env, capture_output=True, text=True,
+                                  timeout=max(.001, started + seconds - time.monotonic()))
             except subprocess.TimeoutExpired as exc:
                 attempt['outcome'] = 'timeout'
                 raise ResolutionError('budget_exhausted', 'native resolver timed out') from exc
+            if view is not None and view.error:
+                raise EvidenceError(view.error)
             attempt['returncode'] = proc.returncode
             if proc.returncode:
                 # uv uses the same status for transport and constraint errors.

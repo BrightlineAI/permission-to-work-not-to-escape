@@ -30,8 +30,8 @@ For an existing backend/frontend layout, the current source also accepts:
 Select only paths needed by your project; nested parents must already exist.
 Python's declared runtime requirement is preserved and the selected interpreter
 is shown before approval. Current mixed support uses static Python declarations
-and ordinary npm locks. Local/workspace packages and additional native lock
-imports still need implementation. See [dependency status](DEPENDENCY_STATUS.md)
+and npm locks, including scoped workspace sources. See the precise format and
+validation boundaries in [dependency status](DEPENDENCY_STATUS.md)
 before treating this as complete ecosystem support.
 
 Missing exact files may be created later through protected tools. No root-directory
@@ -107,17 +107,22 @@ Codex CLI 0.154.0, Python, and Node 22. The interactive model is GPT-5.6 Sol/low
 not a silently substituted model.
 
 Python requirements and static pyproject dependencies are resolved to pins;
-Python execution uses `/usr/bin/python3`. npm uses a reviewed package lock.
+Python execution uses its reviewed compatible interpreter. npm uses a reviewed package lock.
 Public registry packages are checked for release age and known vulnerabilities
 before confined installation. Dependencies do not gain host credentials or
 unrestricted network access. [Package details and advanced adapters](ECOSYSTEMS.md)
 cover native wheels, explicit source builds and unsupported formats.
 
 This one-command path supports ordinary repositories, not every package layout.
-Private registries, Git/local dependencies, npm workspaces, dynamic Python
-metadata, and install-script builds require separate review or an adapter.
-They fail explicitly, without an unconfined fallback. Metadata such as package
+Configured private npm origins and npm workspace sources use separate broker and
+source bindings. Python editable sources, pnpm and dynamic Python metadata still
+need implementation. Install scripts require explicit build policy. Metadata such as package
 manifests is read only during agent work; dependency/scope changes need review.
+For a dependency change, use the operator terminal, for example
+`ptw deps update 'idna>=3.10,<4' --ecosystem pypi --source pyproject.toml`.
+Review the proposed versions and files, expand `details` if needed, then type
+`yes`, `reject` or `cancel`. Existing work is stopped only after approval and
+must register again. See [the format matrix and revision examples](DEPENDENCY_STATUS.md).
 This adapter covers editing, builds, tests, packages and registered delegation,
 not every native Codex feature. Git administration, deployment and arbitrary
 external services remain operator work.

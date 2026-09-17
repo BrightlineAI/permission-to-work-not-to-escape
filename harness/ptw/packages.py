@@ -14,7 +14,7 @@ from .package_install import file_manifest, install_wheels, target_environment, 
 from .policy import Invalid, OutsideScope, canonical, digest
 
 
-def mounted_set(store, db, actor, identity):
+def mounted_set(store, db, actor, identity, *, definition=None):
     if not re.fullmatch(r"pkg_[0-9a-f]{24}", identity):
         raise OutsideScope("Invalid package set identity")
     row = db.execute("SELECT * FROM package_sets WHERE id=? AND project=?", (identity, actor["project"])).fetchone()
@@ -25,7 +25,7 @@ def mounted_set(store, db, actor, identity):
     verify_inputs(bundle)
     if row['ecosystem'] == 'npm':
         from .dependency_binding import verify_local_sources
-        verify_local_sources(bundle, actor)
+        verify_local_sources(bundle, actor, definition)
     if row['policy_sha256'] is not None and row['policy_sha256'] != bundle['approval']['sha256']:
         raise Invalid('Package set belongs to an obsolete policy revision')
     runtime = bundle['policy']['project'].get('python_runtime')
@@ -130,8 +130,8 @@ class PackageControl:
             from .registry import provider_for
             provider = self.provider or provider_for(self.store, bundle)
         else:
-            provider = self.provider or PyPIEvidence(native=rules.get("allow_native_wheels", False),
-                sources=[x[5:] for x in rules.get("build_packages", []) if x.startswith("pypi:")], python=python)
+            from .registry import provider_for
+            provider = self.provider or provider_for(self.store, bundle, 'pypi')
         evidence, reasons, error, target = [], [], None, None
         # Slow, fallible preparation holds neither the project lock nor a pending
         # effect. Concurrent stops can proceed, and no agent sees staging files.

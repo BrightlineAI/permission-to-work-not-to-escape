@@ -43,6 +43,12 @@ WORKSPACE_SCHEMA['properties']['project']['properties']['npm_dependencies'] = ob
         'url': {'type': 'string'}, 'integrity': {'type': 'string'},
     })},
 })
+WORKSPACE_SCHEMA['properties']['project']['properties']['python_dependencies']['properties'].update({
+    'registry_config_sha256': {'type': 'string', 'pattern': '^[0-9a-f]{64}$'},
+    'groups': {'type': 'array', 'maxItems': 64, 'uniqueItems': True, 'items': {'type': 'string'}},
+    'extras': {'type': 'array', 'maxItems': 64, 'uniqueItems': True, 'items': {'type': 'string'}},
+    'authority': {'enum': ['requirements', 'pyproject.toml', 'uv.lock', 'poetry.lock']},
+})
 WORKSPACE_SCHEMA['properties']['project']['properties']['npm_dependencies']['properties']['registry_config_sha256'] = {
     'type': 'string', 'pattern': '^[0-9a-f]{64}$'}
 WORKSPACE_SCHEMA['properties']['project']['properties']['npm_dependencies']['properties'].update({

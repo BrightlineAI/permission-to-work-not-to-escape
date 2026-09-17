@@ -81,10 +81,13 @@ Original declarations stay unchanged. uv performs compatibility resolution with
 an age cutoff and additive exclusions for confirmed unsafe versions, followed
 by the shared evidence evaluator and artifact checks.
 
-The ordinary lock/workspace/private-registry and dependency-revision portions
-of task 3 remain incomplete. See [current dependency status](DEPENDENCY_STATUS.md)
-for implemented paths, test evidence and pending native validation. These gaps
-are not classified as unusual formats or waived acceptance requirements.
+Native frozen uv/Poetry exports, npm workspace descriptors, private npm routing
+and same-project dependency revisions are implemented. PEP 621 edits use uv's
+TOML editor; uv lock updates retain declarations and use additive exclusions.
+Selected groups/extras remain bound to the policy across revisions. See
+[current dependency status](DEPENDENCY_STATUS.md) for the format matrix and
+pending native validation. Task 3 remains incomplete: Python editable preparation,
+pnpm, private Python routing and Poetry updates are ordinary required gaps.
 
 ## Publication and recovery
 

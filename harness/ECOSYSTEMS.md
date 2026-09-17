@@ -14,11 +14,16 @@ from pending native journeys and missing ordinary adapters.
 |---|---|
 | Exact Python pins | Pure and compatible native wheels, dependency markers, extras and wheel data |
 | PyPI source distributions | Explicitly authorized offline PEP 517 builds, with all build dependencies supplied and checked |
-| npm lock version 2 or 3 | Public registry packages, scoped names, nested versions, peers and optional dependencies |
+| npm lock version 2 or 3 | Registry packages, scoped names, nested versions, peers and optional dependencies; workspace source descriptors |
 | JavaScript / TypeScript | CommonJS, ESM, TypeScript compilation and package executables |
 | npm install scripts | Only for named packages in the approved build list; confined and offline |
 
 This does not mean every library works. A source package needing unavailable system headers or a build that downloads additional binaries will be blocked. The gate checks packages, not whether their code is universally safe.
+
+For typed project setup and `ptw deps` revisions, use the current
+[format matrix, examples and private-registry contract](DEPENDENCY_STATUS.md).
+That matrix also identifies unfinished ordinary adapters and native tests that
+have not passed. The examples below retain the legacy exact-pin workflow.
 
 ## Install
 

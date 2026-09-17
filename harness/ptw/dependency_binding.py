@@ -48,12 +48,17 @@ def verify_local_sources(bundle, actor, definition=None):
     """A package grant never implies source read authority, even for a cached set."""
     descriptor = bundle['policy']['project'].get('npm_dependencies', {})
     grants = scope(json.loads(actor['grants']))
+    sources = []
     for source in descriptor.get('sources', []):
+        if definition is not None and not set(source['resources']) & set(definition['resources']):
+            continue
         if any('read' not in grants.get(r, set()) for r in source['resources']):
             raise OutsideScope('Local package source exceeds session read grants')
         if definition is not None and not set(source['resources']) <= set(definition['resources']):
             raise OutsideScope('Local package source exceeds command inputs')
-    return descriptor
+        sources.append(source)
+    return {**descriptor, 'sources': sources,
+            'excluded_sources': [s['path'] for s in descriptor.get('sources', []) if s not in sources]}
 
 
 def verify_selection(bundle, selected, extras):

@@ -411,6 +411,15 @@ class NativeLockTests(unittest.TestCase):
         with self.assertRaisesRegex(EvidenceError, 'digest differs'):
             export_lock(self.repo, self.root / 'digest', RULES, provider=provider, runner=exporter)
 
+    def test_dynamic_root_is_rejected_before_native_backend_execution(self):
+        from ptw.python_lock import export_lock
+        (self.repo / 'pyproject.toml').write_text('[project]\nname="sample"\ndynamic=["version"]\n'
+            '[build-system]\nrequires=[]\nbuild-backend="malicious"\nbackend-path=["."]\n')
+        (self.repo / 'uv.lock').write_text('version=1\n')
+        with self.assertRaisesRegex(Invalid, 'offline source preparation'):
+            export_lock(self.repo, self.root / 'dynamic', RULES,
+                runner=lambda *a, **k: self.fail('Native backend must not be reached'))
+
 
 class NpmResolutionTests(unittest.TestCase):
     setUp = ProductEcosystemTests.setUp
@@ -542,6 +551,22 @@ class WorkspaceSourceTests(unittest.TestCase):
         self.assertEqual(result['sources'], ['packages/math'])
         self.assertIn('packages/math/package.json', result['inputs'])
 
+    def test_workspace_setup_stages_nested_metadata_before_review(self):
+        self.workspace()
+        directory = self.root / 'setup-operator'
+        directory.mkdir()
+        args = SimpleNamespace(language='javascript', goal='Review local workspace source',
+            editable='packages/math/src', files='', warn_at=None, stop_at=None,
+            history=None, model_proposal=False)
+        with patch('ptw.codex.require_login'), patch('ptw.monitor.ensure'), patch('ptw.onboarding.ensure'), \
+                patch('sys.stdin.isatty', return_value=True), patch('builtins.input', return_value='yes'):
+            record = onboarding.setup(self.repo, directory, args)
+        bundle = load(record['bundle'])
+        descriptor = bundle['policy']['project']['npm_dependencies']
+        self.assertEqual(descriptor['sources'][0]['path'], 'packages/math')
+        self.assertIn('packages/math/package.json', descriptor['inputs'])
+        self.assertTrue(next(directory.glob('setup-*/metadata/packages/math/package.json')).is_file())
+
     def test_local_source_requires_descriptor_and_command_session_closure(self):
         from ptw.dependency_binding import verify_npm, verify_local_sources
         lock = self.workspace()
@@ -573,6 +598,124 @@ class WorkspaceSourceTests(unittest.TestCase):
         lock['packages']['node_modules/@fixture/math']['resolved'] = '../../outside'
         with self.assertRaisesRegex(Invalid, 'in-project source'):
             NpmPlan(lock)
+
+    def test_sibling_file_dependency_and_origin_confusion(self):
+        from ptw.npm_resolution import node_inputs
+        from ptw.npm import NpmPlan
+        self.workspace()
+        path = self.repo / 'packages/client'
+        path.mkdir()
+        (path / 'package.json').write_text(json.dumps({'name': 'client', 'version': '1.0.0',
+            'dependencies': {'@fixture/math': 'file:../math'}}))
+        manifests, inputs = node_inputs(self.repo)
+        self.assertIn('packages/math', manifests)
+        self.assertIn('packages/client/package.json', inputs)
+        lock = load(self.repo / 'package-lock.json')
+        lock['packages']['packages/client'] = manifests['packages/client']
+        lock['packages']['node_modules/client'] = {'link': True, 'resolved': 'packages/client'}
+        NpmPlan(lock)
+        # Same version/name is insufficient: file: binds the exact local path.
+        lock['packages']['packages/other'] = copy.deepcopy(lock['packages']['packages/math'])
+        lock['packages']['node_modules/@fixture/math']['resolved'] = 'packages/other'
+        with self.assertRaisesRegex(Invalid, 'different source identity'):
+            NpmPlan(lock)
+        (path / 'package.json').write_text(json.dumps({'dependencies': {'escape': 'file:../../../outside'}}))
+        with self.assertRaisesRegex(Invalid, 'escapes project root'):
+            node_inputs(self.repo)
+
+    def test_file_source_parent_symlink_cannot_read_external_metadata(self):
+        from ptw.npm_resolution import node_inputs
+        (self.root / 'outside').mkdir()
+        (self.root / 'outside/package.json').write_text('{"name":"outside","version":"1.0.0"}')
+        (self.repo / 'link').symlink_to(self.root / 'outside', target_is_directory=True)
+        (self.repo / 'package.json').write_text('{"dependencies":{"outside":"file:link"}}')
+        with self.assertRaises((Invalid, OSError)):
+            node_inputs(self.repo)
+
+    def test_narrower_command_selects_only_its_complete_source_resources(self):
+        from ptw.dependency_binding import verify_local_sources
+        sources = [{'path': 'packages/frontend', 'resources': ['front-meta', 'front-src']},
+                   {'path': 'packages/backend', 'resources': ['back-meta', 'back-src']}]
+        bundle = {'policy': {'project': {'npm_dependencies': {'sources': sources}}}}
+        actor = {'grants': json.dumps([{'resource': r, 'actions': ['read']}
+                                     for r in sources[0]['resources']])}
+        selected = verify_local_sources(bundle, actor, {'resources': sources[0]['resources']})
+        self.assertEqual(selected['sources'], sources[:1])
+        self.assertEqual(selected['excluded_sources'], ['packages/backend'])
+        with self.assertRaisesRegex(Invalid, 'command inputs'):
+            verify_local_sources(bundle, actor, {'resources': ['front-src']})
+        with self.assertRaisesRegex(Invalid, 'session read grants'):
+            verify_local_sources(bundle, actor, {'resources': sources[1]['resources']})
+
+    @unittest.skipUnless(os.environ.get('PTW_LINUX_TESTS') == '1', 'requires actual Linux confinement')
+    def test_native_narrower_workspace_import_and_excluded_source(self):
+        from ptw.policy import save
+        from ptw.packages import PackageControl
+        from ptw.monitor import ensure, remove
+        from ptw.supervisor import Supervisor
+        from ptw.workflow import dispatch
+        from ptw.workspace import request
+        lock = self.workspace()
+        save(self.repo / 'packages/backend/package.json', {'name': 'backend', 'version': '1.0.0'})
+        (self.repo / 'packages/backend/src').mkdir()
+        hidden = self.repo / 'packages/backend/src/private.cjs'
+        hidden.write_text("module.exports='UNRELATED_BACKEND_SOURCE';\n")
+        lock['packages']['packages/backend'] = {'name': 'backend', 'version': '1.0.0'}
+        lock['packages']['node_modules/backend'] = {'link': True, 'resolved': 'packages/backend'}
+        files = ['package.json', 'packages/math/package.json', 'packages/backend/package.json']
+        front = ['packages/math/package.json', 'packages/math/src']
+        code = ("import {value} from '@fixture/math'; import fs from 'node:fs'; "
+            "if(fs.existsSync('/node-packages/packages/backend/package.json') || "
+            "fs.existsSync('/node-packages/packages/backend/src/private.cjs') || "
+            "fs.existsSync('/node-packages/package-lock.json') || "
+            "fs.existsSync('/node-packages/node_modules/.package-lock.json')) throw Error('source exposed'); console.log('VALUE='+value)")
+        policy, inv = template(self.repo, 'narrow-workspace', 'Use frontend source only',
+            {'packages/math/src': 'tree', 'packages/backend/src': 'tree'}, files,
+            [{'id': 'test', 'argv': ['/usr/bin/node', '--input-type=module', '-e', code],
+              'resources': front, 'cwd': 'packages/math', 'timeout_seconds': 15}], [], 1, 3)
+        mapping = {v['path']: k for k, v in inv['resources'].items()}
+        from ptw.workspace import scan, stamp
+        sources = []
+        for path in ('packages/math', 'packages/backend'):
+            resources = [mapping[path + '/package.json'], mapping[path + '/src']]
+            snapshot = scan(inv, resources)
+            sources.append({'path': path, 'resources': resources,
+                'snapshot_sha256': digest({p: [stamp(e), e.get('mode')] for p, e in snapshot.items()})})
+        policy['project']['npm_dependencies'] = {'inputs': {}, 'lock_sha256': digest(lock),
+            'artifacts': [], 'sources': sources, 'root': ''}
+        store = Store(self.root / 'narrow-controller')
+        store.activate(approve(policy, inv, digest(compile_policy(policy, inv)), 'synthetic fixture operator'))
+        unrelated = subprocess.Popen(['/usr/bin/sleep', '90'])
+        try:
+            ensure(store)
+            parent = store.register('narrow-workspace', 'work')
+            installed = PackageControl(store).install(parent['token'], 'local-install', lock, ecosystem='npm')
+            self.assertTrue(installed.get('allowed'), installed)
+            child = store.register('narrow-workspace', 'work', parent_token=parent['token'],
+                grants=[{'resource': mapping[p], 'actions': ['read']} for p in front])
+            for index, value in enumerate((42, 43)):
+                if index:
+                    current = dispatch(store, parent, 'read-local', request('read',
+                        mapping['packages/math/src'], 'index.js'))
+                    self.assertTrue(current.get('allowed'), current)
+                    changed = dispatch(store, parent, 'edit-local', request('write', mapping['packages/math/src'],
+                        'index.js', content='export const value = 43;\n', expected=current['sha256']))
+                    self.assertTrue(changed.get('allowed'), changed)
+                result = dispatch(store, child, 'import-' + str(index), request('run', 'test',
+                    content=json.dumps({'package_sets': [installed['package_set']]})))
+                self.assertTrue(result.get('allowed'), result)
+                self.assertEqual(result.get('exit_code'), 0, result)
+                self.assertIn('VALUE=' + str(value), result['output'])
+            self.assertEqual(hidden.read_text(), "module.exports='UNRELATED_BACKEND_SOURCE';\n")
+            store.stop('narrow-workspace')
+            Supervisor(store).reconcile()
+            self.assertIsNone(unrelated.poll())
+        finally:
+            store.stop('narrow-workspace')
+            Supervisor(store).reconcile()
+            remove(store)
+            unrelated.terminate()
+            unrelated.wait(timeout=5)
 
 
 class PrivateRegistryTests(unittest.TestCase):
@@ -641,11 +784,14 @@ class PrivateRegistryTests(unittest.TestCase):
             outside_repository(config, self.repo)
 
     @unittest.skipUnless(os.environ.get('PTW_LINUX_TESTS') == '1', 'local authenticated fixture requires native checks')
-    def test_local_authenticated_fixture_download_and_wrong_credentials(self):
+    def test_local_authenticated_fixture_install_build_and_wrong_credentials(self):
         from http.server import BaseHTTPRequestHandler, HTTPServer
         import threading
         from test_ecosystems import NpmFixture
-        fixture, seen = NpmFixture(), []
+        fixture = NpmFixture(fields={'scripts': {'postinstall': 'node build.cjs'}}, files={
+            'package/build.cjs': b"const fs=require('fs'); if(Object.values(process.env).some(v=>v.includes('SYNTHETIC_PRIVATE_'))) throw Error('credential leak'); fs.writeFileSync('built.json',JSON.stringify({answer:42}));",
+            'package/index.js': b"module.exports=require('./built.json').answer;\n"})
+        seen = []
 
         class Handler(BaseHTTPRequestHandler):
             def log_message(self, *args):
@@ -686,6 +832,48 @@ class PrivateRegistryTests(unittest.TestCase):
             provider.download(record, self.root / 'authenticated.tgz')
             self.assertEqual((self.root / 'authenticated.tgz').read_bytes(), fixture.raw)
             self.assertEqual(len(seen), 3)
+            # Exercise the actual broker -> checked archive -> supervised offline
+            # install -> explicit lifecycle -> protected import path.
+            from ptw.packages import PackageControl
+            from ptw.monitor import ensure, remove
+            from ptw.supervisor import Supervisor
+            from ptw.workflow import dispatch
+            from ptw.workspace import request
+            from ptw.policy import save
+            (self.repo / 'src').mkdir()
+            (self.repo / 'src/app.cjs').write_text("if(require('demo')!==42) process.exit(1); console.log('PRIVATE_IMPORT_OK');\n")
+            policy, inv = template(self.repo, 'private-native', 'Import checked private build', {'src': 'tree'}, [],
+                [{'id': 'test', 'argv': ['/usr/bin/node', 'src/app.cjs'], 'resources': ['src'], 'timeout_seconds': 15}],
+                ['npm:demo'], 1, 3)
+            policy['project']['packages']['build_packages'] = ['npm:demo']
+            lock = copy.deepcopy(fixture.lock)
+            lock['packages']['node_modules/demo']['resolved'] = record['url']
+            policy['project']['npm_dependencies'] = {'inputs': {}, 'lock_sha256': digest(lock),
+                'artifacts': [{k: record[k] for k in ('name', 'version', 'url', 'integrity')}]}
+            store = Store(self.root / 'private-controller')
+            store.activate(approve(policy, inv, digest(compile_policy(policy, inv)), 'synthetic fixture operator'))
+            try:
+                ensure(store)
+                actor = store.register('private-native', 'work')
+                installed = PackageControl(store, provider=provider).install(actor['token'], 'private-install', lock, ecosystem='npm')
+                self.assertTrue(installed.get('allowed'), installed)
+                package = store.directory / 'package-sets' / installed['package_set']
+                self.assertEqual(load(package / 'node_modules/demo/built.json'), {'answer': 42})
+                result = dispatch(store, actor, 'private-import', request('run', 'test',
+                    content=json.dumps({'package_sets': [installed['package_set']]})))
+                self.assertTrue(result.get('allowed'), result)
+                self.assertEqual(result.get('exit_code'), 0, result)
+                self.assertIn('PRIVATE_IMPORT_OK', result['output'])
+                self.assertNotIn('SYNTHETIC_PRIVATE_FIXTURE_TOKEN', json.dumps([installed, result]))
+                for path in package.rglob('*'):
+                    if path.is_file():
+                        self.assertNotIn(b'SYNTHETIC_PRIVATE_FIXTURE_TOKEN', path.read_bytes())
+                save(self.root / 'private-effects.json', {'built': True, 'imported': True,
+                    'credential_absent_from_package_and_responses': True})
+            finally:
+                store.stop('private-native')
+                Supervisor(store).reconcile()
+                remove(store)
             provider.routes['demo']['authorization'] = 'Bearer INVALID_SYNTHETIC_TOKEN'
             with self.assertRaises(EvidenceError):
                 provider.assess('demo', '1.0.0')
@@ -696,10 +884,270 @@ class PrivateRegistryTests(unittest.TestCase):
             thread.join(timeout=5)
 
 
+class PrivatePythonTests(unittest.TestCase):
+    setUp = ProductEcosystemTests.setUp
+
+    def provider(self, endpoint='https://private.invalid', *, fixture=False):
+        from ptw.registry import RoutedPyPIEvidence
+        from ptw.policy import save
+        credential = self.root / 'synthetic-credential.json'
+        if not credential.exists():
+            save(credential, {'authorization': 'Bearer SYNTHETIC_PYTHON_TOKEN'})
+        config = {'version': 1, 'packages': {'demo': {'registry': endpoint, 'advisories': endpoint,
+            'credential_ref': str(credential)}}}
+        return RoutedPyPIEvidence(config, fixture=fixture), config
+
+    def document(self, endpoint='https://private.invalid'):
+        raw = wheel_bytes('demo', '1.0')
+        item = {'filename': 'demo-1.0-py3-none-any.whl', 'url': endpoint + '/files/demo.whl',
+            'digests': {'sha256': hashlib.sha256(raw).hexdigest()}, 'size': len(raw),
+            'packagetype': 'bdist_wheel', 'yanked': False, 'upload_time_iso_8601': '2020-01-01T00:00:00Z',
+            'requires_python': '>=3.8'}
+        return {'info': {'name': 'demo', 'version': '1.0'}, 'urls': [item], 'releases': {'1.0': [item]}}, raw
+
+    def index_document(self, endpoint='https://private.invalid'):
+        release, raw = self.document(endpoint)
+        item = release['urls'][0]
+        return {'meta': {'api-version': '1.1'}, 'name': 'demo', 'files': [{
+            'filename': item['filename'], 'url': item['url'], 'hashes': item['digests'],
+            'size': len(raw), 'upload-time': item['upload_time_iso_8601'],
+            'requires-python': item['requires_python'], 'yanked': False}]}, raw
+
+    def test_private_python_assessment_download_and_origin(self):
+        import io
+        provider, config = self.provider()
+        document, raw = self.document()
+        seen = []
+
+        def opened(request, **kwargs):
+            seen.append(request)
+            self.assertEqual(request.get_header('Authorization'), 'Bearer SYNTHETIC_PYTHON_TOKEN')
+            if request.full_url.endswith('/v1/query'):
+                self.assertEqual(json.loads(request.data)['package']['ecosystem'], 'PyPI')
+                body = {'origin': 'https://private.invalid', 'name': 'demo', 'version': '1.0',
+                    'coverage': 'complete', 'vulns': []}
+            elif request.full_url.endswith('.whl'):
+                return io.BytesIO(raw)
+            else:
+                body = document
+            return io.BytesIO(json.dumps(body).encode())
+
+        with patch.object(provider.http, 'open', side_effect=opened):
+            record = provider.assess('demo', '1.0')
+            provider.download(record, self.root / 'checked.whl')
+        self.assertEqual(record['origin'], 'https://private.invalid')
+        self.assertEqual((self.root / 'checked.whl').read_bytes(), raw)
+        self.assertEqual(len(seen), 3)
+        self.assertNotIn('SYNTHETIC_PYTHON_TOKEN', json.dumps([record, config]))
+        self.assertFalse(provider.artifact_allowed('https://files.pythonhosted.org/demo.whl', 'demo'))
+        for url in ('https://user:secret@private.invalid/demo.whl', 'https://private.invalid/demo.whl?token=x',
+                    'https://elsewhere.invalid/demo.whl'):
+            with self.subTest(url=url):
+                self.assertFalse(provider.artifact_allowed(url, 'demo'))
+
+    def test_private_python_coverage_and_credential_echo_fail_closed(self):
+        import io
+        provider, _ = self.provider()
+        for response in ({'vulns': []}, {'origin': 'https://pypi.org', 'name': 'demo', 'version': '1.0',
+                'coverage': 'complete', 'vulns': []}, {'echo': 'SYNTHETIC_PYTHON_TOKEN'}):
+            with patch.object(provider.http, 'open', return_value=io.BytesIO(json.dumps(response).encode())):
+                with self.assertRaises(EvidenceError) as error:
+                    provider.advisories('PyPI', 'demo', '1.0')
+                self.assertNotIn('SYNTHETIC_PYTHON_TOKEN', str(error.exception))
+        with patch.object(provider.http, 'open', side_effect=OSError('SYNTHETIC_PYTHON_TOKEN')):
+            with self.assertRaises(EvidenceError) as error:
+                provider.release('demo')
+            self.assertNotIn('SYNTHETIC_PYTHON_TOKEN', str(error.exception))
+
+    def test_python_index_relative_links_and_source_archives(self):
+        import io
+        from ptw.python_index import WheelIndex
+        provider, _ = self.provider()
+        document, _ = self.index_document()
+        document['files'][0]['url'] = '../../files/demo.whl'
+        document['files'].append({'filename': 'demo-2.0.tar.gz', 'url': '/files/demo.tar.gz'})
+        with patch.object(provider.http, 'open', return_value=io.BytesIO(json.dumps(document).encode())) as opened:
+            result = provider.index('demo')
+        req = opened.call_args.args[0]
+        self.assertEqual(req.get_header('Accept'), 'application/vnd.pypi.simple.v1+json')
+        self.assertEqual(req.get_header('Authorization'), 'Bearer SYNTHETIC_PYTHON_TOKEN')
+        self.assertEqual(result['files'][0]['url'], 'https://private.invalid/files/demo.whl')
+        view = WheelIndex(provider, self.root, time.monotonic() + 30)
+        with patch.object(provider, 'index', return_value=result):
+            self.assertEqual(len(view.document('demo')['files']), 1)
+
+    def test_python_wheel_view_preserves_runtime_hash_age_and_checks_bytes(self):
+        from ptw.python_index import WheelIndex
+        provider, _ = self.provider()
+        document, raw = self.index_document()
+        view = WheelIndex(provider, self.root, time.monotonic() + 30)
+        with patch.object(provider, 'index', return_value=document):
+            result = view.document('demo')
+        entry = result['files'][0]
+        self.assertEqual(entry['requires-python'], '>=3.8')
+        self.assertEqual(entry['upload-time'], '2020-01-01T00:00:00Z')
+        self.assertEqual(entry['hashes']['sha256'], hashlib.sha256(raw).hexdigest())
+        self.assertNotIn('private.invalid', json.dumps(result))
+        self.assertNotIn('SYNTHETIC_PYTHON_TOKEN', json.dumps(result))
+        key = next(iter(view.artifacts))
+        with patch.object(provider, 'download', side_effect=lambda record, path: path.write_bytes(raw)):
+            self.assertEqual(view.artifact(key, entry['filename']), raw)
+        (self.root / key).write_bytes(b'tampered')
+        with self.assertRaisesRegex(EvidenceError, 'changed'):
+            view.artifact(key, entry['filename'])
+        with self.assertRaisesRegex(EvidenceError, 'Unknown'):
+            view.artifact(key, 'different.whl')
+        view.deadline = time.monotonic() - 1
+        with self.assertRaisesRegex(EvidenceError, 'budget'):
+            view.document('demo')
+
+    def test_python_view_rejects_malformed_metadata_and_unapproved_origin(self):
+        from ptw.python_index import WheelIndex
+        provider, _ = self.provider()
+        original, _ = self.index_document()
+        for field, value in (('url', 'https://files.pythonhosted.org/demo.whl'), ('filename', '../bad.whl'),
+                             ('hashes', {}), ('size', -1), ('upload-time', None)):
+            with self.subTest(field=field):
+                document = copy.deepcopy(original)
+                document['files'][0][field] = value
+                view = WheelIndex(provider, self.root, time.monotonic() + 30)
+                with patch.object(provider, 'index', return_value=document), self.assertRaises(EvidenceError):
+                    view.document('demo')
+
+    def test_python_private_config_bound_in_provider_and_no_native_lock_fallback(self):
+        from ptw.registry import provider_for
+        from ptw.policy import save
+        _, config = self.provider()
+        store = Store(self.root / 'state')
+        identity = digest(config)
+        bundle = {'inventory': {'root': str(self.repo)}, 'policy': {'project': {'packages': RULES,
+            'python_dependencies': {'registry_config_sha256': identity}}}}
+        save(store.directory / ('pypi-registry-' + identity + '.json'), config)
+        self.assertEqual(provider_for(store, bundle, 'pypi').routes['demo']['registry'], 'https://private.invalid')
+        (store.directory / ('pypi-registry-' + identity + '.json')).write_text('{}')
+        with self.assertRaisesRegex(EvidenceError, 'differs'):
+            provider_for(store, bundle, 'pypi')
+        (self.repo / 'uv.lock').write_text('version=1\n')
+        with patch('ptw.dependency_resolution.run_metadata') as run, self.assertRaisesRegex(Invalid, 'Private Python native locks'):
+            resolve_python(self.repo, self.root / 'lock-attempt', RULES, registry_config=config)
+        run.assert_not_called()
+
+    def test_python_registry_setup_reviews_hash_and_stores_only_external_reference(self):
+        from contextlib import redirect_stdout
+        import io
+        from ptw.policy import save
+        _, config = self.provider()
+        config_path = self.root / 'routes.json'
+        save(config_path, config)
+        (self.repo / 'requirements.in').write_text('demo==1.0\n')
+        (self.repo / 'src').mkdir()
+        directory = self.root / 'operator'
+        directory.mkdir()
+        record = FixtureProvider().assess('demo', '1.0')
+        plan = {'pins': ['demo==1.0'], 'runtime': select(),
+            'inputs': {'requirements.in': hashlib.sha256((self.repo / 'requirements.in').read_bytes()).hexdigest()},
+            'artifacts': [{k: record[k] for k in ('name', 'version', 'url', 'sha256')}]}
+        args = SimpleNamespace(language='python', goal='Private wheel import', editable='src', files='',
+            warn_at=None, stop_at=None, history=None, model_proposal=False, python_registry_config=str(config_path))
+        transcript = io.StringIO()
+        with patch('ptw.codex.require_login'), patch('ptw.monitor.ensure'), patch('ptw.onboarding.ensure'), \
+                patch('sys.stdin.isatty', return_value=True), patch('builtins.input', return_value='yes'), \
+                patch('ptw.dependency_resolution.resolve_python', return_value=plan) as resolve, redirect_stdout(transcript):
+            registration = onboarding.setup(self.repo, directory, args)
+        self.assertEqual(resolve.call_args.kwargs['registry_config'], config)
+        bundle = load(registration['bundle'])
+        identity = bundle['policy']['project']['python_dependencies']['registry_config_sha256']
+        self.assertEqual(identity, digest(config))
+        self.assertEqual(load(Path(registration['state']) / ('pypi-registry-' + identity + '.json')), config)
+        self.assertNotIn('SYNTHETIC_PYTHON_TOKEN', transcript.getvalue() + json.dumps(bundle))
+        self.assertNotIn(str(self.root / 'synthetic-credential.json'), json.dumps(bundle))
+
+    @unittest.skipUnless(os.environ.get('PTW_LINUX_TESTS') == '1', 'requires authenticated HTTP and native confinement')
+    def test_native_private_python_resolution_install_import_and_bad_credentials(self):
+        from http.server import BaseHTTPRequestHandler, HTTPServer
+        import threading
+        from ptw.packages import PackageControl
+        from ptw.monitor import ensure, remove
+        from ptw.supervisor import Supervisor
+        from ptw.workflow import dispatch
+        from ptw.workspace import request
+        seen = []
+
+        class Handler(BaseHTTPRequestHandler):
+            def log_message(self, *args):
+                pass
+
+            def respond(self, raw):
+                seen.append((self.path, self.headers.get('Authorization')))
+                if seen[-1][1] != 'Bearer SYNTHETIC_PYTHON_TOKEN':
+                    self.send_error(401)
+                    return
+                self.send_response(200)
+                self.send_header('Content-Length', str(len(raw)))
+                self.end_headers()
+                self.wfile.write(raw)
+
+            def do_GET(self):
+                self.respond(raw if self.path.endswith('.whl') else
+                    json.dumps(index_document if self.path.startswith('/simple/') else document).encode())
+
+            def do_POST(self):
+                self.respond(json.dumps({'origin': endpoint, 'name': 'demo', 'version': '1.0',
+                    'coverage': 'complete', 'vulns': []}).encode())
+
+        server = HTTPServer(('127.0.0.1', 0), Handler)
+        endpoint = 'http://127.0.0.1:' + str(server.server_port)
+        document, raw = self.document(endpoint)
+        index_document, _ = self.index_document(endpoint)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            provider, _ = self.provider(endpoint, fixture=True)
+            (self.repo / 'requirements.in').write_text('demo>=1,<2\n')
+            result = resolve_python(self.repo, self.root / 'resolution', RULES, provider=provider)
+            self.assertEqual(result['pins'], ['demo==1.0'])
+            (self.repo / 'src').mkdir()
+            (self.repo / 'src/app.py').write_text("import demo, os; assert not any('SYNTHETIC_PYTHON_TOKEN' in v for v in os.environ.values()); print('PRIVATE_PYTHON_OK')\n")
+            policy, inv = template(self.repo, 'private-python', 'Import authenticated wheel', {'src': 'tree'},
+                ['requirements.in'], [{'id': 'test', 'argv': [result['runtime']['executable'], 'src/app.py'],
+                'resources': ['src'], 'timeout_seconds': 15}], ['pypi:demo'], 1, 3)
+            policy['project']['python_runtime'] = result['runtime']
+            policy['project']['python_dependencies'] = {k: result[k] for k in ('inputs', 'pins', 'artifacts')}
+            store = Store(self.root / 'controller')
+            store.activate(approve(policy, inv, digest(compile_policy(policy, inv)), 'synthetic fixture operator'))
+            try:
+                ensure(store)
+                actor = store.register('private-python', 'work')
+                installed = PackageControl(store, provider=provider).install(actor['token'], 'install', result['pins'])
+                self.assertTrue(installed.get('allowed'), installed)
+                effect = dispatch(store, actor, 'import', request('run', 'test',
+                    content=json.dumps({'package_sets': [installed['package_set']]})))
+                self.assertTrue(effect.get('allowed'), effect)
+                self.assertEqual(effect.get('exit_code'), 0, effect)
+                self.assertIn('PRIVATE_PYTHON_OK', effect['output'])
+                self.assertNotIn('SYNTHETIC_PYTHON_TOKEN', json.dumps([installed, effect, result]))
+                for folder in (self.root / 'resolution', store.directory / 'package-sets'):
+                    for path in folder.rglob('*'):
+                        if path.is_file():
+                            self.assertNotIn(b'SYNTHETIC_PYTHON_TOKEN', path.read_bytes())
+            finally:
+                store.stop('private-python')
+                Supervisor(store).reconcile()
+                remove(store)
+            provider.routes['demo']['authorization'] = 'Bearer INVALID_SYNTHETIC_TOKEN'
+            with self.assertRaises(EvidenceError):
+                provider.assess('demo', '1.0')
+            self.assertTrue(seen)
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=5)
+
+
 class DependencyRevisionTests(unittest.TestCase):
     setUp = ProductEcosystemTests.setUp
 
-    def activated(self):
+    def activated(self, extra_package=False):
         from ptw.policy import save
         (self.repo / 'src').mkdir()
         (self.repo / 'src/app.py').write_text('VALUE = 42\n')
@@ -718,6 +1166,9 @@ class DependencyRevisionTests(unittest.TestCase):
             'artifacts': [{k: record[k] for k in ('name', 'version', 'url', 'sha256')}]}
         # Preserve custom security settings, not template defaults.
         policy['project']['packages']['min_release_age_days'] = 20
+        if extra_package:
+            policy['project']['packages']['allowed_names'].append('pypi:unrelated')
+            policy['tasks'][0]['packages'].append('pypi:unrelated')
         bundle = approve(policy, inv, digest(compile_policy(policy, inv)), 'synthetic test operator')
         save(directory / 'approved.json', bundle)
         save(self.repo / '.ptw/policy.json', policy)
@@ -788,6 +1239,15 @@ class DependencyRevisionTests(unittest.TestCase):
                 store.session(db, session['token'])
         self.assertEqual(load(directory / 'dependency-journal.json')['phase'], 'rolled-back')
 
+    def test_revision_preserves_unrelated_package_authority(self):
+        _, store, _, _, _ = self.activated(extra_package=True)
+        self.remove()
+        with store.locked() as db:
+            _, bundle = store.project(db, 'revision-project')
+        self.assertEqual(bundle['policy']['project']['packages']['allowed_names'], ['pypi:unrelated'])
+        self.assertIn('pypi:unrelated', bundle['policy']['tasks'][0]['packages'])
+        self.assertEqual(store.status('revision-project')['violations'], 1)
+
     def test_stop_during_publication_survives_rollback(self):
         from ptw import dependency_revision as revision
         _, store, _, _, _ = self.activated()
@@ -815,6 +1275,100 @@ class DependencyRevisionTests(unittest.TestCase):
             edit_requirements(original, 'add', ['demo==2'])
         with self.assertRaises(Invalid):
             edit_requirements(original, 'remove', ['absent'])
+
+    def test_native_pep621_edits_preserve_comments_runtime_and_other_groups(self):
+        from ptw.python_revision import edit_project
+        import tomllib
+        manifest = self.repo / 'pyproject.toml'
+        manifest.write_text('# retained explanation\n[project]\nname="sample"\nversion="1"\n'
+            'requires-python=">=3.11"\ndependencies=["demo==1.0"]\n'
+            '[project.optional-dependencies]\nweb=["other>=1"]\n'
+            '[dependency-groups]\ntest=["pytest==8.0.0"]\n')
+        for operation, specs, group in [('update', ['demo>=1,<3'], None),
+                ('add', ['new-package==1'], 'extra:web'), ('remove', ['pytest'], 'test')]:
+            edit_project(self.repo, operation, specs, group=group, python=select()['executable'], runner=subprocess.run)
+        document = tomllib.loads(manifest.read_text())
+        self.assertIn('# retained explanation', manifest.read_text())
+        self.assertEqual(document['project']['requires-python'], '>=3.11')
+        self.assertEqual(document['project']['dependencies'], ['demo>=1,<3'])
+        self.assertEqual(set(document['project']['optional-dependencies']['web']), {'other>=1', 'new-package==1'})
+        self.assertEqual(document['dependency-groups']['test'], [])
+        self.assertFalse((self.repo / 'uv.lock').exists())
+        self.assertFalse((self.repo / '.venv').exists())
+        original = manifest.read_bytes()
+        with self.assertRaises(Invalid):
+            edit_project(self.repo, 'update', ['demo'], python=select()['executable'], runner=subprocess.run)
+        self.assertEqual(manifest.read_bytes(), original)
+
+    def test_uv_update_excludes_critical_version_without_changing_declarations(self):
+        from ptw.python_revision import update_uv_lock
+        manifest = '[project]\nname="sample"\nversion="1"\nrequires-python=">=3.11"\ndependencies=["demo>=1,<3"]\n'
+        (self.repo / 'pyproject.toml').write_text(manifest)
+        (self.repo / 'uv.lock').write_text('version=1\n')
+        provider = FixtureProvider()
+        attempts = []
+        chosen = ['2.0']
+
+        def run(argv, **kwargs):
+            folder = Path(kwargs['cwd'])
+            if 'add' in argv:
+                constraints = (folder / 'constraints.txt').read_text()
+                attempts.append(constraints)
+                self.assertEqual((folder / 'empty.txt').read_text(), '')
+                self.assertNotIn('--override', argv)
+                chosen[0] = '1.0' if 'demo!=2.0' in constraints else '2.0'
+                (folder / 'uv.lock').write_text('version=1\n[[package]]\nname="demo"\nversion="' +
+                    chosen[0] + '"\nsource={registry="https://pypi.org/simple"}\n')
+            else:
+                record = provider.assess('demo', chosen[0])
+                Path(argv[argv.index('--output-file') + 1]).write_text('demo==' + chosen[0] +
+                    ' --hash=sha256:' + record['sha256'] + '\n')
+            return SimpleNamespace(returncode=0, stderr='')
+
+        def assess(name, version):
+            record = provider.assess(name, version)
+            if version == '2.0':
+                record['vulnerabilities'] = [CRITICAL]
+            return record
+
+        result = update_uv_lock(self.repo, self.root / 'update', RULES, executable=select()['executable'],
+            runner=run, provider=SimpleNamespace(assess=assess), upgrade=['demo'])
+        self.assertEqual(result['pins'], ['demo==1.0'])
+        self.assertEqual(attempts, ['', 'demo!=2.0\n'])
+        self.assertEqual((self.repo / 'pyproject.toml').read_text(), manifest)
+        self.assertEqual((self.repo / 'uv.lock').read_text(), 'version=1\n')
+        self.assertEqual(load(self.root / 'update/resolution.json')['outcome'], 'resolved')
+
+    def test_native_uv_constraint_only_update_can_downgrade(self):
+        import shutil
+        # Actual uv interface feasibility, using only generated wheel metadata.
+        # This is not a protected install or live advisory measurement.
+        wheels = self.root / 'wheels'
+        wheels.mkdir()
+        for version in ('1.0', '2.0'):
+            (wheels / ('demo-' + version + '-py3-none-any.whl')).write_bytes(wheel_bytes('demo', version))
+        (self.repo / 'pyproject.toml').write_text('[project]\nname="sample"\nversion="1"\n'
+            'requires-python=">=3.11"\ndependencies=["demo>=1,<3"]\n')
+        (self.repo / 'empty.txt').write_text('')
+        constraint = self.repo / 'constraints.txt'
+        common = [shutil.which('uv'), '--no-config', '--offline', '--no-python-downloads', 'add',
+            '--no-sync', '--raw', '--no-build', '--no-index', '--find-links', str(wheels),
+            '--constraints', str(constraint), '--requirements', str(self.repo / 'empty.txt'), '--upgrade-package', 'demo']
+        import tomllib
+        for exclusion, version in [('', '2.0'), ('demo!=2.0\n', '1.0')]:
+            constraint.write_text(exclusion)
+            proc = subprocess.run(common, cwd=self.repo, env=resolver_environment(self.root),
+                capture_output=True, text=True, timeout=15)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            locked = tomllib.loads((self.repo / 'uv.lock').read_text())
+            self.assertEqual(next(p['version'] for p in locked['package'] if p['name'] == 'demo'), version)
+        manifest = self.repo / 'pyproject.toml'
+        manifest.write_text(manifest.read_text().replace('demo>=1,<3', 'demo==2.0'))
+        proc = subprocess.run(common, cwd=self.repo, env=resolver_environment(self.root),
+            capture_output=True, text=True, timeout=15)
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn('No solution found', proc.stderr)
+        self.assertIn('demo==2.0', manifest.read_text())
 
     def test_dependency_review_real_pty_rejection_and_approval(self):
         from test_product_onboarding import Terminal

@@ -11,20 +11,27 @@ from urllib.parse import quote, urlsplit
 from urllib.request import Request
 
 from .npm import NAME, NpmEvidence
-from .package_evidence import EvidenceError
+from .package_evidence import EvidenceError, PyPIEvidence, index_urls
 from .policy import Invalid, parse_json
 
 
-def provider_for(store, bundle):
+def provider_for(store, bundle, ecosystem='npm'):
     from .policy import digest
-    identity = bundle['policy']['project'].get('npm_dependencies', {}).get('registry_config_sha256')
+    if ecosystem not in ('npm', 'pypi'):
+        raise Invalid('Unknown registry ecosystem')
+    project = bundle['policy']['project']
+    options = {} if ecosystem == 'npm' else {
+        'native': project['packages'].get('allow_native_wheels', False),
+        'sources': [x[5:] for x in project['packages'].get('build_packages', []) if x.startswith('pypi:')],
+        'python': project.get('python_runtime', {}).get('executable', '/usr/bin/python3')}
+    identity = project.get('npm_dependencies' if ecosystem == 'npm' else 'python_dependencies', {}).get('registry_config_sha256')
     if not identity:
-        return NpmEvidence()
-    config = private_json(store.directory / ('npm-registry-' + identity + '.json'))
+        return NpmEvidence() if ecosystem == 'npm' else PyPIEvidence(**options)
+    config = private_json(store.directory / (ecosystem + '-registry-' + identity + '.json'))
     if digest(config) != identity:
         raise EvidenceError('Private registry configuration differs from its approval')
     outside_repository(config, bundle['inventory']['root'])
-    return RoutedNpmEvidence(config)
+    return RoutedNpmEvidence(config) if ecosystem == 'npm' else RoutedPyPIEvidence(config, **options)
 
 
 def outside_repository(config, root):
@@ -104,7 +111,7 @@ class RoutedNpmEvidence(NpmEvidence):
             self.routes[name] = {'registry': registry, 'advisories': advisories,
                                  'authorization': credentials['authorization']}
 
-    def _request(self, route, endpoint, *, data=None, limit=16 * 1024 * 1024):
+    def _request(self, route, endpoint, *, data=None, limit=16 * 1024 * 1024, accept=None):
         parsed = urlsplit(endpoint)
         base = parsed.scheme + '://' + parsed.netloc
         if (base not in (route['registry'], route['advisories']) or parsed.username or parsed.password or parsed.fragment):
@@ -113,6 +120,8 @@ class RoutedNpmEvidence(NpmEvidence):
         if remaining <= 0:
             raise EvidenceError('Private evidence deadline reached')
         headers = {'Content-Type': 'application/json', 'User-Agent': 'permission-to-work'}
+        if accept:
+            headers['Accept'] = accept
         if base == route['registry']:
             headers['Authorization'] = route['authorization']
         request = Request(endpoint, data=json.dumps(data).encode() if data is not None else None, headers=headers)
@@ -160,7 +169,7 @@ class RoutedNpmEvidence(NpmEvidence):
         route = self.routes.get(name)
         if route is None:
             return super().advisories(ecosystem, name, version)
-        query = {'origin': route['registry'], 'package': {'ecosystem': 'npm', 'name': name}, 'version': version}
+        query = {'origin': route['registry'], 'package': {'ecosystem': ecosystem, 'name': name}, 'version': version}
         record = self._json(route, self._request(route, route['advisories'] + '/v1/query', data=query))
         if (not isinstance(record, dict) or record.get('origin') != route['registry'] or
                 record.get('name') != name or record.get('version') != version or
@@ -178,5 +187,69 @@ class RoutedNpmEvidence(NpmEvidence):
         if 'sha512-' + base64.b64encode(hashlib.sha512(raw).digest()).decode() != evidence['integrity']:
             raise EvidenceError('Private artifact integrity mismatch')
         evidence['sha256'] = hashlib.sha256(raw).hexdigest()
+        with destination.open('xb') as stream:
+            stream.write(raw)
+
+
+class RoutedPyPIEvidence(PyPIEvidence):
+    """PyPI JSON compatible private origins, with exact names and no public fallback."""
+    _request = RoutedNpmEvidence._request
+    _json = staticmethod(RoutedNpmEvidence._json)
+
+    def __init__(self, config, *, fixture=False, **options):
+        from packaging.utils import canonicalize_name
+        if not isinstance(config, dict) or not isinstance(config.get('packages'), dict):
+            raise Invalid('Malformed Python registry routes')
+        for name in config['packages']:
+            try:
+                if canonicalize_name(name, validate=True) != name:
+                    raise ValueError()
+            except (TypeError, ValueError):
+                raise Invalid('Python registry routes require canonical package names') from None
+        # Reuse the same private-file, origin, header and echo validation.
+        routed = RoutedNpmEvidence(config, fixture=fixture)
+        super().__init__(**options)
+        self.routes = routed.routes
+
+    def release(self, name, version=None):
+        route = self.routes.get(name)
+        if route is None:
+            return super().release(name, version)
+        return self._json(route, self._request(route, route['registry'] + '/pypi/' +
+            quote(name, safe='') + ('/' + quote(version, safe='') if version else '') + '/json'))
+
+    def index(self, name):
+        route = self.routes.get(name)
+        if route is None:
+            return super().index(name)
+        endpoint = route['registry'] + '/simple/' + quote(name, safe='') + '/'
+        return index_urls(self._json(route, self._request(route, endpoint,
+            accept='application/vnd.pypi.simple.v1+json')), endpoint)
+
+    def artifact_allowed(self, url, name):
+        if name not in self.routes:
+            return super().artifact_allowed(url, name)
+        return RoutedNpmEvidence.artifact_allowed(self, url, name)
+
+    def advisories(self, ecosystem, name, version):
+        if name not in self.routes:
+            return super().advisories(ecosystem, name, version)
+        return RoutedNpmEvidence.advisories(self, 'PyPI', name, version)
+
+    def assess(self, name, version):
+        record = super().assess(name, version)
+        if name in self.routes:
+            record['source'] = 'Private PyPI-compatible release JSON and origin-bound advisory coverage'
+            record['origin'] = self.routes[name]['registry']
+        return record
+
+    def download(self, evidence, destination):
+        if evidence['name'] not in self.routes:
+            return super().download(evidence, destination)
+        if not self.artifact_allowed(evidence['url'], evidence['name']):
+            raise EvidenceError('Private Python artifact origin mismatch')
+        raw = self._request(self.routes[evidence['name']], evidence['url'], limit=128 * 1024 * 1024)
+        if hashlib.sha256(raw).hexdigest() != evidence['sha256']:
+            raise EvidenceError('Private Python artifact digest mismatch')
         with destination.open('xb') as stream:
             stream.write(raw)

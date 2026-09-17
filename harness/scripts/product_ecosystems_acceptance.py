@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import subprocess
 import sys
 import time
 from types import SimpleNamespace
@@ -24,6 +25,15 @@ from ptw.workspace import request
 
 CASES = ('new-python', 'existing-python', 'new-node', 'existing-node',
          'new-typescript', 'existing-typescript', 'existing-mixed-python-node', 'existing-workspace')
+
+PROBES = {
+    'private-npm': ('PrivateRegistryTests.test_local_authenticated_fixture_install_build_and_wrong_credentials', 'protected authenticated install/build/import'),
+    'private-python': ('PrivatePythonTests.test_native_private_python_resolution_install_import_and_bad_credentials', 'protected authenticated resolve/install/import'),
+    'narrow-workspace': ('WorkspaceSourceTests.test_native_narrower_workspace_import_and_excluded_source', 'protected narrower import/edit/import and unrelated-process control'),
+    'uv-lock': ('NativeLockTests.test_actual_uv_locked_export_and_stale_manifest', 'native metadata export and stale-lock rejection'),
+    'uv-update': ('DependencyRevisionTests.test_native_uv_constraint_only_update_can_downgrade', 'native metadata resolution with synthetic wheel evidence'),
+    'revision-pty': ('DependencyRevisionTests.test_dependency_review_real_pty_rejection_and_approval', 'real review PTY with mocked native integrations'),
+}
 
 
 def journey(out, case):
@@ -68,6 +78,7 @@ def journey(out, case):
     (out / 'review.txt').write_text(transcript.getvalue())
     store = Store(record['state'])
     results = {'setup_seconds': time.monotonic() - started, 'installs': [], 'commands': []}
+    unrelated = subprocess.Popen(['/usr/bin/sleep', '600'])
     try:
         ensure(store)
         session = store.register(record['project'], 'work')
@@ -83,6 +94,19 @@ def journey(out, case):
             results['source_creates'].append(result)
             if not result.get('allowed'):
                 raise AssertionError('Protected source creation failed')
+        results['edits'] = []
+        for index, (kind, root) in enumerate(roots):
+            filename = 'app.py' if kind == 'python' else 'app.ts' if kind == 'typescript' else 'app.mjs'
+            resource = mapping[str(Path(root) / 'src')]
+            current = dispatch(store, session, 'read-' + str(index), request('read', resource, filename))
+            if not current.get('allowed'):
+                raise AssertionError('Protected source read failed')
+            content = current['content'] + ('\n#' if kind == 'python' else '\n//') + ' Protected acceptance edit\n'
+            changed = dispatch(store, session, 'edit-' + str(index), request('write', resource, filename,
+                content=content, expected=current['sha256']))
+            results['edits'].append(changed)
+            if not changed.get('allowed') or (repo / root / 'src' / filename).read_text() != content:
+                raise AssertionError('Protected source edit did not produce the requested bytes')
         sets = []
         for resource, entry in inv['resources'].items():
             name = Path(entry['path']).name
@@ -115,8 +139,14 @@ def journey(out, case):
         try:
             store.stop(record['project'])
             Supervisor(store).reconcile()
+            results['unrelated_process_alive_after_stop'] = unrelated.poll() is None
+            if not results['unrelated_process_alive_after_stop']:
+                results['passed'] = False
+                raise AssertionError('Unrelated process did not survive project stop')
             remove(store)
         finally:
+            unrelated.terminate()
+            unrelated.wait(timeout=5)
             save(out / 'journey.json', results)
     return results
 
@@ -125,24 +155,47 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--out', required=True, type=Path)
     parser.add_argument('--case', choices=CASES, action='append')
+    parser.add_argument('--probe', choices=PROBES, action='append', help='Repeat to select native support probes; default all')
     args = parser.parse_args()
     out = args.out.absolute()
     out.mkdir(parents=True, mode=0o700, exist_ok=False)
     source = Path(__file__).resolve().parents[1]
+    measured_sources = [*sorted((source / 'ptw').glob('*.py')),
+        source / 'scripts/product_ecosystems_acceptance.py', source / 'tests/test_product_ecosystems.py',
+        source / 'tests/test_packages.py', source / 'tests/test_ecosystems.py',
+        *sorted(p for p in (source / 'examples/product-ecosystems').rglob('*') if p.is_file())]
     report = {'passed': False, 'kind': 'scripted native dependency subset; no model trajectories',
         'task_acceptance_complete': False,
-        'not_covered': ['Python native lock import and editable packages', 'pnpm/Yarn migration',
-                        'authenticated private registry', 'dependency revision', 'npm CVSS candidate backtracking',
-                        'narrower workspace delegates and unrelated-job native controls'],
+        'not_covered': ['Python editable packages and native Poetry updates', 'pnpm/Yarn native migration',
+                        'protected dependency revision with running workloads', 'npm CVSS candidate backtracking'],
         'source_hashes': {str(p.relative_to(source)): hashlib.sha256(p.read_bytes()).hexdigest()
-                         for p in sorted((source / 'ptw').glob('*.py'))}, 'cases': []}
+                         for p in measured_sources}, 'cases': [], 'probes': []}
     for case in args.case or CASES:
+        started = time.monotonic()
         try:
             result = journey(out / case, case)
         except Exception as exc:
             result = {'passed': False, 'error_type': type(exc).__name__, 'error': str(exc)}
-        report['cases'].append({'case': case, **result})
-    report['passed'] = all(c['passed'] for c in report['cases'])
+        report['cases'].append({'case': case, 'elapsed_seconds': time.monotonic() - started, **result})
+        save(out / ('case-' + case + '.json'), report['cases'][-1])
+    for name in args.probe or PROBES:
+        test, kind = PROBES[name]
+        argv = [sys.executable, '-B', '-c',
+            "import sys,unittest; sys.path.insert(0,sys.argv[1]); suite=unittest.defaultTestLoader.loadTestsFromName(sys.argv[2]); "
+            "result=unittest.TextTestRunner(verbosity=2).run(suite); sys.exit(0 if result.wasSuccessful() and not result.skipped else 1)",
+            str(source / 'tests'), 'test_product_ecosystems.' + test]
+        started = time.monotonic()
+        with (out / (name + '.log')).open('w') as log:
+            try:
+                proc = subprocess.run(argv, env={**os.environ, 'PTW_LINUX_TESTS': '1'},
+                    stdout=log, stderr=subprocess.STDOUT, timeout=180)
+                result = {'passed': proc.returncode == 0, 'exit_code': proc.returncode}
+            except subprocess.TimeoutExpired:
+                result = {'passed': False, 'error': 'Native probe exceeded 180 seconds'}
+        report['probes'].append({'name': name, 'kind': kind, 'argv': argv,
+            'elapsed_seconds': time.monotonic() - started, 'log': name + '.log', **result})
+        save(out / ('probe-' + name + '.json'), report['probes'][-1])
+    report['passed'] = all(c['passed'] for c in [*report['cases'], *report['probes']])
     save(out / 'result.json', report)
     print(json.dumps({'passed': report['passed'], 'task_acceptance_complete': False, 'evidence': str(out)}))
     return 0 if report['passed'] else 1

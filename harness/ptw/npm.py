@@ -141,11 +141,8 @@ class NpmPlan:
                         raise Invalid("Malformed npm dependency")
                     local_constraint = constraint.startswith('file:')
                     if local_constraint:
-                        from .workspace_policy import relative
-                        target = relative(constraint[5:])
-                        # npm file declarations are relative to the declaring
-                        # package. Parent traversal is deliberately not accepted.
-                        target = str(PurePosixPath(path) / target) if path else target
+                        from .npm_resolution import local_path
+                        target = local_path(path, constraint[5:])
                         if target not in self.locals or self.locals[target]['name'] != name:
                             raise Invalid('npm file dependency is not a confined local source')
                     else:
@@ -159,6 +156,8 @@ class NpmPlan:
                     while True:
                         location = (candidate + "/" if candidate else "") + "node_modules/" + name
                         if location in self.nodes:
+                            if local_constraint and self.links.get(location) != target:
+                                raise Invalid('npm file dependency resolves to a different source identity')
                             selected = self.locals[self.links[location]] if location in self.links else self.nodes[location]
                             found = selected['version']
                             break
@@ -283,6 +282,11 @@ for (const name of plan.builds) {
             self.validate_graph()
         finally:
             self.nodes = full_nodes
+        # The lock contains metadata for every workspace, including members a
+        # narrower command cannot read. It is not needed at runtime. Receipts
+        # retain the reviewed lock hash outside the package mount.
+        (target / 'package-lock.json').unlink()
+        (target / 'node_modules/.package-lock.json').unlink(missing_ok=True)
 
 
 class NpmEvidence(PyPIEvidence):

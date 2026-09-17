@@ -6,8 +6,10 @@ The usable prototype handles [repository editing and reviewed build/test command
 
 Current source extends typed setup with Python range resolution, reviewed system
 interpreters and mixed backend/frontend command roots. Full ordinary ecosystem
-support is not complete. See [dependency status](DEPENDENCY_STATUS.md) for the
-implemented subset, missing adapters and native checks still needed.
+support is not complete. `ptw deps add/remove/update` reviews dependency changes
+while preserving project identity and violation history. See
+[dependency status](DEPENDENCY_STATUS.md) for the implemented formats, command
+examples, missing adapters and native checks still needed.
 
 For ordinary Python, JavaScript or TypeScript repositories, start with the
 [interactive quickstart](INTERACTIVE.md): install once, run `ptw codex`, review

@@ -4,7 +4,7 @@ import hashlib
 import json
 import re
 import time
-from urllib.parse import urlsplit
+from urllib.parse import urljoin, urlsplit
 from urllib.request import Request, build_opener, HTTPRedirectHandler, ProxyHandler
 
 from cvss import CVSS2, CVSS3, CVSS4
@@ -111,6 +111,17 @@ class NoRedirect(HTTPRedirectHandler):
         raise EvidenceError("Unexpected evidence or artifact redirect")
 
 
+def index_urls(document, endpoint):
+    """The Simple API permits artifact URLs relative to the index document."""
+    if not isinstance(document, dict) or not isinstance(document.get('files'), list):
+        raise EvidenceError('Malformed Python index JSON')
+    for item in document['files']:
+        if not isinstance(item, dict) or not isinstance(item.get('url'), str):
+            raise EvidenceError('Malformed Python index artifact URL')
+        item['url'] = urljoin(endpoint, item['url'])
+    return document
+
+
 class PyPIEvidence:
     """Fixed public endpoints, no ambient proxy credentials or alternate index."""
     hosts = ("pypi.org", "api.osv.dev", "files.pythonhosted.org")
@@ -121,7 +132,7 @@ class PyPIEvidence:
         self.python = python
         self.deadline = None
 
-    def fetch(self, url, data=None, limit=4 * 1024 * 1024):
+    def fetch(self, url, data=None, limit=4 * 1024 * 1024, *, accept=None):
         endpoint = urlsplit(url)
         if (endpoint.scheme != "https" or endpoint.hostname not in
                 self.hosts
@@ -129,6 +140,8 @@ class PyPIEvidence:
             raise EvidenceError("Unapproved evidence or download destination")
         request = Request(url, data=json.dumps(data).encode() if data is not None else None,
                           headers={"Content-Type": "application/json", "User-Agent": "permission-to-work/0.2"})
+        if accept:
+            request.add_header('Accept', accept)
         try:
             remaining = self.deadline - time.monotonic() if self.deadline is not None else 15
             if remaining <= 0:
@@ -153,7 +166,7 @@ class PyPIEvidence:
 
     def assess(self, name, version):
         checked = time.time()
-        release = self.json("https://pypi.org/pypi/" + name + "/" + version + "/json")
+        release = self.release(name, version)
         try:
             if (canonicalize_name(release["info"]["name"]) != name
                     or Version(release["info"]["version"]) != Version(version)):
@@ -182,7 +195,7 @@ class PyPIEvidence:
                 item = sorted(candidates, key=lambda pair: (pair[0], pair[1]["filename"]))[0][1]
             if not re.fullmatch("[0-9a-f]{64}", item["digests"]["sha256"]):
                 raise ValueError()
-            if urlsplit(item["url"]).hostname != "files.pythonhosted.org":
+            if not self.artifact_allowed(item["url"], name):
                 raise ValueError()
             return {"name": name, "version": version, "filename": item["filename"], "url": item["url"],
                     "sha256": item["digests"]["sha256"], "published_at": item["upload_time_iso_8601"],
@@ -193,6 +206,23 @@ class PyPIEvidence:
             raise
         except (KeyError, TypeError, ValueError, AttributeError) as exc:
             raise EvidenceError("Malformed or unsupported package evidence") from exc
+
+    def release(self, name, version=None):
+        return self.json('https://pypi.org/pypi/' + name + ('/' + version if version else '') + '/json')
+
+    def index(self, name):
+        endpoint = 'https://pypi.org/simple/' + name + '/'
+        try:
+            return index_urls(parse_json(self.fetch(endpoint,
+                limit=16 * 1024 * 1024, accept='application/vnd.pypi.simple.v1+json')), endpoint)
+        except (ValueError, TypeError) as exc:
+            raise EvidenceError('Invalid Python index JSON') from exc
+
+    def artifact_allowed(self, url, name):
+        endpoint = urlsplit(url)
+        return (endpoint.scheme == 'https' and endpoint.hostname == 'files.pythonhosted.org'
+                and endpoint.port in (None, 443) and not endpoint.username and not endpoint.password
+                and not endpoint.query and not endpoint.fragment)
 
     def advisories(self, ecosystem, name, version):
         vulnerabilities, token, seen = [], None, set()

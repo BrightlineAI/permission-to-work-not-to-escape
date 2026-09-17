@@ -18,6 +18,22 @@ from .package_evidence import EvidenceError, evaluate
 from .policy import Invalid, load, parse_json, save
 
 
+def local_path(parent, value):
+    """Normalize sibling references without ever leaving the project root."""
+    from .workspace_policy import relative
+    if not isinstance(value, str) or not value or value.startswith('/') or '\\' in value:
+        raise Invalid('Local dependency must be an in-project relative path')
+    parts = list(Path(parent).parts) if parent else []
+    for part in value.split('/'):
+        if part == '..':
+            if not parts:
+                raise Invalid('Local dependency escapes project root')
+            parts.pop()
+        elif part not in ('', '.'):
+            parts.append(part)
+    return relative('/'.join(parts))
+
+
 def declarations(manifest, *, local_paths=(), parent=''):
     if not isinstance(manifest, dict):
         raise Invalid('Expected package.json object')
@@ -27,7 +43,7 @@ def declarations(manifest, *, local_paths=(), parent=''):
         if not isinstance(value, dict):
             raise Invalid('Expected npm dependency maps')
         for name, spec in value.items():
-            local = isinstance(spec, str) and spec.startswith('file:') and str(Path(parent) / spec[5:]) in local_paths
+            local = isinstance(spec, str) and spec.startswith('file:') and local_path(parent, spec[5:]) in local_paths
             if (not isinstance(name, str) or not re.fullmatch(NAME, name) or
                     not isinstance(spec, str) or len(spec) > 1000 or
                     not (local or re.fullmatch(r'[A-Za-z0-9.*<>=~^|+ -]+', spec))):
@@ -46,7 +62,8 @@ def declarations(manifest, *, local_paths=(), parent=''):
 def node_inputs(root):
     """Bounded workspace globs and in-tree file dependencies, metadata only."""
     from .onboarding import data
-    from .workspace_policy import relative
+    from .workspace_policy import directory_fd, relative
+    import os
     root = Path(root)
     manifests, inputs, pending = {}, {}, ['']
     while pending:
@@ -55,6 +72,10 @@ def node_inputs(root):
             continue
         if len(manifests) >= 64:
             raise Invalid('Too many npm source manifests')
+        # data() protects the basename. Validate every parent before opening it;
+        # a lexical in-tree path must not read metadata through a symlink.
+        fd = directory_fd(root / folder)
+        os.close(fd)
         name = str(Path(folder) / 'package.json')
         raw = data(root / name)
         manifest = parse_json(raw)
@@ -82,8 +103,7 @@ def node_inputs(root):
                 raise Invalid('Malformed npm source dependency map')
             for spec in dependencies.values():
                 if isinstance(spec, str) and spec.startswith('file:'):
-                    local = relative(spec[5:])
-                    pending.append(str(Path(folder) / local))
+                    pending.append(local_path(folder, spec[5:]))
     local_paths = set(manifests) - {''}
     for path, manifest in manifests.items():
         declarations(manifest, local_paths=local_paths, parent=path)

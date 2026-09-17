@@ -134,16 +134,25 @@ class OnboardingTests(unittest.TestCase):
         save(self.repo / "package-lock.json", {"lockfileVersion": 3, "packages": {"": {"name": "plain"}}})
         self.assertIsNone(resolve_npm(self.repo, self.root))
 
-    def test_npm_workspaces_not_silently_accepted(self):
+    def test_empty_npm_workspace_glob_needs_no_install(self):
         save(self.repo / "package.json", {"name": "plain", "workspaces": ["packages/*"]})
-        with self.assertRaises(Invalid):
-            resolve_npm(self.repo, self.root)
+        with patch("subprocess.run") as run:
+            self.assertIsNone(resolve_npm(self.repo, self.root))
+        run.assert_not_called()
+
+    def test_npm_unsafe_workspace_paths_rejected_before_execution(self):
+        for index, workspace in enumerate(("../outside", "/tmp/outside", "packages/**", "packages/../outside")):
+            with self.subTest(workspace=workspace):
+                (self.repo / "package.json").write_text(json.dumps({"workspaces": [workspace]}))
+                with patch("subprocess.run") as run, self.assertRaises(Invalid):
+                    resolve_npm(self.repo, self.root / ("workspace-attempt-" + str(index)))
+                run.assert_not_called()
 
     def test_npm_external_sources_blocked_before_execution(self):
-        for spec in ("git+https://example.invalid/project", "file:../outside", "https://example.invalid/tar"):
+        for index, spec in enumerate(("git+https://example.invalid/project", "file:../outside", "https://example.invalid/tar")):
             (self.repo / "package.json").write_text(json.dumps({"dependencies": {"bad": spec}}))
             with patch("subprocess.run") as run, self.assertRaises(Invalid):
-                resolve_npm(self.repo, self.root)
+                resolve_npm(self.repo, self.root / ("source-attempt-" + str(index)))
             run.assert_not_called()
 
     def test_metadata_symlink_not_read(self):

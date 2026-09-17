@@ -61,6 +61,9 @@ def resolve_python(repo, stage):
     from .dependency_resolution import resolve_python as resolve
     from .setup_templates import RULES
     options = load(stage / 'python-options.json') if (stage / 'python-options.json').exists() else {}
+    if (stage / 'pypi-registry.json').exists():
+        from .registry import private_json
+        options['registry_config'] = private_json(stage / 'pypi-registry.json')
     result = resolve(repo, stage / 'python-resolution', RULES, **options)
     save(stage / 'python-plan.json', result)
     if not result['pins']:
@@ -270,6 +273,7 @@ def setup(repo, directory, args, previous=None):
     started = time.monotonic()
     try:
         registry_config = None
+        python_registry_config = None
         if getattr(args, 'npm_registry_config', None):
             from .registry import private_json, outside_repository
             if Path(args.npm_registry_config).resolve().is_relative_to(repo):
@@ -277,6 +281,15 @@ def setup(repo, directory, args, previous=None):
             registry_config = private_json(args.npm_registry_config)
             outside_repository(registry_config, repo)
             save(stage / 'npm-registry.json', registry_config)
+        if getattr(args, 'python_registry_config', None):
+            from .registry import outside_repository, private_json
+            if language not in ('python', 'mixed'):
+                raise Invalid('Python registry configuration requires a Python project')
+            if Path(args.python_registry_config).resolve().is_relative_to(repo):
+                raise Invalid('Registry configuration must remain outside project source')
+            python_registry_config = private_json(args.python_registry_config)
+            outside_repository(python_registry_config, repo)
+            save(stage / 'pypi-registry.json', python_registry_config)
         if not 1 <= warn <= stop <= 100:
             raise Invalid("Use thresholds 1 <= warning <= stop <= 100.")
         scope = selected(repo, directories, files)
@@ -293,6 +306,7 @@ def setup(repo, directory, args, previous=None):
             (shadow / root).mkdir(parents=True, exist_ok=True)
         for name in metadata_names:
             if inputs[name] is not None:
+                (shadow / name).parent.mkdir(parents=True, exist_ok=True)
                 (shadow / name).write_text(data(repo / name, 8 * 1024 * 1024))
         python_options = {key: getattr(args, flag) for key, flag in
                           (('executable', 'python'), ('source', 'python_source')) if getattr(args, flag, None)}
@@ -336,6 +350,9 @@ def setup(repo, directory, args, previous=None):
         generated = {name: data(shadow / name, 8 * 1024 * 1024) for name in metadata if inputs[name] is None}
         python_plan = load(stage / 'python-plan.json') if (stage / 'python-plan.json').exists() else None
         npm_plan = load(stage / 'npm-plan.json') if (stage / 'npm-plan.json').exists() else None
+        if npm_plan and npm_plan.get('migration'):
+            print('Yarn Classic migration: review the generated npm graph. package-lock.json becomes '
+                  'the installation authority; the original yarn.lock remains in project history.', flush=True)
         python = python_plan['runtime']['executable'] if python_plan else '/usr/bin/python3'
         catalog = command_catalog(scope, metadata, shadow, python)
         identity = "repo-" + directory.name + "-" + secrets.token_hex(4)
@@ -358,13 +375,20 @@ def setup(repo, directory, args, previous=None):
                 if requirements:
                     dependency_inputs[str(requirements.relative_to(shadow))] = hashlib.sha256(data(requirements).encode()).hexdigest()
                 proposal['project']['python_dependencies'] = {
-                    'inputs': dependency_inputs, 'pins': python_plan['pins'], 'artifacts': python_plan['artifacts']}
+                    'inputs': dependency_inputs, 'pins': python_plan['pins'], 'artifacts': python_plan['artifacts'],
+                    'groups': list(python_options.get('groups', ('dev', 'test'))),
+                    'extras': list(python_options.get('extras', ())),
+                    'authority': python_plan.get('authority', 'pyproject.toml' if
+                        python_options.get('source') == 'pyproject.toml' or not any(
+                        (shadow / python_root / n).exists() for n in ('requirements.in', 'requirements.txt')) else 'requirements')}
+                if python_registry_config:
+                    proposal['project']['python_dependencies']['registry_config_sha256'] = digest(python_registry_config)
             if npm_plan:
                 dependency_inputs = {str(Path(node_root) / name): value for name, value in npm_plan['inputs'].items()}
                 if npm_lock:
                     dependency_inputs[str(npm_lock.relative_to(shadow))] = hashlib.sha256(data(npm_lock, 8 * 1024 * 1024).encode()).hexdigest()
                 proposal['project']['npm_dependencies'] = {'inputs': dependency_inputs,
-                    'lock_sha256': digest(npm_plan['lock']), 'artifacts': npm_plan['artifacts']}
+                    'lock_sha256': digest(npm_plan['lock']), 'artifacts': npm_plan['artifacts'], 'root': node_root}
                 if npm_plan.get('sources'):
                     from .workspace import scan, stamp
                     source_descriptors = []
@@ -429,17 +453,19 @@ def setup(repo, directory, args, previous=None):
                       "bundle": str(stage / "approved.json"), "language": language, "task": "work",
                       "policy_sha256": bundle["approval"]["sha256"], "publication_sha256": publication_hash}
             save(stage / "registration.json", record)
-            if registry_config:
+            for ecosystem, config in (('npm', registry_config), ('pypi', python_registry_config)):
+                if config is None:
+                    continue
                 # Only references are retained, never the credential bytes.
                 # This content-addressed private file is inert until its exact
                 # descriptor is activated by the publication transaction.
                 controller = Store(directory / 'controller')
-                destination = controller.directory / ('npm-registry-' + digest(registry_config) + '.json')
+                destination = controller.directory / (ecosystem + '-registry-' + digest(config) + '.json')
                 if destination.exists():
-                    if load(destination) != registry_config:
+                    if load(destination) != config:
                         raise Invalid('Private registry configuration integrity failure')
                 else:
-                    save(destination, registry_config)
+                    save(destination, config)
             publish(repo, directory, stage, bundle, record, generated, trees, inputs, previous)
             save(stage / "outcome.json", {"committed": True, "setup_review_seconds": time.monotonic() - started,
                                          "model_proposal": bool(getattr(args, "model_proposal", False))})
@@ -497,7 +523,7 @@ def start(args):
             print("A new approval will stop all current project sessions. Existing history is retained.", flush=True)
             record = setup(repo, directory, args, previous=record)
         elif (any(getattr(args, name, None) is not None for name in ("goal", "editable", "files", "language", "warn_at", "stop_at", "history",
-                    'python', 'python_source', 'python_extras', 'python_groups', 'python_root', 'node_root', 'npm_registry_config'))
+                    'python', 'python_source', 'python_extras', 'python_groups', 'python_root', 'node_root', 'npm_registry_config', 'python_registry_config'))
               or getattr(args, "model_proposal", False)):
             raise Invalid("This project already has an approved policy. Use ptw codex --revise to change it.")
     finally:

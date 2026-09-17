@@ -241,24 +241,47 @@ def start(args):
         rules = old['policy']['project']['packages']
         if args.ecosystem == 'pypi':
             from .dependency_resolution import resolve_python
-            source = args.source or ('requirements.in' if (shadow / root / 'requirements.in').exists() else 'requirements.txt')
+            from .python_revision import edit_project, update_uv_lock
+            from .registry import provider_for
+            provider = provider_for(store, old, 'pypi')
+            source = args.source or ('pyproject.toml' if descriptor.get('authority') in
+                ('pyproject.toml', 'uv.lock', 'poetry.lock') else
+                'requirements.in' if (shadow / root / 'requirements.in').exists() else
+                'requirements.txt' if (shadow / root / 'requirements.txt').exists() else 'pyproject.toml')
             relative(source)
             declaration = shadow / root / source
-            if not declaration.is_file() or declaration.suffix not in ('.in', '.txt'):
-                raise Invalid('This edit path needs a requirements.in/txt declaration; native project edits remain separate')
-            declaration.write_text(edit_requirements(data(declaration), args.operation, args.specs))
-            result = resolve_python(shadow / root, stage / 'resolution', rules, source=source,
-                executable=old['policy']['project']['python_runtime']['executable'])
+            python = old['policy']['project']['python_runtime']['executable']
+            groups = tuple(descriptor.get('groups', ('dev', 'test')))
+            extras = tuple(descriptor.get('extras', ()))
+            if source == 'pyproject.toml':
+                edit_project(shadow / root, args.operation, args.specs, group=args.group, python=python)
+            elif declaration.is_file() and declaration.suffix in ('.in', '.txt'):
+                if args.group:
+                    raise Invalid('Requirements edits select a file, not a dependency group')
+                declaration.write_text(edit_requirements(data(declaration), args.operation, args.specs))
+            else:
+                raise Invalid('Select a requirements file or pyproject.toml declaration')
+            if (shadow / root / 'uv.lock').exists():
+                result = update_uv_lock(shadow / root, stage / 'resolution', rules, executable=python,
+                    groups=groups, extras=extras, provider=provider, upgrade=[canonicalize_name(Requirement(p).name) for p in args.specs]
+                    if args.operation == 'update' else [])
+                for name, text in result['files'].items():
+                    (shadow / root / name).write_text(text)
+            else:
+                result = resolve_python(shadow / root, stage / 'resolution', rules, source=source,
+                    executable=python, groups=groups, extras=extras, provider=provider)
             lock = shadow / root / 'ptw-requirements.txt'
             lock.write_text('\n'.join(result['pins']) + ('\n' if result['pins'] else ''))
             selected = {'pypi:' + canonicalize_name(Requirement(p).name) for p in result['pins']}
-            updated = {k: result[k] for k in ('inputs', 'pins', 'artifacts')}
+            updated = {**descriptor, **{k: result[k] for k in ('inputs', 'pins', 'artifacts')}}
             updated['inputs'] = {str(Path(root) / n): h for n, h in result['inputs'].items()}
             updated['inputs'][str(lock.relative_to(shadow))] = hashlib.sha256(lock.read_bytes()).hexdigest()
         else:
             from .npm_resolution import declarations, resolve_npm
             from .registry import provider_for
-            source = str(Path(root) / 'package.json')
+            source = str(Path(root) / relative(args.source or 'package.json'))
+            if source not in descriptor['inputs'] or Path(source).name != 'package.json':
+                raise Invalid('Select a previously reviewed root or workspace package.json')
             declaration = shadow / source
             manifest = load(declaration)
             field = args.group or 'dependencies'
@@ -282,6 +305,8 @@ def start(args):
             declaration.write_text(json.dumps(manifest, indent=2) + '\n')
             result = resolve_npm(shadow / root, stage / 'resolution', rules, update=True,
                 provider=provider_for(store, old))
+            if set(result.get('sources', [])) != {s['path'] for s in descriptor.get('sources', [])}:
+                raise Invalid('Dependency edit changes local source scope; review that source scope explicitly')
             lock = shadow / root / 'package-lock.json'
             if result['lock'] is None:
                 result['lock'] = {'lockfileVersion': 3, 'packages': {'': manifest}}
@@ -295,7 +320,7 @@ def start(args):
         updated['inputs'][str(declaration.relative_to(shadow))] = hashlib.sha256(declaration.read_bytes()).hexdigest()
         policy, inv = copy.deepcopy(old['policy']), copy.deepcopy(old['inventory'])
         policy['project'][kind] = updated
-        prior_names = {n for n in rules['allowed_names'] if n.startswith(args.ecosystem + ':')}
+        prior_names = {args.ecosystem + ':' + e['name'] for e in descriptor['artifacts']}
         policy['project']['packages']['allowed_names'] = sorted((set(rules['allowed_names']) - prior_names) | selected)
         policy['project']['packages']['build_packages'] = [n for n in rules['build_packages'] if n not in prior_names - selected]
         for item in policy['tasks']:

@@ -14,6 +14,25 @@ from .policy import Invalid, save
 from .python_runtime import select, verify
 
 
+def static_lock_project(document):
+    """Native lock operations may inspect first-party metadata despite --no-build.
+
+    Never let a resolver discover that metadata by invoking repository code on
+    the network-enabled metadata path. Executable preparation is separate.
+    """
+    project = document.get('project', {})
+    if not isinstance(project, dict) or project.get('dynamic'):
+        raise Invalid('Dynamic project metadata needs approved offline source preparation before native locking')
+    if project and ('name' not in project or 'version' not in project):
+        raise Invalid('Native locking requires a static project name and version')
+    tool = document.get('tool', {})
+    if not isinstance(tool, dict):
+        raise Invalid('Malformed project tool table')
+    poetry = tool.get('poetry', {})
+    if not isinstance(poetry, dict) or poetry.get('plugins') or poetry.get('requires-plugins'):
+        raise Invalid('Project-selected Poetry plugins cannot run during metadata preparation')
+
+
 def export_lock(root, stage, rules, *, executable=None, source=None, groups=('dev', 'test'),
                 extras=(), provider=None, runner=None, seconds=180):
     """Frozen import never repairs a stale or forbidden lock behind the review.
@@ -42,6 +61,7 @@ def export_lock(root, stage, rules, *, executable=None, source=None, groups=('de
             raise Invalid('An authoritative lock cannot be replaced by another Python source')
         manifest_text = metadata(root, 'pyproject.toml', inputs)
         document = tomllib.loads(manifest_text)
+        static_lock_project(document)
         lock_text = metadata(root, lock_name, inputs)
         locked = tomllib.loads(lock_text)
         project = document.get('project', {})

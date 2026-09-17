@@ -54,9 +54,11 @@ shared controls underneath. [Python and npm package checks](harness/ECOSYSTEMS.m
 cover known vulnerabilities and release age. This prototype is separate from
 the paper's frozen experiments.
 
-Current dependency work adds reviewed Python runtime selection and mixed-project
-setup. [Full ecosystem acceptance remains incomplete](harness/DEPENDENCY_STATUS.md),
-including workspace/private packages and additional lock imports.
+Current dependency work adds reviewed Python runtimes, mixed-project setup,
+workspace source scopes and explicit `ptw deps add/remove/update` reviews.
+[Full ecosystem acceptance remains incomplete](harness/DEPENDENCY_STATUS.md);
+the format matrix distinguishes implemented paths and pending native checks
+from ordinary formats that still need implementation.
 
 The repository includes experimental policy, authorization, diagnostic and escalation components. See the [architecture](docs/architecture.md), [data availability](docs/evidence.md), [future work](docs/roadmap.md) and [contribution guide](CONTRIBUTING.md).
 

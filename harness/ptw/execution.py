@@ -59,7 +59,7 @@ def execute(store, token, definition, before, settings):
             from .python_runtime import verify
             verify(runtime)
         for identity in options.get("package_sets", []):
-            mount = mounted_set(store, db, actor, identity)
+            mount = mounted_set(store, db, actor, identity, definition=definition)
             ecosystem = db.execute("SELECT ecosystem FROM package_sets WHERE id=?", (identity,)).fetchone()[0]
             if ecosystem in mounts:
                 raise Invalid("Only one package set per ecosystem")
@@ -83,6 +83,10 @@ def execute(store, token, definition, before, settings):
             if ecosystem == "pypi":
                 environment += ["PYTHONPATH=/python-packages:/target"]
             else:
+                # Mask metadata placeholders as well as their nested modules.
+                # A workspace link into an excluded member must expose no bytes.
+                for local in local_descriptor.get('excluded_sources', []):
+                    command += ['--tmpfs', '/node-packages/' + local]
                 if local_descriptor.get('sources'):
                     # Only this command's authorized snapshot is available to
                     # local imports. The registry cache contains metadata and

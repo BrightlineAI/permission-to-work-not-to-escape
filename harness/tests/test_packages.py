@@ -42,7 +42,9 @@ def wheel_bytes(name="idna", version="3.11", requires=(), extra=None):
     stream = io.BytesIO()
     with zipfile.ZipFile(stream, "w") as archive:
         for path, data in contents.items():
-            archive.writestr(path, data)
+            # Stable synthetic artifacts: assessment and download may straddle
+            # ZIP's two-second timestamp boundary and must have identical hashes.
+            archive.writestr(zipfile.ZipInfo(path, date_time=(2020, 1, 1, 0, 0, 0)), data)
     return stream.getvalue()
 
 
