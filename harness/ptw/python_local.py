@@ -30,6 +30,7 @@ from .workspace_policy import relative
 from packaging.requirements import Requirement
 
 EDITABLE_ARTIFACTS = '.ptw-editable-artifacts'
+PROJECTED_BUILD = 'setuptools-src-v1'
 
 
 def native_file(path):
@@ -41,8 +42,22 @@ def snapshot_digest(entries):
     return digest({p: [stamp(e), e.get('mode')] for p, e in entries.items()})
 
 
+def reviewed_runtime(descriptor):
+    """Identity checks only, never artifacts, grants or another source mount."""
+    selected = pins(descriptor['pins'], extras={}) if descriptor['pins'] else {}
+    for source in descriptor.get('sources', []):
+        if source['mode'] != 'discovery':
+            if source['name'] in selected:
+                raise Invalid('Ambiguous local runtime identity')
+            selected[source['name']] = source['version']
+    return selected
+
+
 def prepare_setup(store, bundle, task, stage):
     """Approved transaction only. Ordinary sessions remain unavailable throughout."""
+    sources = bundle['policy']['project'].get('python_dependencies', {}).get('sources', [])
+    if len(sources) > 1:
+        return prepare_combined_setup(store, bundle, task, stage)
     from .supervisor import Supervisor
     receipts = []
     for source in bundle['policy']['project'].get('python_dependencies', {}).get('sources', []):
@@ -63,12 +78,143 @@ def prepare_setup(store, bundle, task, stage):
     return receipts
 
 
+def receipt_sources(receipt):
+    """One reader for legacy singular and versioned combined source bindings."""
+    if not isinstance(receipt, dict):
+        raise Invalid('Malformed local preparation receipt')
+    if 'version' not in receipt and 'sources' not in receipt:
+        parts = [receipt]
+    elif receipt.get('version') == 2 and 'source_id' not in receipt:
+        parts = receipt.get('sources')
+        if not isinstance(parts, list) or not 2 <= len(parts) <= 64:
+            raise Invalid('Malformed combined preparation receipt')
+    else:
+        raise Invalid('Unknown local preparation receipt version')
+    identities = set()
+    for part in parts:
+        if (not isinstance(part, dict) or not isinstance(part.get('source_id'), str) or
+                part['source_id'] in identities or 'sources' in part or 'version' in part or
+                part.get('policy_sha256') != receipt.get('policy_sha256')):
+            raise Invalid('Ambiguous local preparation receipt')
+        identities.add(part['source_id'])
+    return parts
+
+
+def merge_installation(source, destination):
+    """Merge validated data without allowing even identical package-file collisions."""
+    incoming, existing = file_manifest(source), file_manifest(destination)
+    collisions = incoming.keys() & existing.keys()
+    # uv's empty target lock is not owned by a distribution.
+    if incoming.get('.lock') == existing.get('.lock') == hashlib.sha256(b'').hexdigest():
+        collisions.discard('.lock')
+    if collisions:
+        raise EvidenceError('Combined local installation files collide')
+    paths = existing.keys() | incoming.keys()
+    if (len(paths) > 50000 or
+            sum((destination / p).stat().st_size for p in existing) +
+            sum((source / p).stat().st_size for p in incoming if p not in existing) > 512 * 1024 * 1024):
+        raise EvidenceError('Combined installation exceeds package set limits')
+    shutil.copytree(source, destination, dirs_exist_ok=True)
+
+
+def prepare_combined_setup(store, bundle, task, stage):
+    """Build separately and publish once, after every preparation session ends."""
+    from .supervisor import Supervisor
+    sources = bundle['policy']['project']['python_dependencies']['sources']
+    approval, project_id = bundle['approval']['sha256'], bundle['policy']['project']['id']
+    payloads = []
+    with tempfile.TemporaryDirectory(prefix='local-combined-', dir=store.directory) as temporary:
+        root = Path(temporary)
+        site = root / 'site'
+        for index, source in enumerate(sources):
+            actor = store.register_preparation(project_id, task, source['id'], approval)
+            try:
+                payload = install_source(store, actor['token'], source['id'], mode=source['mode'],
+                                         payload=root / ('source-' + str(index)))
+                payloads.append(payload)
+                save(stage / ('preparation-' + source['id'] + '.json'), payload['receipt'])
+                if index == len(sources) - 1:
+                    # Install the shared assessed registry graph once. No backend
+                    # can read or modify the assembled installation directory.
+                    artifacts = root / 'registry-artifacts'
+                    artifacts.mkdir()
+                    selected, records = assessed_artifacts(store, actor['token'], artifacts,
+                                                           payload['receipt']['runtime'])
+                    if records:
+                        install_wheels(artifacts, site, records, extended=True,
+                                       python=payload['receipt']['runtime'])
+                    else:
+                        site.mkdir()
+                        (site / 'sitecustomize.py').write_text(
+                            'import pathlib,site\nsite.addsitedir(str(pathlib.Path(__file__).parent))\n')
+            except BaseException as exc:
+                save(stage / ('preparation-' + source['id'] + '-failure.json'), {'error': type(exc).__name__})
+                raise
+            finally:
+                store.close_session(actor['token'])
+                if any(not r['confirmed_stopped'] for r in Supervisor(store).reconcile()):
+                    raise Invalid('Preparation termination is unconfirmed; setup cannot commit')
+        for payload in payloads:
+            if (payload['selected'] != selected or
+                    [{k: r[k] for k in ('name', 'version', 'url', 'sha256')} for r in payload['records']] !=
+                    [{k: r[k] for k in ('name', 'version', 'url', 'sha256')} for r in records] or
+                    file_manifest(payload['site']) != payload['manifest']):
+                raise Invalid('Local preparation payload or registry graph changed')
+            merge_installation(payload['site'], site)
+        metadata = {}
+        for info in site.glob('*.dist-info'):
+            meta = BytesParser().parsebytes((info / 'METADATA').read_bytes())
+            name = canonicalize_name(meta.get('Name', ''), validate=True)
+            if name in metadata:
+                raise EvidenceError('Duplicate combined distribution identity')
+            metadata[name] = meta
+        expected = {**selected, **{s['name']: s['version'] for s in sources}}
+        if set(metadata) != set(expected):
+            raise EvidenceError('Combined distribution set differs from review')
+        validate_dependencies(metadata, expected, target_environment(payloads[0]['receipt']['runtime']),
+                              extras={s['name']: s.get('extras', []) for s in sources})
+        manifest = file_manifest(site)
+        receipt = dict(version=2, sources=[p['receipt'] for p in payloads], policy_sha256=approval,
+                       manifest_sha256=digest(manifest))
+        with store.locked() as db:
+            project, current = store.project(db, project_id)
+            if project['stopped'] or not project['setup_pending'] or current != bundle:
+                raise Invalid('Combined installation authority changed')
+            if db.execute('SELECT 1 FROM sessions WHERE project=? AND preparation_source IS NOT NULL '
+                          'AND closed=0', (project_id,)).fetchone() or db.execute(
+                    'SELECT 1 FROM workloads w JOIN sessions s ON w.session=s.id WHERE w.project=? '
+                    'AND s.preparation_source IS NOT NULL AND w.stopped=0', (project_id,)).fetchone():
+                raise Invalid('Preparation termination must be confirmed before publication')
+            from .dependency_binding import verify_inputs
+            from .workspace import Workspace
+            from .python_lock import verify_source_lock
+            Workspace(store).integrity(db, project_id, current)
+            verify_inputs(current)
+            verify(current['policy']['project']['python_runtime'])
+            for source, payload in zip(sources, payloads):
+                verify_source_lock(current, source, payload['receipt'])
+                verify_build_receipt(source, payload['receipt'])
+                if (payload['source'] != source or payload['receipt']['policy_sha256'] != approval or
+                        snapshot_digest(scan(current['inventory'], source['resources'])) != source['snapshot_sha256']):
+                    raise Invalid('Local source changed during combined preparation')
+            if any(evaluate(r, current['policy']['project']['packages']) for r in
+                   [*records, *(r for p in payloads for r in p['build_records'])]):
+                raise EvidenceError('Combined dependency evidence no longer permits publication')
+            result = publish_set(store, db, project_id, approval, site,
+                                 {'pypi:' + n for n in selected}, manifest, receipt)
+        return [result]
+
+
 def validate_prepared_setup(store, bundle, receipts):
     """Final file checks inside commit_setup's authority lock, before readiness."""
     sources = bundle['policy']['project'].get('python_dependencies', {}).get('sources', [])
-    if [r['source_id'] for r in receipts] != [s['id'] for s in sources]:
+    parts = [(receipt, part) for receipt in receipts for part in receipt_sources(receipt)]
+    if [part['source_id'] for _, part in parts] != [s['id'] for s in sources]:
         raise Invalid('Setup is missing a local preparation receipt')
-    for source, receipt in zip(sources, receipts):
+    for source, (receipt, part) in zip(sources, parts):
+        from .python_lock import verify_source_lock
+        verify_source_lock(bundle, source, part)
+        verify_build_receipt(source, part)
         if (receipt['policy_sha256'] != bundle['approval']['sha256'] or
                 snapshot_digest(scan(bundle['inventory'], source['resources'])) != source['snapshot_sha256'] or
                 digest(file_manifest(store.directory / 'package-sets' / receipt['package_set'])) != receipt['manifest_sha256']):
@@ -86,15 +232,20 @@ def prepared_sets(store, token):
         for row in db.execute('SELECT * FROM package_sets WHERE project=? AND policy_sha256=? '
                               'AND local_source IS NOT NULL', (actor['project'], bundle['approval']['sha256'])):
             receipt = json.loads(row['local_source'])
-            source = next((s for s in bundle['policy']['project']['python_dependencies'].get('sources', [])
-                           if s['id'] == receipt['source_id']), None)
-            if (source is None or any('read' not in grants.get(r, set()) for r in source['resources']) or
+            parts = receipt_sources(receipt)
+            approved = {s['id']: s for s in bundle['policy']['project']['python_dependencies'].get('sources', [])}
+            if any(p['source_id'] not in approved for p in parts):
+                continue
+            resources = {r for p in parts for r in approved[p['source_id']]['resources']}
+            if (any('read' not in grants.get(r, set()) for r in resources) or
                     not set(json.loads(row['names'])) <= set(json.loads(actor['packages']))):
                 continue
             commands = [c['id'] for c in bundle['policy']['project']['commands']
-                        if c['id'] in json.loads(actor['commands']) and set(source['resources']) <= set(c['resources'])]
+                        if c['id'] in json.loads(actor['commands']) and resources <= set(c['resources'])]
             if commands:
-                result.append({'package_set': row['id'], 'source_id': source['id'], 'commands': commands})
+                identity = ({'source_id': parts[0]['source_id']} if len(parts) == 1 else
+                            {'source_ids': [p['source_id'] for p in parts]})
+                result.append({'package_set': row['id'], **identity, 'commands': commands})
         return result
 
 
@@ -103,7 +254,18 @@ def validate_sources(policy, inv):
     registry = pins(descriptor['pins'], extras={}) if descriptor.get('pins') else {}
     names, paths, identities = set(registry), set(), set()
     grants = scope(policy['project']['grants'])
+    local_names = {s['name'] for s in descriptor.get('sources', [])}
     for source in descriptor.get('sources', []):
+        if 'build_dependencies' in source:
+            graph = source['build_dependencies']
+            selected = pins(graph['pins'], extras={}) if graph['pins'] else {}
+            if (len(graph['artifacts']) != len(selected) or
+                    {r['name']: r['version'] for r in graph['artifacts']} != selected):
+                raise Invalid('Build artifact identities do not match source pins')
+            if set(selected) & local_names:
+                raise Invalid('Build graph cannot resolve a local identity from a registry')
+            if not {'pypi:' + n for n in selected} <= set(policy['project']['packages']['allowed_names']):
+                raise Invalid('Source build graph expands package scope')
         path = relative(source['path'], empty=True)
         name = canonicalize_name(source['name'], validate=True)
         if source['mode'] != 'discovery':
@@ -121,7 +283,7 @@ def validate_sources(policy, inv):
         if source['mode'] == 'editable':
             if not editable or not set(editable) <= set(source['resources']) or 'build_sha256' not in source:
                 raise Invalid('Editable source requires explicit mutable resources and build binding')
-        elif editable or 'build_sha256' in source:
+        elif editable or 'build_sha256' in source or 'native_build_view' in source:
             raise Invalid('Wheel sources cannot contain editable approval fields')
         for resource in source['resources']:
             item = inv['resources'].get(resource)
@@ -181,7 +343,8 @@ def declared_dependencies(meta, extras=(), *, discovery=False):
     return requirements, optional, active
 
 
-def static_metadata(entries, path, *, selected=None, environment=None, dynamic_metadata=None, extras=(), discovery=False):
+def static_metadata(entries, path, *, selected=None, environment=None, dynamic_metadata=None, extras=(), discovery=False,
+                    build_selected=None, hooks_only=False):
     """Parse data only. Never import a backend to discover its identity."""
     prefix = path + '/' if path else ''
     try:
@@ -207,14 +370,15 @@ def static_metadata(entries, path, *, selected=None, environment=None, dynamic_m
             runtime = list(meta.get('dependencies', []))
             for extra in active:
                 runtime.extend(optional[extra])
-            checked = requirements if discovery else requirements + expand_local_requirements(meta, runtime, environment or {})
-            for raw in checked:
+            checked = [] if discovery or hooks_only else expand_local_requirements(meta, runtime, environment or {})
+            for raw, graph in [(r, selected if build_selected is None else build_selected) for r in requirements] + [
+                    (r, selected) for r in checked]:
                 requirement = Requirement(raw)
                 if requirement.marker and not any(requirement.marker.evaluate({**(environment or {}), 'extra': e})
                                                   for e in ['', *active]):
                     continue
                 name = canonicalize_name(requirement.name)
-                if (name not in selected or not requirement.specifier.contains(selected[name], prereleases=True)):
+                if (name not in graph or not requirement.specifier.contains(graph[name], prereleases=True)):
                     raise Invalid('Local requirement needs reviewed compatible resolution: ' + name)
         backend_paths = build.get('backend-path', [])
         if not isinstance(backend_paths, list):
@@ -287,7 +451,7 @@ def validate_editable_scope(entries, inv, source):
 
 
 def describe_source(inv, resources, *, identity, path='', allow_build=False, editable_resources=(),
-                    dynamic_metadata=None, extras=(), discovery=False):
+                    dynamic_metadata=None, extras=(), discovery=False, full_build=False):
     """Create review data from explicit resource IDs; a root path grants nothing."""
     relative(path, empty=True)
     if not resources or len(resources) != len(set(resources)):
@@ -317,6 +481,8 @@ def describe_source(inv, resources, *, identity, path='', allow_build=False, edi
         source['editable_resources'] = list(editable_resources)
         validate_editable_scope(entries, inv, source)
         source['build_sha256'] = snapshot_digest(build_entries(entries, inv, source))
+        source['native_build_view'] = ('full' if full_build or
+            native_build_entries(entries, inv, source) == entries else PROJECTED_BUILD)
     return source
 
 
@@ -348,7 +514,7 @@ def reuse_source(bundle, actor, identity, definition, entries):
     return source
 
 
-def authorized_snapshot(store, token, identity):
+def authorized_snapshot(store, token, identity, *, hooks_only=False):
     with store.locked() as db:
         actor = store.session(db, token, preparation=True)
         if actor['preparation_source'] is not None and actor['preparation_source'] != identity:
@@ -363,6 +529,8 @@ def authorized_snapshot(store, token, identity):
         if source is None or not source['allow_build']:
             raise OutsideScope('Local build has no explicit approval')
         discovery = source['mode'] == 'discovery'
+        if hooks_only and (not project['setup_pending'] or actor['preparation_source'] != identity):
+            raise OutsideScope('Build requirement discovery requires pending source preparation')
         if discovery and (not project['setup_pending'] or actor['preparation_source'] != identity):
             raise OutsideScope('Discovery requires a source-bound pending preparation session')
         grants = scope(json.loads(actor['grants']))
@@ -379,8 +547,12 @@ def authorized_snapshot(store, token, identity):
             if snapshot_digest(build_entries(entries, bundle['inventory'], source)) != source['build_sha256']:
                 raise Invalid('Editable build binding differs from the approved source')
         descriptor = bundle['policy']['project']['python_dependencies']
-        selected = pins(descriptor['pins'], extras={}) if descriptor['pins'] else {}
+        selected = reviewed_runtime(descriptor)
+        from .dependency_binding import source_graph
+        graph = source_graph(descriptor, identity)
+        build_selected = pins(graph['pins'], extras={}) if graph['pins'] else {}
         if static_metadata(entries, source['path'], selected=selected,
+                           build_selected=build_selected, hooks_only=hooks_only,
                            environment=target_environment(python),
                            dynamic_metadata=source.get('dynamic_metadata'),
                            extras=source.get('extras', ()), discovery=discovery) != (source['name'], source.get('version')):
@@ -426,7 +598,7 @@ def validate_output_metadata(meta, entries, source):
         raise EvidenceError('Invalid local output metadata') from exc
 
 
-def assessed_artifacts(store, token, destination, python, *, provider=None):
+def assessed_artifacts(store, token, destination, python, *, provider=None, identity=None):
     """Use the existing reviewed graph and evidence policy, including build tools.
 
     Only checked wheels enter the offline backend environment. No ambient site
@@ -440,6 +612,16 @@ def assessed_artifacts(store, token, destination, python, *, provider=None):
         if project['stopped']:
             raise Invalid('Project stopped')
         descriptor = bundle['policy']['project']['python_dependencies']
+        if identity is not None:
+            from .dependency_binding import source_graph
+            if actor['preparation_source'] is not None and actor['preparation_source'] != identity:
+                raise OutsideScope('Preparation session is bound to another source build graph')
+            graph = source_graph(descriptor, identity)
+            source = next(s for s in descriptor['sources'] if s['id'] == identity)
+            grants = scope(json.loads(actor['grants']))
+            if not source['allow_build'] or any('read' not in grants.get(r, set()) for r in source['resources']):
+                raise OutsideScope('Source build graph requires approved source read grants')
+            descriptor = graph
         extras = {}
         selected = pins(descriptor['pins'], extras=extras) if descriptor['pins'] else {}
         if not {'pypi:' + n for n in selected} <= set(json.loads(actor['packages'])):
@@ -455,7 +637,7 @@ def assessed_artifacts(store, token, destination, python, *, provider=None):
         if evaluate(record, rules):
             raise EvidenceError('Local build dependency violates the reviewed package policy')
         records.append(record)
-    verify_artifacts(bundle, records)
+    verify_artifacts(bundle, records, source=identity)
     total, wheels = 0, {}
     compatible = set(target_tags(python)) if records else set()
     for record in records:
@@ -543,7 +725,7 @@ def discover_build_requirements(store, token, identity, *, provider=None):
     resolves them, installs them, changes policy, or publishes a package set.
     Actual wheel/editable construction remains owned by uv.
     """
-    source, entries, python, approval = authorized_snapshot(store, token, identity)
+    source, entries, python, approval = authorized_snapshot(store, token, identity, hooks_only=True)
     with store.locked() as db:
         actor = store.session(db, token, preparation=True)
         project, bundle = store.project(db, actor['project'])
@@ -562,7 +744,7 @@ def discover_build_requirements(store, token, identity, *, provider=None):
         seed = output / 'source'
         seed.mkdir()
         materialize(entries, seed)
-        _, records = assessed_artifacts(store, token, artifacts, python, provider=provider)
+        _, records = assessed_artifacts(store, token, artifacts, python, provider=provider, identity=identity)
         if records:
             # The existing offline uv installer only unpacks assessed wheels.
             # Their startup hooks are executed below, inside the supervised build.
@@ -573,7 +755,7 @@ def discover_build_requirements(store, token, identity, *, provider=None):
             '--ro-bind', str(bootstrap), '/bootstrap', '--bind', str(output), '/target',
             '--setenv', 'PATH', '/bootstrap/bin:/usr/bin:/bin',
             '--', python, '-I', '-S', '-c', HOOK_REQUIREMENTS, canonical(config)]
-        current = authorized_snapshot(store, token, identity)
+        current = authorized_snapshot(store, token, identity, hooks_only=True)
         if current[3] != approval or current[0] != source:
             raise Invalid('Build requirement approval changed; no hook executed')
         try:
@@ -589,7 +771,7 @@ def discover_build_requirements(store, token, identity, *, provider=None):
             if isinstance(exc, EvidenceError):
                 raise
             raise EvidenceError('Malformed backend requirement output') from None
-        current = authorized_snapshot(store, token, identity)
+        current = authorized_snapshot(store, token, identity, hooks_only=True)
         if current[3] != approval or current[0] != source:
             raise Invalid('Build requirement approval changed; no proposal returned')
         with store.locked() as db:
@@ -632,7 +814,11 @@ def build_wheel(store, token, identity, *, provider=None):
         materialize(entries, seed)
         artifacts = root / 'artifacts'
         artifacts.mkdir()
-        selected, records = assessed_artifacts(store, token, artifacts, python, provider=provider)
+        selected, records = assessed_artifacts(store, token, artifacts, python, provider=provider, identity=identity)
+        with store.locked() as db:
+            actor = store.session(db, token, preparation=True)
+            _, bundle = store.project(db, actor['project'])
+            runtime_selected = reviewed_runtime(bundle['policy']['project']['python_dependencies'])
         # Only the explicitly bound snapshot is mounted. The original repository,
         # ambient home, network and registry configuration are unavailable.
         command = runtime_namespace() + [
@@ -670,7 +856,7 @@ def build_wheel(store, token, identity, *, provider=None):
         validate_local_wheel_tags(wheel, tags, allow_native)
         discovered = None
         if source['mode'] != 'discovery':
-            validate_wheels({name: wheel}, {**selected, name: str(version)},
+            validate_wheels({name: wheel}, {**runtime_selected, name: str(version)},
                             environment=target_environment(python), extended=True,
                             extras={name: source.get('extras', [])})
         try:
@@ -860,7 +1046,7 @@ def validate_editable_install(site, source, selected, python, entries, *, allow_
     return manifest, native
 
 
-def collect_editable_artifacts(output, site, entries, inv, source, *, allow_native):
+def collect_editable_artifacts(output, site, entries, inv, source, *, allow_native, omitted=()):
     """Retain in-place native outputs only inside explicitly bound source trees.
 
     Backend scratch and metadata outside those resources are discarded. Original
@@ -869,6 +1055,8 @@ def collect_editable_artifacts(output, site, entries, inv, source, *, allow_nati
     if (site / EDITABLE_ARTIFACTS).exists():
         raise EvidenceError('Editable output conflicts with reserved artifact storage')
     result = scan({**inv, 'root': str(output)}, source['resources'])
+    if set(omitted) & result.keys():
+        raise EvidenceError('Editable backend generated an excluded source path')
     for path, entry in entries.items():
         if (path not in result or stamp(result[path]) != stamp(entry)
                 or result[path].get('mode') != entry.get('mode')):
@@ -891,12 +1079,11 @@ def collect_editable_artifacts(output, site, entries, inv, source, *, allow_nati
 
 
 def native_build_entries(entries, inv, source):
-    """Bind compiled inputs while permitting ordinary declarative Python edits.
+    """Select the actual build view, never infer a compiler's read set.
 
-    Custom build code can consume Python as compiler input. Keep its full
-    snapshot binding; only plain setuptools extension declarations opt into the
-    narrower binding. Non-Python data and declared extension dependencies remain
-    fixed even inside resources approved for live Python edits.
+    Excluded files must not be materialized in the seed. This deliberately
+    changes the build's inputs, including existence tests and include lookup.
+    Unknown configurations retain the complete snapshot without a retry.
     """
     selected = {p: e for p, e in entries.items() if owner(inv, p) in source['resources']}
     prefix = source['path'] + '/' if source['path'] else ''
@@ -904,7 +1091,8 @@ def native_build_entries(entries, inv, source):
     backend = config['build-system']
     settings = config.get('tool', {}).get('setuptools', {})
     extensions = settings.get('ext-modules', [])
-    if (backend.get('build-backend') != 'setuptools.build_meta' or backend.get('backend-path') or
+    if (source.get('native_build_view') == 'full' or
+            backend.get('build-backend') != 'setuptools.build_meta' or backend.get('backend-path') or
             source.get('dynamic_metadata') or settings.get('cmdclass') or
             any(prefix + p in entries for p in ('setup.py', 'setup.cfg')) or
             not backend.get('requires') or
@@ -912,9 +1100,23 @@ def native_build_entries(entries, inv, source):
                 Requirement(r).extras for r in backend['requires']) or
             not isinstance(extensions, list) or not extensions):
         return selected
+    # Only src-layout implicit namespace discovery tolerates omitted __init__.py
+    # files. Do not rewrite the authoritative pyproject to enable discovery.
+    if (selected.get(prefix + 'src', {}).get('kind') != 'dir' or
+            set(settings) - {'ext-modules', 'packages', 'package-dir'} or
+            settings.get('package-dir', {'': 'src'}) != {'': 'src'}):
+        return selected
+    packages = settings.get('packages', {'find': {'where': ['src']}})
+    if not isinstance(packages, dict) or set(packages) != {'find'}:
+        return selected
+    find = packages['find']
+    if (not isinstance(find, dict) or set(find) - {'where', 'namespaces'} or
+            find.get('where') != ['src'] or find.get('namespaces', True) is not True):
+        return selected
     dependencies = set()
     for extension in extensions:
-        if not isinstance(extension, dict) or not extension.get('sources'):
+        if (not isinstance(extension, dict) or not extension.get('sources') or
+                set(extension) - {'name', 'sources', 'depends'}):
             return selected
         for field in ('sources', 'depends'):
             paths = extension.get(field, [])
@@ -935,16 +1137,38 @@ def native_build_entries(entries, inv, source):
                 dependencies.add(name)
     fixed = build_entries(selected, inv, source)
     return {p: e for p, e in selected.items() if p in fixed or p in dependencies or
-            e['kind'] != 'file' or not p.endswith('.py')}
+            e['kind'] != 'file' or not p.endswith('.py') or not p.startswith(prefix + 'src/') or
+            inv['resources'][owner(inv, p)].get('kind') != 'tree'}
+
+
+def verify_build_receipt(source, receipt):
+    if 'build_dependencies' in source:
+        expected = [{k: r[k] for k in ('name', 'version', 'sha256')}
+                    for r in source['build_dependencies']['artifacts']]
+        actual = receipt.get('build_dependencies')
+        if (not isinstance(actual, list) or
+                sorted(actual, key=canonical) != sorted(expected, key=canonical)):
+            raise Invalid('Source build dependency receipt differs from review')
 
 
 def verify_native_reuse(bundle, source, receipt, entries):
+    verify_build_receipt(source, receipt)
     if receipt.get('native_editable'):
-        if 'native_inputs_sha256' in receipt:
-            selected = native_build_entries(entries, bundle['inventory'], source)
-            expected = receipt['native_inputs_sha256']
+        binding = receipt.get('native_binding')
+        if binding is not None:
+            if (not isinstance(binding, dict) or set(binding) != {'version', 'view', 'sha256'} or
+                    type(binding['version']) is not int or binding['version'] != 1 or
+                    binding['view'] not in ('full', PROJECTED_BUILD) or
+                    binding['view'] != source.get('native_build_view', 'full') or
+                    receipt.get('source_sha256') != source['snapshot_sha256']):
+                raise Invalid('Invalid compiled editable binding; review and prepare again')
+            selected = (native_build_entries(entries, bundle['inventory'], source)
+                        if binding['view'] == PROJECTED_BUILD else
+                        {p: e for p, e in entries.items() if owner(bundle['inventory'], p) in source['resources']})
+            expected = binding['sha256']
         else:
-            # Previously prepared sets retain their original full binding.
+            # Old suffix-based native_inputs_sha256 receipts did not enforce a
+            # projected namespace. They must retain full original binding.
             selected = {p: e for p, e in entries.items() if owner(bundle['inventory'], p) in source['resources']}
             expected = receipt['source_sha256']
         if snapshot_digest(selected) != expected:
@@ -953,7 +1177,12 @@ def verify_native_reuse(bundle, source, receipt, entries):
 
 def editable_artifact_entries(mount, receipt):
     """Read an already authorized, integrity-checked package set as bounded data."""
-    paths = receipt.get('editable_artifacts', {})
+    paths = {}
+    for part in receipt_sources(receipt):
+        additions = part.get('editable_artifacts', {})
+        if paths.keys() & additions.keys():
+            raise Invalid('Combined editable artifacts collide')
+        paths.update(additions)
     if not paths:
         return {}
     result = scan({'root': str(mount / EDITABLE_ARTIFACTS), 'resources': {
@@ -973,7 +1202,7 @@ def install_wheel(store, token, identity, *, provider=None):
     return install_source(store, token, identity, mode='wheel', provider=provider)
 
 
-def install_source(store, token, identity, *, mode, provider=None):
+def install_source(store, token, identity, *, mode, provider=None, payload=None):
     """Share installation validation and atomic publication for local sources.
 
     Trusted operator adapter, not an approval endpoint. Registry graph and source
@@ -989,20 +1218,38 @@ def install_source(store, token, identity, *, mode, provider=None):
     if not uv or not Path(uv).is_file():
         raise EvidenceError('uv is required; no local install fallback')
     uv = Path(uv).resolve()
+    from .python_lock import source_lock_required, validate_source_lock
+    with store.locked() as db:
+        actor = store.session(db, token, preparation=True)
+        _, bundle = store.project(db, actor['project'])
+    descriptor = bundle['policy']['project']['python_dependencies']
+    if len(descriptor.get('sources', [])) > 1 and payload is None:
+        raise OutsideScope('Multiple local sources require atomic combined preparation')
+    runtime_selected = reviewed_runtime(descriptor)
+    lock_validation = None
+    if source_lock_required(bundle, source):
+        lock_validation = validate_source_lock(store, token, identity, provider=provider,
+            groups=tuple(bundle['policy']['project']['python_dependencies'].get('groups', ('dev', 'test'))))
     with tempfile.TemporaryDirectory(prefix='local-install-', dir=store.directory) as temporary:
         root = Path(temporary)
         output, artifacts = root / 'result', root / 'artifacts'
         output.mkdir()
         artifacts.mkdir()
-        materialize(entries, output)
         selected, records = assessed_artifacts(store, token, artifacts, python, provider=provider)
+        build_artifacts, build_records = artifacts, records
+        if 'build_dependencies' in source:
+            build_artifacts = root / 'build-artifacts'
+            build_artifacts.mkdir()
+            _, build_records = assessed_artifacts(store, token, build_artifacts, python,
+                                                  provider=provider, identity=identity)
         build_receipt = None
         editable_receipt = {}
         if mode == 'wheel':
+            materialize(entries, output)
             data, build_receipt = build_wheel(store, token, identity, provider=provider)
             if (build_receipt['policy_sha256'] != approval or
                     build_receipt['source_sha256'] != source['snapshot_sha256'] or
-                    build_receipt['dependencies'] != [{k: r[k] for k in ('name', 'version', 'sha256')} for r in records]):
+                    build_receipt['dependencies'] != [{k: r[k] for k in ('name', 'version', 'sha256')} for r in build_records]):
                 raise Invalid('Local build inputs changed before installation')
             local_artifacts = root / 'local-artifacts'
             local_artifacts.mkdir()
@@ -1019,16 +1266,16 @@ def install_source(store, token, identity, *, mode, provider=None):
             if len(infos) != 1:
                 raise EvidenceError('Local wheel installation must contain one distribution')
             meta = BytesParser().parsebytes((infos[0] / 'METADATA').read_bytes())
-            validate_dependencies({source['name']: meta}, {**selected, source['name']: source['version']},
+            validate_dependencies({source['name']: meta}, runtime_selected,
                                   target_environment(python), extras={source['name']: source.get('extras', [])})
             validate_output_metadata(meta, entries, source)
         else:
             local_manifest, editable_receipt = prepare_editable(store, token, identity, source, entries, python,
-                                                                approval, uv, output, artifacts, selected)
+                                                                approval, uv, output, build_artifacts, runtime_selected)
         site = output / '.ptw-local-site'
         # Install the assessed registry graph separately. A backend cannot modify
         # these files, and no local output may overwrite a registry file.
-        if records:
+        if records and payload is None:
             registry_site = root / 'registry-site'
             install_wheels(artifacts, registry_site, records, extended=True, python=python)
             registry_manifest = file_manifest(registry_site)
@@ -1040,7 +1287,7 @@ def install_source(store, token, identity, *, mode, provider=None):
             if collisions:
                 raise EvidenceError('Local and registry installed files collide')
             shutil.copytree(registry_site, site, dirs_exist_ok=True)
-        else:
+        elif payload is None:
             (site / 'sitecustomize.py').write_text(
                 'import pathlib,site\nsite.addsitedir(str(pathlib.Path(__file__).parent))\n')
         # Validate the combined metadata so extras requested by the local project
@@ -1052,9 +1299,10 @@ def install_source(store, token, identity, *, mode, provider=None):
             if name in metadata:
                 raise EvidenceError('Duplicate local installation distribution')
             metadata[name] = meta
-        if set(metadata) != {*selected, source['name']}:
+        expected = {source['name']} if payload is not None else {*selected, source['name']}
+        if set(metadata) != expected:
             raise EvidenceError('Local installation distribution set differs from review')
-        validate_dependencies(metadata, {**selected, source['name']: source['version']},
+        validate_dependencies(metadata, runtime_selected,
                               target_environment(python), extras={source['name']: source.get('extras', [])})
         manifest = file_manifest(site)
         receipt = dict(source_id=identity, source_sha256=source['snapshot_sha256'],
@@ -1064,11 +1312,37 @@ def install_source(store, token, identity, *, mode, provider=None):
                        uv_sha256=hashlib.sha256(uv.read_bytes()).hexdigest(), manifest_sha256=digest(manifest))
         if build_receipt is not None:
             receipt['wheel'] = build_receipt
+        if 'build_dependencies' in source:
+            receipt['build_dependencies'] = [{k: r[k] for k in ('name', 'version', 'sha256')} for r in build_records]
+        if lock_validation is not None:
+            receipt['lock_validation'] = lock_validation
         receipt.update(editable_receipt)
+        if payload is not None:
+            # Trusted setup-only staging, never a published or mountable set.
+            # The next backend receives its own source namespace, not this tree.
+            current = authorized_snapshot(store, token, identity)
+            if current[0] != source or current[3] != approval:
+                raise Invalid('Local source changed before staging')
+            shutil.copytree(site, payload)
+            return dict(site=payload, source=source, selected=selected, records=records, build_records=build_records,
+                        manifest=manifest, receipt=receipt)
+        if any(evaluate(r, bundle['policy']['project']['packages']) for r in build_records):
+            raise EvidenceError('Build dependency evidence no longer permits publication')
         return publish_install(store, token, identity, source, approval, site, selected, records, manifest, receipt)
 
 
 def prepare_editable(store, token, identity, source, entries, python, approval, uv, output, artifacts, selected):
+    with store.locked() as db:
+        actor = store.session(db, token, preparation=True)
+        _, bundle = store.project(db, actor['project'])
+        inv = bundle['inventory']
+    view = source.get('native_build_view', 'full')
+    if view not in ('full', PROJECTED_BUILD):
+        raise Invalid('Unknown editable build view')
+    seed = native_build_entries(entries, inv, source) if view == PROJECTED_BUILD else entries
+    # No original source mount, cache or backup enters this namespace. The
+    # supervisor terminates all builders before exporting the projected tree.
+    materialize(seed, output)
     command = runtime_namespace() + [
         '--ro-bind', str(uv), '/uv', '--ro-bind', str(artifacts), '/artifacts',
         '--bind', str(output), '/target', '--', '/uv', '--no-config', '--offline',
@@ -1092,11 +1366,11 @@ def prepare_editable(store, token, identity, source, entries, python, approval, 
             raise Invalid('Local build approval changed; no package set published')
         allow_native = bundle['policy']['project']['packages']['allow_native_wheels']
     _, native = validate_editable_install(site, source, selected, python, entries, allow_native=allow_native)
-    generated = collect_editable_artifacts(output, site, entries, bundle['inventory'], source,
-                                            allow_native=allow_native)
+    generated = collect_editable_artifacts(output, site, seed, bundle['inventory'], source,
+                                            allow_native=allow_native, omitted=entries.keys() - seed.keys())
     receipt = {'native_editable': native or bool(generated), 'editable_artifacts': generated}
     if receipt['native_editable']:
-        receipt['native_inputs_sha256'] = snapshot_digest(native_build_entries(entries, bundle['inventory'], source))
+        receipt['native_binding'] = {'version': 1, 'view': view, 'sha256': snapshot_digest(seed)}
     return file_manifest(site), receipt
 
 
@@ -1111,6 +1385,9 @@ def publish_install(store, token, identity, source, approval, site, selected, re
         Workspace(store).integrity(db, actor['project'], bundle)
         verify_inputs(bundle)
         verify(bundle['policy']['project']['python_runtime'])
+        from .python_lock import verify_source_lock
+        verify_source_lock(bundle, source, receipt)
+        verify_build_receipt(source, receipt)
         current_entries = scan(bundle['inventory'], source['resources'])
         reuse_source(bundle, actor, identity, {'resources': source['resources']}, current_entries)
         if snapshot_digest(current_entries) != source['snapshot_sha256']:
@@ -1120,20 +1397,25 @@ def publish_install(store, token, identity, source, approval, site, selected, re
             raise OutsideScope('Local build dependencies exceed session package grants')
         if any(evaluate(r, bundle['policy']['project']['packages']) for r in records):
             raise EvidenceError('Local dependency evidence no longer permits publication')
-        sets = store.directory / 'package-sets'
-        sets.mkdir(mode=0o700, exist_ok=True)
-        package_id = 'pkg_' + secrets.token_hex(12)
-        destination = sets / package_id
-        try:
-            db.execute('BEGIN IMMEDIATE')
-            os.rename(site, destination)
-            db.execute('INSERT INTO package_sets(id,project,names,manifest,created,ecosystem,policy_sha256,local_source) '
-                       'VALUES(?,?,?,?,?,?,?,?)', (package_id, actor['project'], canonical(sorted(names)),
-                       canonical(manifest), time.time(), 'pypi', approval, canonical(receipt)))
-            db.commit()
-        except BaseException:
-            db.rollback()
-            if destination.exists():
-                shutil.rmtree(destination)
-            raise
+        return publish_set(store, db, actor['project'], approval, site, names, manifest, receipt)
+
+
+def publish_set(store, db, project, approval, site, names, manifest, receipt):
+    """Caller holds the controller lock and has revalidated all constituent inputs."""
+    sets = store.directory / 'package-sets'
+    sets.mkdir(mode=0o700, exist_ok=True)
+    package_id = 'pkg_' + secrets.token_hex(12)
+    destination = sets / package_id
+    try:
+        db.execute('BEGIN IMMEDIATE')
+        os.rename(site, destination)
+        db.execute('INSERT INTO package_sets(id,project,names,manifest,created,ecosystem,policy_sha256,local_source) '
+                   'VALUES(?,?,?,?,?,?,?,?)', (package_id, project, canonical(sorted(names)),
+                   canonical(manifest), time.time(), 'pypi', approval, canonical(receipt)))
+        db.commit()
+    except BaseException:
+        db.rollback()
+        if destination.exists():
+            shutil.rmtree(destination)
+        raise
     return {'package_set': package_id, **receipt}

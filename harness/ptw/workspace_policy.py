@@ -63,6 +63,8 @@ WORKSPACE_SCHEMA['properties']['project']['properties']['python_dependencies']['
 LOCAL_SOURCE = WORKSPACE_SCHEMA['properties']['project']['properties']['python_dependencies']['properties']['sources']['items']
 LOCAL_SOURCE['required'].remove('version')
 LOCAL_SOURCE['properties'].update({
+    'build_dependencies': obj({key: WORKSPACE_SCHEMA['properties']['project']['properties']
+        ['python_dependencies']['properties'][key] for key in ('pins', 'artifacts')}),
     'extras': {'type': 'array', 'maxItems': 64, 'uniqueItems': True,
                'items': {'type': 'string', 'pattern': '^[a-z0-9]+(-[a-z0-9]+)*$'}},
     'dynamic_metadata': {'type': 'object', 'minProperties': 1, 'additionalProperties': False,
@@ -79,6 +81,7 @@ LOCAL_SOURCE['properties'].update({
     'editable_resources': {'type': 'array', 'minItems': 1, 'maxItems': 128,
                            'uniqueItems': True, 'items': ID},
     'build_sha256': {'type': 'string', 'pattern': '^[0-9a-f]{64}$'},
+    'native_build_view': {'enum': ['full', 'setuptools-src-v1']},
 })
 WORKSPACE_SCHEMA['properties']['project']['properties']['npm_dependencies']['properties']['registry_config_sha256'] = {
     'type': 'string', 'pattern': '^[0-9a-f]{64}$'}

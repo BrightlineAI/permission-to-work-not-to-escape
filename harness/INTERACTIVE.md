@@ -43,7 +43,10 @@ The manager passed this flow, including dynamic optional dependencies.
 `--python-native-wheels` requests native output for wheel or editable mode.
 The manager passed compiled editable import/rebuild fixtures; compiled-input changes
 need reviewed re-preparation with `--revise`. Live Python edits alongside static
-declarative setuptools extensions are implemented but await native validation. See
+declarative setuptools extensions now require an enforced build view excluding
+those implementation files; the manager verified this in the local-Python suite.
+Use `--python-full-build` for compilation that needs them, with reviewed rebuilding
+after source changes. See
 [local preparation limits and recovery](ONBOARDING.md#local-python-preparation).
 
 For an existing backend/frontend layout, the current source also accepts:
@@ -142,13 +145,21 @@ source bindings. For private Python, pass
 `--python-registry-config /absolute/operator/python-routes.json` at setup and
 review its bound hash in `details`. Credentials stay in an external operator
 file; see the [registry contract and measured coverage](DEPENDENCY_STATUS.md#private-python-setup-and-verification).
-Root `-e .`/`.` requirements now use matching explicit local preparation flags;
-their static and dynamic native fixtures passed manager validation. Static uv-lock
-local preparation now preserves the locked graph while resolving build tools;
-its empty-graph terminal fixtures passed manager validation. Nonempty combined
-runtime/build graph fixtures await native validation. Other local paths, multiple
-Python distributions, dynamic local native-lock integration and pnpm still need
-implementation. Install scripts require explicit build policy. Metadata such as package
+Root `-e .`/`.` and additional project paths in requirements need matching
+explicit local preparation flags. Static and dynamic uv locks retain original
+versions/hashes; dynamic locks additionally require approved offline freshness
+validation. Each source has separate build requirements and confinement, with
+one compatible runtime installation. Dynamic sources request metadata and
+editable-hook approval separately; `--python-build-requirements` requests hooks
+for static sources. Rejection or a later build/validation failure publishes no
+partial installation.
+
+The manager's 300-test local suite passed the single/multiple-source native
+terminal flows, protected imports, live edits, compiled rebuilding and static
+and dynamic lock checks. See [source scope and review](ONBOARDING.md#local-python-preparation)
+and [measured evidence](DEPENDENCY_STATUS.md#local-python-evidence).
+Poetry, pnpm/Yarn and broader ecosystem integration remain required queued work.
+Install scripts require explicit build policy. Metadata such as package
 manifests is read only during agent work; dependency/scope changes need review.
 For a dependency change, use the operator terminal, for example
 `ptw deps update 'idna>=3.10,<4' --ecosystem pypi --source pyproject.toml`.

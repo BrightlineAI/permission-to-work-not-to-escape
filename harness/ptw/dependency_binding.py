@@ -71,10 +71,20 @@ def verify_selection(bundle, selected, extras):
             raise Invalid('Install differs from the reviewed dependency resolution')
 
 
-def verify_artifacts(bundle, evidence):
+def verify_artifacts(bundle, evidence, *, source=None):
     descriptor = bundle['policy']['project'].get('python_dependencies')
+    if source is not None:
+        descriptor = source_graph(descriptor, source)
     if descriptor:
         expected = descriptor['artifacts']
         actual = [{k: record[k] for k in ('name', 'version', 'url', 'sha256')} for record in evidence]
         if sorted(actual, key=lambda e: e['name']) != sorted(expected, key=lambda e: e['name']):
             raise Invalid('Registry artifact identity or digest changed after dependency review')
+
+
+def source_graph(descriptor, identity):
+    """Explicit source build graph; legacy policies retain their reviewed union."""
+    source = next((s for s in descriptor.get('sources', []) if s['id'] == identity), None)
+    if source is None:
+        raise Invalid('Unknown local source build graph')
+    return source.get('build_dependencies', descriptor)

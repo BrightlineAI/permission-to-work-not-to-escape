@@ -26,316 +26,261 @@ Advanced package-policy edits use the separate explicit policy review workflow.
 
 ## Local Python preparation
 
-`--python-editable src` selects live implementation paths for one existing Python
-project at `--python-root` (the repository root by default). These paths must also
-be in `--editable` or `--files`, must exist, and cannot include backend paths or
-build configuration. For a nested project use repository-relative paths, such as
-`--python-root backend --editable backend/src,backend/tests --python-editable backend/src`.
-All selected source paths inside that Python root, plus its `pyproject.toml`, form
-the explicit source snapshot. Include any required README or backend files in
-the selected scope. A root project location does not grant access to the whole
-repository. Unselected files remain unavailable.
+Local sources require explicit resources and backend approval. They are not
+public packages and do not grant access to the repository. The manager passed
+the 300-test local-Python suite, including native terminal/build/import fixtures;
+see [measured coverage and limits](DEPENDENCY_STATUS.md#local-python-evidence).
+These deterministic fixtures do not establish model behavior or full product
+acceptance.
 
-For a fixed wheel installation, use `--python-wheel` instead of
-`--python-editable src`. The two modes are mutually exclusive. For example:
+### Select source and installation mode
 
-    ptw codex --editable src,tests --files README.md --python-wheel --setup-only
+For an existing PEP 621 project with `src`, `tests` and a required README:
 
-This builds the explicitly selected project, validates its wheel and installs it
-with uv offline. The receipt retains the wheel digest, source binding and build
-tool identity. Local code is never given a registry publication date or public
-package grant. The manager passed both wheel and editable setup fixtures.
+```sh
+ptw codex --editable src,tests --files README.md --python-editable src --setup-only
+```
 
-Requirements files may now reference the selected Python
-root as `-e .` (also `--editable .` or `--editable=.`) or `.` for a wheel.
-Use matching explicit preparation flags; a file entry alone never approves a
-build. For a `requirements.in` containing `-e .`:
+`--python-editable src` selects live implementation paths. They must also be in
+`--editable` or `--files`, must exist, and cannot contain backend paths or build
+configuration. Include required metadata files and in-tree backend directories
+in the selected scope. For a nested project, paths are repository-relative:
+
+```sh
+ptw codex --python-root backend --editable backend/src,backend/tests --python-editable backend/src --setup-only
+```
+
+Selected resources inside the Python root, its manifest and authoritative
+dependency inputs form the source snapshot. Unselected files stay unavailable.
+For a fixed wheel, replace the editable option with `--python-wheel`; any change
+to a bound source then requires reviewed re-preparation. The modes are mutually
+exclusive for a single project. Use `--python-source` when multiple dependency
+authority files exist.
+
+A requirements file may contain `-e .` (also `--editable .` or `--editable=.`)
+for editable mode, or `.` for a wheel. `./` denotes the same Python root:
 
 ```sh
 ptw codex --editable src,tests --files README.md --python-source requirements.in --python-editable src --setup-only
 ```
 
-For `.`, replace `--python-editable src` with `--python-wheel`. `./` also denotes
-the selected Python root, including inside requirements includes. The adapter
-adds that project's dependencies, selected groups and constraints to the existing
-resolver input without submitting the local path or identity to a registry.
-With `-e .[web]`, also select `--python-extras web`; undeclared or unselected extras
-fail before tooling runs. Multiple authority files still require explicit
-`--python-source` selection. Included requirements retain their input hashes.
+The file entry alone never approves a build. Match it with the explicit mode.
+Includes and constraints stay hash-bound through discovery, installation and
+reuse. A root entry is required when combining requirements authority with
+root-project preparation; its dependencies cannot be silently omitted. Mode
+mismatches, duplicate entries, traversal, absolute paths, symlinks, URLs,
+environment expansion, inline tool options and local entries in constraints
+fail closed.
 
-Mode mismatches, duplicate local entries, local constraints, traversal, URLs,
-environment variables and inline tooling options are rejected. Use `reject` or
-`cancel` to decline the review. The manager passed the static root requirements
-terminal fixtures in the 144-test suite. Other local paths and multiple local
-distributions remain unfinished ordinary integration work; do not remove
-dependency declarations to bypass a rejection.
+Select extras with `--python-extras web` and groups with `--python-groups test`.
+A root entry `-e .[web]` also requires the corresponding explicit extra selection.
+Unknown or duplicate selections fail; empty extras are valid. Self-referencing
+extras such as `all = ["local-demo[web,test]==1.0"]` use a bounded local closure,
+including cycles, without querying a public namesake. Incompatible local versions
+or unknown active extras fail. Unselected extras remain validated metadata and
+do not authorize installation.
 
-For dynamic projects, the same command now retains the selected requirements
-file and included constraints through metadata discovery, distinct editable-hook
-review when applicable, and final installation review. A matching root entry is
-required when combining requirements authority with local preparation; it cannot
-silently omit the project's dependencies. Local version constraints are checked
-against discovered metadata before installation, without querying a public
-namesake. Includes remain hash-bound at every phase. A changed input or rejected
-review stops preparation; correct it and retry the same command. The new dynamic
-requirements terminal fixtures await manager validation. The dynamic editable
-source-change restrictions below still apply.
+### Review, preparation and normal use
 
-Select optional dependencies from `project.optional-dependencies` using the
-existing `--python-extras` option, for either installation mode:
+For static metadata, setup parses declarations and assesses runtime/build
+dependencies before review without importing a backend. The review shows source
+identity, snapshot, live paths, interpreter, package rules and offline execution.
+Use `details` to inspect resources and artifact bindings. `reject`, `cancel`,
+EOF or Ctrl-C authorizes no backend execution or publication.
 
-    ptw codex --editable src,tests --files README.md --python-editable src --python-source pyproject.toml --python-extras web --setup-only
+Only `yes` authorizes preparation. A pending controller gives each preparation
+session access to its approved source; ordinary sessions stay blocked. Builds
+receive disposable source copies and assessed wheels without the original
+checkout, ambient configuration, credentials or network. Readiness requires
+validated output, unchanged inputs, closed preparation credentials and confirmed
+workload termination. Missing tools/artifacts, backend errors and interruption
+fail without an unconfined fallback or automatic dependency approval.
 
-The concise review lists selected extras and their assessed dependency packages.
-Names are normalized using Python packaging rules; unknown or duplicate selections
-fail before backend execution. An empty extra is valid. Unselected optional
-requirements remain metadata and do not authorize installation. Built metadata
-must retain every declared extra and its marked requirements, and selected
-dependencies must fit the assessed graph. No installation-time dependency lookup
-or new approval is inferred. Use `reject` to decline; to change a selection later,
-use `--revise` with an explicit mode and the new selection. The manager passed
-these extras paths in the 65-test local suite.
+After successful `--setup-only`, run `ptw codex` for protected work. Package
+reuse checks source grants, command inputs, fixed configuration and installation
+integrity. Pure-Python live edits appear on the next import, subject to the dynamic
+metadata restrictions below. A narrower command or delegate cannot access a cached
+installation unless it has every required source and package grant.
 
-An extra may select other extras of the same local project. For example,
-`all = ["local-demo[web,test]==1.0"]` in `project.optional-dependencies` can be
-selected with `--python-extras all`. Current source expands this bounded closure
-against the reviewed local version, retaining registry dependency constraints.
-The local name never becomes a public-package request. Cycles terminate without
-repeated expansion; an incompatible local version or unknown active extra fails
-before a backend runs. Local version constraints also apply to the source version.
-Self-dependencies in `build-system.requires` fail because a project cannot supply
-its own unbuilt backend dependency. The new native fixtures await manager checks.
+For fixed-input changes, repeat setup with `--revise` and the intended flags.
+Rejection leaves the existing registration active. Once replacement publication
+starts, old work stops; failed preparation retains history and requires a fresh
+reviewed retry. Attempts and stopped identities remain in private operator state.
+Concurrent user edits are preserved and recovery conflicts require inspection.
+Do not edit generated pins or delete locks to bypass a binding failure.
+`--revise --setup-only` prepares and exits; `--setup-only` cannot accompany
+`--status`, `--stop` or `--review`.
 
-For unknown dynamic version or dependency metadata, use the same local mode with
-`--python-source pyproject.toml`. For example, for `dynamic = ["version"]` and an
-explicitly selected `metadata` directory containing its inputs:
+### Dynamic metadata and additional build requirements
 
-    ptw codex --editable src,tests,metadata --python-wheel --python-source pyproject.toml --setup-only
-
-First review the source paths, interpreter, assessed build requirements and limits
-at `Approve metadata discovery?`. `yes` authorizes offline requirement hooks and
-a wheel build to inspect metadata; it does not authorize installation. No project files are
-published and ordinary sessions remain blocked. Discovery wheel bytes are discarded.
-The resulting version and dependency declarations are displayed, then resolved
-with the existing compatibility, age, CVSS and artifact checks. A second policy
-review must receive `yes` before a fresh confined build and installation. Declining
-either review publishes nothing. Declining the second stops the pending identity
-and retains its history. `details` expands either review. The same controller
-identity spans discovery and installation; refinement retains violation counts
-and cannot revive a stopped project. The manager passed this dynamic terminal
-flow in the 74-test local suite.
-Static optional dependencies retain their source declarations during dynamic
-dependency discovery. They are not relabeled as newly discovered base requirements;
-the final review still selects extras explicitly. Changed or omitted static extra
-declarations fail output validation. The manager passed this combined terminal
-path in the 88-test local suite.
-
-For `dynamic = ["optional-dependencies"]`, use the same explicit extra selection:
+For unknown version, dependency or optional-dependency metadata, select the
+required metadata/backend resources and use the same local mode, for example:
 
 ```sh
-ptw codex --editable src,tests --python-editable src --python-extras feature --setup-only
+ptw codex --editable src,tests,metadata --python-wheel --python-source pyproject.toml --setup-only
 ```
 
-Include any metadata input files and in-tree backend in the selected scope.
-The first approval authorizes discovery, without assuming the requested extra
-exists. Built metadata must then provide that extra. Empty extras are retained;
-unselected extras do not enter the installed graph. All discovered requirements,
-including inactive ones, must be valid and cannot contain URLs. The final review
-binds the discovered declarations and assessed selected graph. Missing extras,
-changed static declarations or different output on the installation build deny
-publication. Use `--python-wheel` instead for fixed output. `reject` or `cancel`
-at either review publishes nothing. The new native fixtures await manager checks.
-This adapter accepts the conventional final `extra == "name"` guard, optionally
-conjoined with an environment marker. Other boolean layouts of extra guards
-currently fail closed; they are not silently simplified or resolved as public
-local-package names. They remain a metadata compatibility limitation.
+`Approve metadata discovery?` authorizes offline hooks and a wheel build to
+inspect metadata, not installation. Discovery wheels are discarded. A hook's
+nonempty additional requirements are resolved under the original constraints and
+package rules, then require `Approve additional build requirements?` before
+execution. The discovered identity/dependencies and assessed runtime graph appear
+at final policy review. That review needs another `yes` before installation.
 
-Dynamic metadata inputs stay bound on editable reuse. For declarative setuptools
-file directives without plugins, setup.py or setup.cfg, the referenced files are
-fixed even inside an otherwise live source tree. Attribute directives, custom
-backends and plugin builds conservatively bind all source inputs, including newly
-added files. Changes then need reviewed re-preparation. No dependency is granted
-automatically after a failed hook.
+Dynamic editable mode additionally requests `Approve build requirement discovery?`
+for its distinct editable hook. Wheel and editable hook constraints both apply
+to that source. Every refinement retains the same pending controller, source
+binding and violation history. Rejection, cancellation, mutation or stop prevents
+further discovery/publication. Retry with a fresh review after correcting the
+cause; backend output never grants dependencies by itself.
 
-The internal `discover_build_requirements(store, token, source_id)` adapter now
-collects a bounded requirement proposal using the same pending source credential,
-offline assessed bootstrap wheels and supervised confinement. It calls the wheel
-or editable requirement hook according to the approved source mode. Its receipt
-binds source, policy, runtime, hook runner and bootstrap artifact hashes. It does
-not change policy or install newly requested packages. The manager passed its
-native tests in the 97-test local suite.
-
-For dynamic wheel discovery, current source now resolves a nonempty hook proposal
-under the original build constraints and package rules. Review the resulting
-versions at `Approve additional build requirements?`. `details` shows the exact
-graph and artifact identities. `yes` authorizes one confined metadata build with
-those wheels; final installation still requires `Approve exactly this policy?`.
-`reject`, `cancel`, EOF or interruption at the additional review stops pending
-preparation without building a wheel or publishing project files. Source mutation
-or shared stop invalidates refinement. The same project identity and violation
-counts survive every approval. Requirements that conflict with original pins,
-lack usable evidence or demand URLs fail closed. The adapter does not iterate to
-grant further packages after a build failure.
-
-The manager passed this dynamic sequence in the 103-test local suite.
-
-For a static project whose backend requests additional build requirements, use:
+For static metadata whose backend requests undeclared additional requirements:
 
 ```sh
 ptw codex --editable src,tests --python-editable src --python-build-requirements --setup-only
 ```
 
-Use `--python-wheel` instead of `--python-editable src` for a fixed installation.
-Include an in-tree backend's directory in `--editable` when applicable. At
-`Approve build requirement discovery?`, `yes` authorizes only the confined
-requirement hook for the selected installation mode. Editable preparation calls
-the editable hook, which may differ from the wheel hook. A nonempty proposal is
-resolved and assessed, then shown at `Approve additional build requirements?`.
-That approval still does not install anything. The final policy review must also
-receive `yes` before preparation. An empty proposal proceeds directly to final
-review. `reject` or `cancel` at any review publishes no installation; retry the
-same command after correcting the project or evidence problem. Backend failure
-does not automatically grant new dependencies.
+This first requests approval for the selected mode's requirement hook, then
+approval for any assessed additions, then final installation approval. An empty
+proposal skips the additional-requirements review. Without the flag, ordinary
+static setup retains one review; missing requirements fail offline. The flag is
+for static hook discovery; dynamic metadata already has its own discovery flow.
 
-This explicit flag keeps the existing single-review static setup available when
-all build requirements are already declared. Without it, missing additional
-requirements fail offline. Do not edit generated pins or treat a proposal as
-approval. Dynamic metadata discovery retains its own flow; this flag currently
-requires static metadata. The manager passed its wheel and editable terminal
-fixtures in the 112-test local suite.
+Dynamic optional metadata still needs explicit `--python-extras feature`.
+Discovery must supply that extra, retain static declarations and produce valid
+requirements, even for inactive extras. Changed metadata in the installation
+build denies publication. The adapter handles conventional final
+`extra == "name"` guards, optionally conjoined with environment markers; other
+boolean layouts currently fail closed.
 
-For a dynamic project, `--python-editable src` now follows metadata discovery
-with `Approve build requirement discovery?` for the distinct editable hook.
-The discovered metadata and original wheel-hook requirements remain bound.
-Any editable-hook additions undergo resolution, artifact assessment and a separate
-`Approve additional build requirements?` review. The final installation still
-needs `Approve exactly this policy?`. Empty editable proposals retain the already
-reviewed wheel-hook constraints. Every review uses the same pending controller;
-rejection, cancellation, mutation or shared stop prevents installation. Retry the
-same setup command after correcting the problem. Earlier attempt receipts remain
-in private operator state. This combined dynamic/editable terminal fixture awaits
-manager validation. The dynamic source-change restrictions above still apply.
+Dynamic metadata inputs remain fixed during editable reuse. Declarative
+setuptools file directives without plugins, setup.py or setup.cfg bind referenced
+files even inside live trees. Attribute directives, custom backends and plugins
+conservatively bind all inputs, including added files. Changes require reviewed
+re-preparation; arbitrary dynamic backends do not promise live implementation edits.
 
-Before approval, setup parses static metadata and resolves build-system and
-runtime requirements using the existing age, CVSS, compatibility and artifact
-checks. It does not import a backend. The review shows the local identity,
-snapshot, live paths and offline backend execution. `details` shows every bound
-resource and assessed artifact. `reject`, `cancel`, EOF and Ctrl-C before approval
-execute no backend and publish no project files.
+### Compiled code and live Python edits
 
-After `yes`, setup activates a pending controller. Its preparation credential
-can build only the approved source; ordinary agents and delegates remain blocked.
-The build receives a disposable source copy and assessed wheels, without the
-original checkout, ambient configuration, credentials or network. Readiness
-requires a validated installation, unchanged review inputs, closed preparation
-credentials and confirmed workload termination. Backend errors and interruption
-roll back owned setup files. Attempts and stopped controller history remain in
-private operator state. Correct the source and retry setup with a fresh review;
-there is no automatic approval. Concurrent user edits are preserved, and recovery
-conflicts require operator inspection.
-
-Prepared package IDs appear in the protected adapter's context only for commands
-and sessions with all required source and package grants. The command boundary
-checks those grants, current fixed configuration and installation integrity again.
-For pure-Python installations, ordinary edits in live paths become visible on the next import. Changes to
-metadata or backend files need reviewed re-preparation with `ptw codex --revise`;
-that existing workflow stops the old project and retains its history.
-For wheel mode, any change to a bound source resource blocks reuse until reviewed
-re-preparation. A cached wheel cannot expose source to a narrower command or
-delegate, even if that delegate can use every registry dependency.
-
-For a local wheel containing native code, request the existing native-wheel
-policy explicitly, then inspect the review and type `yes`:
-
-```sh
-ptw codex --editable src,tests --python-wheel --python-native-wheels --setup-only
-```
-
-This flag also permits assessed native Python dependency wheels. It changes no
-age, CVSS, hash, runtime or source requirements. The displayed policy must show
-`native wheels True`; omitting the flag keeps the default false. Declining the
-review executes nothing. An approved source backend may compile in its offline
-build, but native output without native-wheel approval is rejected before
-installation. This output rule is distinct from approval to execute a backend.
-Backend output tags must agree with the wheel header and selected runtime.
-Install required compilers and system development headers through trusted host
-provisioning first. The build cannot download missing toolchains or libraries.
-Compiler paths must resolve inside the mounted system runtime. Host aliases
-through `/etc/alternatives` are unavailable; select the concrete `/usr` compiler
-in reviewed backend configuration. Ambient `CC`, `CFLAGS` and `LDFLAGS` are not
-inherited, and setup does not mount host configuration to satisfy an alias.
-The manager passed the terminal fixture that compiles and imports a tiny shared
-C library. Current source also accepts the flag with `--python-editable src`:
+Request native output explicitly:
 
 ```sh
 ptw codex --editable src,tests --python-editable src --python-native-wheels --setup-only
 ```
 
-The manager verified a setuptools compiled editable import, stale-source denial
-and the explicit terminal rebuild lifecycle in the 136-test suite. Compatible native
-site-packages payloads and in-place libraries inside existing reviewed source
-directories are retained in the private package set. They enter only disposable
-command snapshots with the complete source grants and validated build inputs.
-Backend scratch outside those resources is discarded; no generated library is
-written into the host checkout. Command changes to a prepared library fail before
-publication. Compiled-input modification blocks reuse until another explicit review:
+Use `--python-wheel` for a fixed native wheel. The review must show
+`native wheels True`. The flag also permits assessed native dependency wheels;
+it does not relax age, CVSS, hashes, runtime checks or backend approval. Without
+it, a permitted backend may run but native output is rejected before installation.
+Wheel tags must agree with the payload and selected runtime.
+
+Provision compilers and development headers through trusted host setup first.
+Compiler paths must resolve inside the mounted system runtime; host
+`/etc/alternatives` aliases are unavailable. Select a concrete `/usr` compiler
+in reviewed configuration. Ambient `CC`, `CFLAGS` and `LDFLAGS` are not inherited.
+
+Simple static declarative setuptools extensions can use a projected build view.
+Only simple src-layout implicit namespace discovery, setuptools/wheel build
+requirements and explicit extension `sources`/`depends` qualify. Live `.py`
+implementation files are absent from the build, including its read-only seed.
+Original manifest bytes, directories, non-Python files, fixed resources and
+explicit build dependencies remain bound. This is an enforced input view, not
+an inference about what a compiler reads.
+
+Wrapper edits and added Python modules in an existing approved directory can
+then appear at the next protected import without rebuilding. Added headers,
+changed C sources, declared Python build dependencies, deletion and type changes
+in the visible build view deny stale reuse. A build that requires an omitted
+file fails without automatically expanding its view.
+
+To compile with every approved source file, explicitly review full binding:
 
 ```sh
-ptw codex --revise --editable src,tests --python-editable src --python-native-wheels --setup-only
+ptw codex --revise --editable src,tests --python-editable src --python-native-wheels --python-full-build --setup-only
 ```
 
-`--revise --setup-only` reviews and prepares the replacement, then exits without
-opening Codex. Rejection leaves the existing registration active. Once replacement
-publication starts, old work is stopped; a failed build retains its history and
-requires a fresh reviewed retry. `--setup-only` cannot accompany `--status`,
-`--stop` or `--review`.
+Full binding requires rebuilding even after wrapper edits. Custom backends,
+setup.py/setup.cfg, dynamic metadata, opaque compiler/linker arguments, extra
+objects and unsupported discovery also use full binding. They remain buildable
+after approval. Older compiled receipts use full original-source verification.
+There is no automatic broader retry. `--python-full-build` also works with
+`--python-build-requirements` and multiple sources; the selected view stays bound
+through every review. Existing `ptw-requirements.txt` remains a resolver preference
+and a bound input during revised hook discovery.
 
-Current source permits live `.py` edits in explicitly mutable resources alongside
-static, declarative setuptools extensions. Use `setuptools.build_meta`, declare
-the extension `sources` and `depends` in `tool.setuptools.ext-modules`, and use
-only setuptools/wheel build requirements. The new native fixture awaits manager
-validation. C/C++ sources, headers, other non-Python files, directory structure,
-explicit extension dependencies (even `.py` files), and build configuration remain
-bound to preparation. Changing or adding these inputs requires the review above.
-For example, editing a Python wrapper can change its next import without rebuilding
-the extension; editing the extension's C source makes reuse fail until re-prepared.
+Validated in-place libraries and site-packages payloads stay in the private
+package set. They enter only disposable command snapshots with complete grants;
+no generated library is written into the host checkout. Prepared-library changes
+cannot be published as source edits. Symlink-based editable trees, generated
+parent directories outside selected resources and uncontrolled network builds
+are outside this adapter. Existing file/tree/build limits still apply.
 
-Custom backends, setup.py/setup.cfg, custom setuptools commands, dynamic metadata
-and ambiguous extension input declarations retain the full compiled-source
-binding. They can still build after review, but cannot claim live Python reuse
-of compiled output. Older receipts also retain their original binding. This is
-declarative dependency handling, not discovery of arbitrary compiler inputs;
-code generation or undeclared compiler dependencies need a fresh build. Automatic
-rebuilds are not implemented. Builds needing symlink-based editable trees, generated parent
-directories outside the reviewed source layout, or uncontrolled network access
-are not covered by this adapter. Native artifacts keep the existing workspace
-file/tree limits; no build or output limits are increased.
+### Authoritative uv locks
 
-For a static PEP 621 project with `uv.lock`, use the same explicit local mode:
+For a static project with `uv.lock`, use the same explicit mode. Native locked
+export retains runtime versions/hashes while assessed build requirements are
+resolved. Inspect lock authority and bindings in `details`. A stale lock or
+incompatible exact constraint fails without silently overriding pins.
+
+Dynamic locks first supply candidate versions/hashes through frozen export.
+This does not certify freshness. Discovery and additional build reviews precede
+final approval, which explicitly authorizes native offline locked validation
+before installation. The original manifest and lock are read-only in that
+namespace, with the assessed build environment. A fresh registry-only uv cache
+supplies metadata; executable source stays out of the networked resolver.
+Unavailable metadata, stale locks, changed inputs or inconsistent backend output
+fail without lock repair or online backend execution. Correct the project through
+operator tooling, then repeat review. The validation receipt is checked before
+publication and reuse. Private-origin locks and local Poetry preparation still
+require their own adapters and fail closed here.
+
+### Multiple local projects
+
+For two projects, `requirements.in` can contain:
+
+```text
+-e ./packages/one/
+-e packages/two
+```
+
+Select resources separately:
 
 ```sh
-ptw codex --editable src,tests --python-editable src --setup-only
+ptw codex --language python --python-source requirements.in \
+  --editable packages/one/src,packages/one/backend,packages/two/src,packages/two/backend,tests \
+  --python-editable packages/one/src,packages/two/src --setup-only
 ```
 
-The locked export retains runtime versions and artifact hashes while the native
-resolver adds assessed build requirements. Review `details` to confirm uv.lock
-authority, inputs, packages and source resources. A stale lock or a build tool
-incompatible with a locked version blocks setup; no pin is silently overridden.
-The manager passed all 162 preceding tests, including the empty-graph terminal
-flows and nonempty combined runtime/build graph wheel/editable fixtures. Dynamic
-locked projects and local preparation with Poetry locks still fail closed.
+Omit backend directories for assessed external backends. Local paths are relative
+to the selected Python root; `-r` includes stay relative to their containing file.
+Leading `./` and trailing `/` are normalized. Per-source extras use
+`packages/one[feature]`. Plain entries select wheels and must not have mutable
+paths in `--python-editable`; for an all-wheel list use `--python-wheel`.
+Mixed wheel/editable entries are supported.
 
-This setup integration covers a static PEP 621 pure-Python project and
-its assessed wheel dependencies. Dynamic native-lock build integration, additional local
-requirements paths and multiple local distributions
-remain required work in this milestone, not waived ordinary
-formats. Broader backend support for live Python edits alongside compiled output
-also remains incomplete.
-Dynamic editable hook review and dynamic optional metadata passed manager checks.
-External/VCS source paths and uncontrolled network builds remain outside the
-bounded adapter. The manager passed the previous editable CLI flow, including
-rejection, cancellation, failed-build rollback, retry and import after a live edit.
-Measured results are listed in [dependency status](DEPENDENCY_STATUS.md).
+Review lists each source's mode, scope, snapshot and build graph. Each backend
+runs in its own source namespace and build environment, so incompatible build-only
+tool versions can coexist. One shared compatible runtime graph is installed.
+Local-to-local runtime references use reviewed versions and extras, never registry
+namesakes. They grant no access to another source during building. Local packages
+in build requirements currently fail closed.
+
+Dynamic sources each require discovery and any wheel/editable hook reviews.
+Static sources can request per-source hooks with `--python-build-requirements`.
+Static/dynamic entries may coexist. Each selected project may retain its own
+`uv.lock`: static locks use locked export; dynamic locks require per-source
+approved offline validation. An unselected root lock is rejected; include `.`
+or `-e .` only when the root is an intended source.
+
+The trusted assembler publishes one package set only after every build, metadata,
+artifact, source, authority and termination check succeeds. Duplicate identities,
+file collisions, conflicting runtime constraints, failure of a later build or
+validation, mutation and stop leave no usable partial installation. Each source
+must fit both the command inputs and session grants at reuse. Changing any lock
+blocks reuse until reviewed re-preparation.
+
+Local Poetry integration and broader ecosystem gates remain required queued
+work. These limits do not waive ordinary required formats. See
+[current status](DEPENDENCY_STATUS.md) for measured versus unverified behavior.
 
 The concise review shows scope, commands, packages, warn1/stop3 and two tasks.
 `details` expands command argv/inputs and generated file contents. `customize`
@@ -399,8 +344,9 @@ and same-project dependency revisions are implemented. PEP 621 edits use uv's
 TOML editor; uv lock updates retain declarations and use additive exclusions.
 Selected groups/extras remain bound to the policy across revisions. See
 [current dependency status](DEPENDENCY_STATUS.md) for the format matrix and
-pending native validation. Task 3 remains incomplete: Python editable preparation,
-pnpm, private Python routing and Poetry updates are ordinary required gaps.
+remaining native validation. Local Python preparation and private Python routing
+have passed focused manager checks. Task 3 remains incomplete: Poetry updates,
+pnpm/Yarn completion and full ecosystem integration are still required.
 
 ## Publication and recovery
 

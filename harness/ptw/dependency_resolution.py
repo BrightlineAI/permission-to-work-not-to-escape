@@ -46,14 +46,26 @@ def resolver_failure_signals(stderr):
     """
     message = stderr[:65536].lower()
     patterns = {
-        'argument': ('unexpected argument', 'unrecognized option', 'invalid value'),
+        'argument': ('unexpected argument', 'unrecognized option', 'invalid value', 'cannot be used with'),
         'permission': ('operation not permitted', 'permission denied'),
+        'read_only': ('read-only file system',),
         'missing_path': ('no such file or directory', 'not found at'),
-        'interpreter': ('failed to query python', 'python interpreter', 'interpreter at'),
+        'interpreter': ('failed to query python', 'python interpreter not found',
+                        'failed to identify base python interpreter', 'querying python at',
+                        'no interpreter found'),
         'network': ('dns', 'connect', 'network'),
         'http_method': ('unsupported method', '501 not implemented'),
         'http_status': ('client error', 'server error', 'status code'),
         'metadata': ('deserialize', 'parse', 'invalid metadata', 'missing field'),
+        'backend': ('build backend', 'build_wheel', 'build_editable', 'prepare_metadata_for_build'),
+        'backend_import': ('modulenotfounderror', 'importerror'),
+        'backend_assertion': ('assertionerror',),
+        'build_disabled': ('building source distributions is disabled', 'building is disabled',
+                           'marked as `--no-build`', 'marked as `--no-build-package`'),
+        'offline_cache': ('not found in the cache', 'not available in the cache', 'network connectivity is disabled'),
+        'timeout': ('ptw_offline_lock_error=timeout',),
+        'launch': ('ptw_offline_lock_error=launch',),
+        'lock_stale': ('the lockfile at `uv.lock` needs to be updated',),
         'archive': ('zip', 'central directory'),
         'range_request': ('range request', 'range header'),
         'solver': ('no solution found',),
@@ -188,7 +200,7 @@ def expand_local_requirements(project, requirements, environment):
 
 
 def python_inputs(root, *, source=None, groups=('dev', 'test'), extras=(), dynamic_metadata=None, discovery=False,
-                  local_mode=None):
+                  local_mode=None, local_projects=None):
     """Read static declarations and confined includes, never execute a backend."""
     root = Path(root)
     if local_mode not in (None, 'editable', 'wheel'):
@@ -281,14 +293,25 @@ def python_inputs(root, *, source=None, groups=('dev', 'test'), extras=(), dynam
                     # Interpret only a reference to the already selected Python
                     # root. Never pass local paths to the metadata resolver, where
                     # uv may execute first-party code even with --no-build.
-                    local = re.fullmatch(r'(?:(-e\s*|--editable(?:=|\s+)))?\./?(?:\[([^\[\]]+)\])?', line)
+                    from .python_projects import local_requirement
+                    local = local_requirement(line)
                     if local:
-                        mode = 'editable' if local[1] else 'wheel'
+                        path, mode, requested = local
+                        if local_projects is not None:
+                            if constrained:
+                                raise Invalid('Local installation cannot be introduced through constraints')
+                            if any(p['path'] == path for p in local_projects):
+                                raise Invalid('Duplicate local project requirement')
+                            local_projects.append(dict(path=path, mode=mode, extras=requested))
+                            if len(local_projects) > 64:
+                                raise Invalid('Too many local project requirements')
+                            continue
+                        if path:
+                            raise Invalid('Local directory requirements need reviewed multi-project preparation')
                         if constrained or local_mode != mode:
                             raise Invalid('Local requirements need matching explicit --python-editable or --python-wheel approval; not a constraint')
                         if local_entries:
                             raise Invalid('Duplicate local project requirement')
-                        requested = local[2].split(',') if local[2] else []
                         if project_meta is None:
                             raise Invalid('Local requirement needs a bound pyproject.toml')
                         _, selected = optional_dependencies(project_meta['project'], extras, discovery=discovery)
@@ -302,7 +325,7 @@ def python_inputs(root, *, source=None, groups=('dev', 'test'), extras=(), dynam
                 if len(requirements) + len(constraints) > 1024:
                     raise Invalid('Too many dependency declarations')
         include(source, False, [])
-        if local_mode is not None and not local_entries:
+        if local_projects is None and local_mode is not None and not local_entries:
             raise Invalid('Local preparation with requirements authority needs an explicit root entry')
         if local_entries:
             local_requirements, local_constraints, local_inputs, _ = python_inputs(
@@ -337,7 +360,8 @@ def compiled_pins(content, environment):
 
 def resolve_python(root, stage, rules, *, executable=None, source=None, groups=('dev', 'test'), extras=(),
                    provider=None, runner=None, max_rounds=8, max_assessments=256, seconds=180, registry_config=None,
-                   local_build=False, dynamic_metadata=None, discovery=False, build_requirements=None, local_mode=None):
+                   local_build=False, dynamic_metadata=None, discovery=False, build_requirements=None, local_mode=None,
+                   build_only=False):
     """Resolve compatible candidates, exclude confirmed violations, retain every attempt.
 
     Provider/runner injection is a test seam, never model-controlled configuration.
@@ -348,6 +372,7 @@ def resolve_python(root, stage, rules, *, executable=None, source=None, groups=(
     attempts, outcome = [], 'invalid'
     started = time.monotonic()
     locked_plan = None
+    lock_binding = {}
     try:
         if (type(max_rounds) is not int or not 1 <= max_rounds <= 8 or
                 type(max_assessments) is not int or not 1 <= max_assessments <= 256 or
@@ -355,6 +380,8 @@ def resolve_python(root, stage, rules, *, executable=None, source=None, groups=(
             raise Invalid('Resolution budgets may only narrow the fixed limits')
         if build_requirements is not None and not local_build:
             raise Invalid('Backend requirements require reviewed local preparation')
+        if build_only and not local_build:
+            raise Invalid('Build-only resolution requires reviewed local preparation')
         if local_mode is not None and not local_build:
             raise Invalid('Local requirements require reviewed local preparation')
         if any((root / name).exists() for name in ('uv.lock', 'poetry.lock')):
@@ -363,15 +390,18 @@ def resolve_python(root, stage, rules, *, executable=None, source=None, groups=(
             if registry_config is not None or getattr(provider, 'routes', None):
                 raise Invalid('Private Python native locks require a reviewed source adapter; use explicit requirements or static PEP 621 authority')
             from .python_lock import export_lock
+            candidate_only = local_build and (discovery or dynamic_metadata is not None)
             result = export_lock(root, stage / 'native-lock', rules, executable=executable,
                 source=source, groups=groups, extras=extras, provider=provider, runner=runner, seconds=seconds,
-                max_assessments=max_assessments)
+                max_assessments=max_assessments, candidate_only=candidate_only)
             if not local_build:
                 outcome = 'resolved'
                 return result
-            # Export is metadata-only and already rejects dynamic projects and
-            # unreviewed sources. Build execution still needs the source review.
+            # Frozen candidates are assessment data, never a freshness claim.
+            # Dynamic sources require approved offline validation at installation.
             locked_plan = result
+            lock_binding = ({'candidate_lock': result['candidate_lock'], 'validation': 'candidate-only'}
+                            if candidate_only else {'authority': result['authority']})
             source = 'pyproject.toml'
         if (discovery or dynamic_metadata is not None) and not local_build:
             raise Invalid('Dynamic values require explicitly reviewed local preparation')
@@ -387,8 +417,9 @@ def resolve_python(root, stage, rules, *, executable=None, source=None, groups=(
             # identity, while allowing uv to resolve additional build tools.
             locked_requirements = [r['name'] + '==' + r['version'] + ' --hash=sha256:' + r['sha256']
                                    for r in locked_plan['artifacts']]
-            requirements.extend(locked_requirements)
-            constraints.extend(locked_requirements)
+            if not discovery:
+                requirements.extend(locked_requirements)
+                constraints.extend(locked_requirements)
         if local_build:
             config = tomllib.loads(metadata(root, 'pyproject.toml', inputs))
             local_project = {**config.get('project', {}), **(dynamic_metadata or {})}
@@ -409,7 +440,10 @@ def resolve_python(root, stage, rules, *, executable=None, source=None, groups=(
                 raise Invalid('Too many local build and runtime requirements')
         version_request = metadata(root, '.python-version', inputs).strip() if (root / '.python-version').exists() else None
         runtime = select(requires_python, executable, version_request)
-        if locked_plan is not None and runtime != locked_plan['runtime']:
+        # Discovered requires-python can refine the constraint description,
+        # but cannot silently select a different interpreter for the locked graph.
+        if locked_plan is not None and {k: v for k, v in runtime.items() if k != 'requires_python'} != {
+                k: v for k, v in locked_plan['runtime'].items() if k != 'requires_python'}:
             raise Invalid('Local runtime changed during locked export')
         from .package_install import target_environment
         environment = target_environment(runtime['executable'])
@@ -423,14 +457,22 @@ def resolve_python(root, stage, rules, *, executable=None, source=None, groups=(
             # Unknown local versions are checked after discovery. They never
             # constrain a public namesake in the bootstrap registry resolver.
             constraints = [r for r in constraints if r not in local_constraints]
-            requirements = (list(build) if discovery else
+            requirements = (list(build) if discovery or build_only else
                             expand_local_requirements(local_project, requirements, environment) + build)
+            if build_only:
+                # Combined projects resolve runtime constraints separately. A
+                # runtime pin must not constrain an isolated backend's tools.
+                constraints = []
             if len(requirements) > 1024:
                 raise Invalid('Too many local build and runtime requirements')
+        # Bind existing preferences even for an empty graph. A later approved
+        # hook can add requirements without changing the resolver's inputs.
+        previous = root / 'ptw-requirements.txt'
+        previous_content = metadata(root, previous.name, inputs) if previous.exists() else None
         if not requirements:
             outcome = 'resolved'
             return {'pins': [], 'runtime': runtime, 'inputs': inputs, 'artifacts': [], 'attempts': [],
-                    **({'authority': locked_plan['authority']} if locked_plan is not None else {})}
+                    **lock_binding}
         uv = shutil.which('uv')
         if not uv:
             raise Invalid('uv is required; no resolver fallback')
@@ -450,9 +492,8 @@ def resolve_python(root, stage, rules, *, executable=None, source=None, groups=(
         source_path, output = stage / 'requirements.in', stage / 'resolved.txt'
         source_path.write_text('\n'.join(requirements) + '\n')
         # Output pins are preferences, never hard constraints on unrelated versions.
-        previous = root / 'ptw-requirements.txt'
-        if previous.exists():
-            output.write_text(metadata(root, previous.name, inputs))
+        if previous_content is not None:
+            output.write_text(previous_content)
         cutoff = datetime.fromtimestamp(time.time() - rules['min_release_age_days'] * 86400, timezone.utc).isoformat()
         env = resolver_environment(stage)
         excluded, cache = set(), {}
@@ -546,7 +587,7 @@ def resolve_python(root, stage, rules, *, executable=None, source=None, groups=(
                 return {'pins': resolved, 'runtime': runtime, 'inputs': inputs,
                         'artifacts': [{k: e[k] for k in ('name', 'version', 'url', 'sha256')} for e in records],
                         'attempts': attempts,
-                        **({'authority': locked_plan['authority']} if locked_plan is not None else {})}
+                        **lock_binding}
             attempt['outcome'] = 'policy_exclusion'
             if rejected <= excluded:
                 raise ResolutionError('unsatisfiable', 'native resolver retained an excluded candidate')

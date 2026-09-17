@@ -28,6 +28,7 @@ def main(argv=None):
     local_python.add_argument('--python-editable', help='Comma-separated selected source paths whose edits remain live in the local Python project; backend execution requires policy approval')
     local_python.add_argument('--python-wheel', action='store_true', help='Build and install the selected local Python project as a wheel after explicit policy review')
     interactive.add_argument('--python-native-wheels', action='store_true', help='Request native output in the local wheel/editable review, including assessed Python dependencies')
+    interactive.add_argument('--python-full-build', action='store_true', help='Bind all editable source to the native build; changes require reviewed preparation')
     interactive.add_argument('--python-build-requirements', action='store_true', help='Review offline build requirement discovery before preparing a static local wheel or editable project')
     interactive.add_argument('--python-extras', help='Comma-separated pyproject extras to include')
     interactive.add_argument('--python-groups', help='Comma-separated pyproject dependency groups (default dev,test)')

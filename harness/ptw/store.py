@@ -134,6 +134,9 @@ class Store:
                         # shift when final setup adds generated metadata files.
                         def binding(item, inventory):
                             value = dict(item)
+                            # Explicit refinement may change this source's
+                            # assessed build graph, but not its source authority.
+                            value.pop('build_dependencies', None)
                             for field in ('resources', 'editable_resources'):
                                 if field in value:
                                     value[field] = sorted(inventory['resources'][r]['path'] for r in value[field])
@@ -231,6 +234,9 @@ class Store:
                 raise Invalid('Preparation source exceeds task read grants')
             from .package_evidence import pins
             names = sorted('pypi:' + n for n in pins(descriptor['pins'], extras={})) if descriptor['pins'] else []
+            from .dependency_binding import source_graph
+            build = source_graph(descriptor, identity)
+            names = sorted(set(names) | {'pypi:' + n for n in (pins(build['pins'], extras={}) if build['pins'] else {})})
             if not set(names) <= set(target.get('packages', [])):
                 raise Invalid('Preparation dependencies exceed task package grants')
             if db.execute('SELECT 1 FROM sessions WHERE project=? AND preparation_source IS NOT NULL '

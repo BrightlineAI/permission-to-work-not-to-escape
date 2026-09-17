@@ -27,14 +27,21 @@ def mounted_set(store, db, actor, identity, *, definition=None, snapshot=None):
         from .dependency_binding import verify_local_sources
         verify_local_sources(bundle, actor, definition)
     if row['local_source'] is not None:
-        from .python_local import reuse_source, verify_native_reuse
+        from .python_local import receipt_sources, reuse_source, verify_native_reuse
         from .workspace import scan
         receipt = json.loads(row['local_source'])
-        source = reuse_source(bundle, actor, receipt['source_id'], definition, snapshot)
-        current = scan(bundle['inventory'], source['resources'])
-        reuse_source(bundle, actor, receipt['source_id'], definition, current)
-        verify_native_reuse(bundle, source, receipt, snapshot)
-        verify_native_reuse(bundle, source, receipt, current)
+        from .python_lock import verify_source_lock
+        parts = receipt_sources(receipt)
+        if len(parts) > 1 and [p['source_id'] for p in parts] != [
+                s['id'] for s in bundle['policy']['project']['python_dependencies'].get('sources', [])]:
+            raise Invalid('Combined installation source bindings differ from review')
+        for part in parts:
+            source = reuse_source(bundle, actor, part['source_id'], definition, snapshot)
+            verify_source_lock(bundle, source, part)
+            current = scan(bundle['inventory'], source['resources'])
+            reuse_source(bundle, actor, part['source_id'], definition, current)
+            verify_native_reuse(bundle, source, part, snapshot)
+            verify_native_reuse(bundle, source, part, current)
     if row['policy_sha256'] is not None and row['policy_sha256'] != bundle['approval']['sha256']:
         raise Invalid('Package set belongs to an obsolete policy revision')
     runtime = bundle['policy']['project'].get('python_runtime')
