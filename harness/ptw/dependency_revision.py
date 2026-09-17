@@ -315,14 +315,20 @@ def start(args):
                         raise Invalid('Use add for new dependencies and update for existing dependencies')
                     entries[name] = value
             declaration.write_text(json.dumps(manifest, indent=2) + '\n')
+            pnpm = str(Path(root) / 'pnpm-lock.yaml') in descriptor['inputs']
+            if pnpm:
+                from .pnpm_resolution import resolve_pnpm as resolve_npm
             result = resolve_npm(shadow / root, stage / 'resolution', rules, update=True,
                 provider=provider_for(store, old))
             if set(result.get('sources', [])) != {s['path'] for s in descriptor.get('sources', [])}:
                 raise Invalid('Dependency edit changes local source scope; review that source scope explicitly')
-            lock = shadow / root / 'package-lock.json'
-            if result['lock'] is None:
-                result['lock'] = {'lockfileVersion': 3, 'packages': {'': manifest}}
-            lock.write_text(json.dumps(result['lock'], indent=2) + '\n')
+            lock = shadow / root / ('pnpm-lock.yaml' if pnpm else 'package-lock.json')
+            if pnpm:
+                lock.write_text(result['files']['pnpm-lock.yaml'])
+            else:
+                if result['lock'] is None:
+                    result['lock'] = {'lockfileVersion': 3, 'packages': {'': manifest}}
+                lock.write_text(json.dumps(result['lock'], indent=2) + '\n')
             selected = {'npm:' + e['name'] for e in result['artifacts']}
             updated = {**descriptor, 'inputs': {str(Path(root) / n): h for n, h in result['inputs'].items()},
                 'artifacts': result['artifacts'], 'lock_sha256': digest(result['lock'])}

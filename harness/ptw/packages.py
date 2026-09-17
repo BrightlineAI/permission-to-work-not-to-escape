@@ -69,18 +69,19 @@ class PackageControl:
             raise Invalid("Supported registries are pypi and npm")
         plan, extras = None, {}
         if ecosystem == "npm":
-            from .npm import NpmPlan
-            plan = NpmPlan(specs)
+            from .npm import installation_plan
+            plan = installation_plan(specs)
             from .dependency_binding import verify_npm
             with self.store.locked() as db:
                 actor = self.store.session(db, token)
                 _, bundle = self.store.project(db, actor['project'])
                 verify_npm(bundle, specs)
             selected = plan.selected
+            request_lock = plan.original_lock if specs.get('manager') == 'pnpm' else plan.lock
         else:
             selected = pins(specs, extras=extras)
         request = {"action": "package_install", "resource": ecosystem,
-                   "content": canonical(plan.lock if plan else {"pins": selected, "extras": extras} if extras else selected)}
+                   "content": canonical(request_lock if plan else {"pins": selected, "extras": extras} if extras else selected)}
         request_hash = digest(request)
         try:
             return self._install(token, event, selected, request, request_hash, plan=plan, extras=extras)

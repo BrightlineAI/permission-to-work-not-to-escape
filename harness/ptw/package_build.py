@@ -20,7 +20,7 @@ class UnsafeExport(EvidenceError):
 
 WRAPPER = """
 import os,shutil,subprocess,sys,tarfile
-shutil.copytree('/seed','/target',dirs_exist_ok=True)
+shutil.copytree('/seed','/target',dirs_exist_ok=True,symlinks=True)
 r=subprocess.run(sys.argv[1:],stdin=subprocess.DEVNULL,stdout=sys.stderr,stderr=sys.stderr)
 if r.returncode: sys.exit(r.returncode)
 with tarfile.open(fileobj=sys.stdout.buffer,mode='w|') as out:

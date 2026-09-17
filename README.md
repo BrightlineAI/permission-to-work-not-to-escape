@@ -83,6 +83,12 @@ and compatible selection for shared active dependencies. Full acceptance of the
 current Poetry changes remains pending.
 Use the [pinned tool setup and terminal flows](harness/POETRY.md).
 
+For pnpm v9 locks, provision the pinned tool using the [pnpm guide](harness/PNPM.md),
+then run `ptw codex --setup-only` in the project and review the selected source
+scope. Dependency lifecycle scripts require an explicit `--pnpm-build NAME`
+request and policy approval. Final pnpm acceptance is pending; Yarn remains a
+separate milestone.
+
 The repository includes experimental policy, authorization, diagnostic and escalation components. See the [architecture](docs/architecture.md), [data availability](docs/evidence.md), [future work](docs/roadmap.md) and [contribution guide](CONTRIBUTING.md).
 
 Original code is [MIT licensed](LICENSE). Third-party materials retain their [own terms](THIRD_PARTY_NOTICES.md). Use [CITATION.cff](CITATION.cff) to cite the work.

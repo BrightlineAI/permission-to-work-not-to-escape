@@ -17,6 +17,13 @@ Focused native checks cover manifest-rooted reachability and inactive platform
 branches, including dependencies shared with active paths. Full acceptance of
 the current Poetry changes remains pending.
 Broader ecosystem and installed-user acceptance remain separate.
+The [pnpm guide](PNPM.md) covers isolated tool bootstrap, frozen workspace import
+and reviewed dependency changes. Protected imports and approved dependency builds
+have native manager coverage. Focused checks cover terminal setup and dependency
+revision integration, installed-content and exact peer-context verification.
+Directory-source confinement also has native manager coverage. Final acceptance
+of setup-build approval, private-registry, transitive/optional and revision-failure
+coverage remains pending.
 
 For ordinary Python, JavaScript or TypeScript repositories, start with the
 [interactive quickstart](INTERACTIVE.md): install once, run `ptw codex`, review

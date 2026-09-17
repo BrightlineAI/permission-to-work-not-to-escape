@@ -297,7 +297,7 @@ test = [{include-group="common"}, "test>=1"]
         with self.assertRaises(Invalid):
             compile_policy(policy, inventory)
 
-    def test_stale_npm_lock_and_missing_pnpm_adapter_are_rejected(self):
+    def test_stale_npm_lock_and_malformed_pnpm_authority_are_rejected(self):
         from test_ecosystems import NpmFixture
         fixture = NpmFixture()
         (self.repo / 'package.json').write_text(json.dumps({'dependencies': {'demo': '^2'}}))
@@ -306,7 +306,7 @@ test = [{include-group="common"}, "test>=1"]
             onboarding.resolve_npm(self.repo, self.root)
         (self.repo / 'package-lock.json').unlink()
         (self.repo / 'pnpm-lock.yaml').write_text('lockfileVersion: 9')
-        with self.assertRaisesRegex(Invalid, 'authoritative lock'):
+        with self.assertRaisesRegex(Invalid, 'pnpm v9 lock schema'):
             onboarding.resolve_npm(self.repo, self.root / 'pnpm-attempt')
 
     def test_mixed_pty_review_denial_then_approval(self):

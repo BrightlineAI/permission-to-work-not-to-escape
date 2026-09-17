@@ -72,7 +72,7 @@ class Adapter:
                 "create": "creates a missing file, never overwrites",
                 "mkdir/rmdir": "rmdir requires expected=directory and an empty directory",
                 "rename": "destination=resource:relative/path; expected=current source hash",
-                "install": "resource is a readable dependency file; content=pypi or npm",
+                "install": "resource is a readable dependency file; content=pypi, npm or pnpm (pnpm-lock.yaml)",
                 "run": 'resource=reviewed command ID; content={"package_sets":["receipt package_set ID"]}',
                 "delegate": "resource=narrower task ID; content=assignment; child is run by controller",
             },

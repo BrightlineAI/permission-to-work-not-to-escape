@@ -30,6 +30,8 @@ def verify_inputs(bundle):
 
 def verify_npm(bundle, lock, evidence=None):
     descriptor = bundle['policy']['project'].get('npm_dependencies')
+    if isinstance(lock, dict) and lock.get('manager') == 'pnpm' and not descriptor:
+        raise Invalid('pnpm installation requires reviewed authoritative inputs')
     if descriptor:
         if digest(lock) != descriptor['lock_sha256']:
             raise Invalid('Install differs from the reviewed npm lock')
@@ -38,8 +40,14 @@ def verify_npm(bundle, lock, evidence=None):
             order = lambda e: (e['name'], e['version'])
             if sorted(actual, key=order) != sorted(descriptor['artifacts'], key=order):
                 raise Invalid('npm artifact origin or integrity changed after review')
-    from .npm import NpmPlan
-    plan = NpmPlan(lock)
+    from .npm import installation_plan
+    plan = installation_plan(lock)
+    if isinstance(lock, dict) and lock.get('manager') == 'pnpm':
+        prefix = descriptor.get('root', '')
+        expected = {(prefix + '/' if prefix else '') + name: hashlib.sha256(text.encode()).hexdigest()
+                    for name, text in plan.files.items()}
+        if expected != descriptor['inputs']:
+            raise Invalid('pnpm request metadata differs from reviewed input bindings')
     if set(plan.locals) != {s['path'] for s in (descriptor or {}).get('sources', [])}:
         raise Invalid('Local npm packages require their exact approved source descriptor')
 

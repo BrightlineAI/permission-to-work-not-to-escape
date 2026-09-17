@@ -96,7 +96,7 @@ def codex_command(store, session_path, work, prompt=None, *, interactive=True):
                 "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
                 "XDG_RUNTIME_DIR": os.environ.get("XDG_RUNTIME_DIR", "/run/user/" + str(os.getuid())),
                 "DBUS_SESSION_BUS_ADDRESS": os.environ.get("DBUS_SESSION_BUS_ADDRESS", "unix:path=/run/user/" + str(os.getuid()) + "/bus"),
-                **{k: os.environ[k] for k in ("PTW_SYSTEMD_SCOPE", "PTW_NONO", "PTW_UV") if k in os.environ},
+                **{k: os.environ[k] for k in ("PTW_SYSTEMD_SCOPE", "PTW_NONO", "PTW_UV", "PTW_PNPM_TOOL") if k in os.environ},
             }.items()) + "}",
     }
     for key, value in values.items():

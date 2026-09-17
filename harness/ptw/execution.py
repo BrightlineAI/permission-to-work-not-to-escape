@@ -92,10 +92,14 @@ def execute(store, token, definition, before, settings):
             if ecosystem == "pypi":
                 environment += ["PYTHONPATH=/python-packages:/target"]
             else:
+                copies = {}
+                if any(Path(p).name == 'pnpm-lock.yaml' for p in local_descriptor.get('inputs', {})):
+                    copies = parse_json((mount / '.ptw-pnpm-sources.json').read_text())
                 # Mask metadata placeholders as well as their nested modules.
                 # A workspace link into an excluded member must expose no bytes.
                 for local in local_descriptor.get('excluded_sources', []):
-                    command += ['--tmpfs', '/node-packages/' + local]
+                    for location in [local, *copies.get(local, [])]:
+                        command += ['--tmpfs', '/node-packages/' + location]
                 if local_descriptor.get('sources'):
                     # Only this command's authorized snapshot is available to
                     # local imports. The registry cache contains metadata and
@@ -108,12 +112,13 @@ def execute(store, token, definition, before, settings):
                         seed = snapshot / local_descriptor.get('root', '') / local
                         if not seed.is_dir():
                             raise OutsideScope('Local source absent from the authorized command snapshot')
-                        nested = mount / local / 'node_modules'
-                        if nested.exists():
-                            (seed / 'node_modules').mkdir(exist_ok=True)
-                        command += ['--ro-bind', str(seed), '/node-packages/' + local]
-                        if nested.exists():
-                            command += ['--ro-bind', str(nested), '/node-packages/' + local + '/node_modules']
+                        for location in [local, *copies.get(local, [])]:
+                            nested = mount / location / 'node_modules'
+                            if nested.exists():
+                                (seed / 'node_modules').mkdir(exist_ok=True)
+                            command += ['--ro-bind', str(seed), '/node-packages/' + location]
+                            if nested.exists():
+                                command += ['--ro-bind', str(nested), '/node-packages/' + location + '/node_modules']
                 command += ["--symlink", "/node-packages/node_modules", "/node_modules"]
                 environment += ["NODE_PATH=/node-packages/node_modules",
                                 "PATH=/node-packages/node_modules/.bin:/usr/bin:/bin"]

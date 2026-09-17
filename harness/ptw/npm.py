@@ -54,6 +54,16 @@ console.log(JSON.stringify(pairs.map(([v,r]) =>
         raise EvidenceError("Cannot validate npm versions with installed npm") from exc
 
 
+def installation_plan(lock):
+    """Dispatch explicit native authority without converting lock formats."""
+    if isinstance(lock, dict) and lock.get('manager') == 'pnpm':
+        if set(lock) != {'manager', 'files'}:
+            raise Invalid('Malformed pnpm installation request')
+        from .pnpm import PnpmPlan
+        return PnpmPlan(lock['files'])
+    return NpmPlan(lock)
+
+
 class NpmPlan:
     def __init__(self, lock):
         if not isinstance(lock, dict) or lock.get("lockfileVersion") not in (2, 3):

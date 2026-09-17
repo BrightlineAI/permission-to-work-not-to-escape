@@ -7,7 +7,7 @@ from .policy import Invalid, compile_policy
 from .workspace_policy import FILE_ACTIONS, relative
 
 METADATA = ("pyproject.toml", '.python-version', "requirements.in", "requirements.txt", "ptw-requirements.txt", "package.json",
-            "package-lock.json", "tsconfig.json", "uv.lock", "poetry.lock", "pnpm-lock.yaml", "yarn.lock")
+            "package-lock.json", "tsconfig.json", "uv.lock", "poetry.lock", "pnpm-lock.yaml", "pnpm-workspace.yaml", "yarn.lock")
 RULES = {"min_release_age_days": 3, "deny_cvss_at_or_above": 9,
          "evidence_max_age_seconds": 900, "allow_native_wheels": False, "build_packages": []}
 
