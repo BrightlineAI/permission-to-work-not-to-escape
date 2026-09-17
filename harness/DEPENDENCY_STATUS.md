@@ -3,7 +3,7 @@
 Reviewed local Python wheel/editable preparation and the private-Python milestone
 have passed their focused manager checks. Full ecosystem and product acceptance
 remain incomplete. The immutable [product contract](PRODUCT_ACCEPTANCE.json)
-is unchanged; the queued Poetry, Node and integration requirements still apply.
+is unchanged; broader Poetry integration, Node and product requirements still apply.
 
 ## Current formats and approvals
 
@@ -14,7 +14,7 @@ is unchanged; the queued Poetry, Node and integration requirements still apply.
 | Local wheel/editable projects | Explicit source resources, isolated builds, validated imports and reviewed rebuilding | No repository-wide grant or automatic missing-dependency approval |
 | Multiple local projects | Separate build graphs, local version/extra checks, one shared runtime installation | Local packages in build requirements fail closed |
 | uv.lock | Static native locked export; dynamic candidate export followed by approved offline freshness validation | Private-origin locks and unavailable offline metadata fail closed |
-| Poetry lock | Existing native consistency/export adapter | Local preparation, revisions and trusted isolated tool provisioning remain queued work |
+| Poetry lock | Native locked export, wheel closure, protected import, Python constraints, group preservation and reviewed revisions with compatible age/CVSS/wheel selection; all 35 manager tests passed without skips | Public wheel-only sources; local/private integration and installed-user acceptance remain separate; see [Poetry setup](POETRY.md) |
 | npm v2/v3 lock | Root, workspaces and in-tree file sources; reviewed native revisions | Full Node/TypeScript integration acceptance remains queued |
 | Yarn Classic v1 | Explicit migration to npm authority, retaining yarn.lock | Broader native import/workspace acceptance remains queued |
 | pnpm v9 lock | Not yet implemented | Required in the queued Node import milestone |
@@ -153,8 +153,8 @@ scope and violation history, revokes old sessions and stops registered work.
 Successful publication requires restarting protected work. Reject/cancel/EOF
 does not authorize publication; recovery never revives stopped sessions.
 
-Poetry updates/local integration, pnpm/Yarn completion, full Node workspace
-acceptance and end-to-end ecosystem revisions remain ordinary required work.
+Poetry local/private integration, pnpm/Yarn completion, full Node
+workspace acceptance and end-to-end ecosystem revisions remain required work.
 Trusted isolated Poetry/pnpm payloads must be provisioned explicitly; an ambient
 shim or automatic Corepack download is not a verified tool installation.
 External/VCS sources, repository-selected plugins, arbitrary extra-marker boolean

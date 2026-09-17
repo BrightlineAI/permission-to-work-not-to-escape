@@ -10,6 +10,11 @@ support is not complete. `ptw deps add/remove/update` reviews dependency changes
 while preserving project identity and violation history. See
 [dependency status](DEPENDENCY_STATUS.md) for the implemented formats, command
 examples, missing adapters and native checks still needed.
+The [Poetry guide](POETRY.md) describes reproducible isolated tooling, locked
+import and reviewed add/remove/update. Native manager checks cover Python
+constraints, dependency-group preservation and compatible wheel selection.
+The manager's full Poetry check passed all 35 tests without skips.
+Broader ecosystem and installed-user acceptance remain separate.
 
 For ordinary Python, JavaScript or TypeScript repositories, start with the
 [interactive quickstart](INTERACTIVE.md): install once, run `ptw codex`, review

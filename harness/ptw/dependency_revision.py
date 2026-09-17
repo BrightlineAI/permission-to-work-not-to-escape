@@ -253,7 +253,15 @@ def start(args):
             python = old['policy']['project']['python_runtime']['executable']
             groups = tuple(descriptor.get('groups', ('dev', 'test')))
             extras = tuple(descriptor.get('extras', ()))
-            if source == 'pyproject.toml':
+            poetry = descriptor.get('authority') == 'poetry.lock' or (shadow / root / 'poetry.lock').exists()
+            if poetry:
+                from .poetry_revision import edit_project as edit_poetry
+                from .poetry_resolution import update_poetry_lock
+                if (source != 'pyproject.toml' or any(str(Path(root) / name) not in descriptor['inputs']
+                        for name in ('pyproject.toml', 'poetry.lock'))):
+                    raise Invalid('Poetry revisions must edit the reviewed authoritative manifest and lock')
+                edit_poetry(shadow / root, args.operation, args.specs, group=args.group, python=python)
+            elif source == 'pyproject.toml':
                 edit_project(shadow / root, args.operation, args.specs, group=args.group, python=python)
             elif declaration.is_file() and declaration.suffix in ('.in', '.txt'):
                 if args.group:
@@ -261,10 +269,14 @@ def start(args):
                 declaration.write_text(edit_requirements(data(declaration), args.operation, args.specs))
             else:
                 raise Invalid('Select a requirements file or pyproject.toml declaration')
-            if (shadow / root / 'uv.lock').exists():
-                result = update_uv_lock(shadow / root, stage / 'resolution', rules, executable=python,
+            if poetry or (shadow / root / 'uv.lock').exists():
+                resolver = update_poetry_lock if poetry else update_uv_lock
+                result = resolver(shadow / root, stage / 'resolution', rules, executable=python,
                     groups=groups, extras=extras, provider=provider, upgrade=[canonicalize_name(Requirement(p).name) for p in args.specs]
                     if args.operation == 'update' else [])
+                if poetry and (result['authority'] != 'poetry.lock' or
+                        result['runtime'] != old['policy']['project']['python_runtime']):
+                    raise Invalid('Poetry revision changed lock authority or reviewed Python runtime')
                 for name, text in result['files'].items():
                     (shadow / root / name).write_text(text)
             else:

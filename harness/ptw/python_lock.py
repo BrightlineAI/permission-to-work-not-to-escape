@@ -1,5 +1,6 @@
 """Import authoritative Python locks through their native, metadata-only exporters."""
 import hashlib
+import json
 import os
 from pathlib import Path
 import re
@@ -358,25 +359,34 @@ def export_lock(root, stage, rules, *, executable=None, source=None, groups=('de
             for package in locked.get('package', []):
                 if package.get('source'):
                     raise Invalid('Poetry source needs approved local/private source preparation')
-            # PEP 621 is preferred. The native Poetry lock retains its normalized
-            # Python constraint; do not guess how Poetry caret syntax translates.
-            requirement = requirement or locked.get('metadata', {}).get('python-versions', '')
-            selected_groups = [g for g in groups if g in poetry.get('group', {})]
-            tool = shutil.which('poetry')
+            from .poetry_tool import verified
+            poetry_directory, poetry_receipt = verified()
+            tool = poetry_receipt['runtime']['executable']
+        version_request = metadata(root, '.python-version', inputs).strip() if (root / '.python-version').exists() else None
+        (stage / 'pyproject.toml').write_text(manifest_text)
+        (stage / lock_name).write_text(lock_text)
+        if lock_name == 'poetry.lock':
+            from .poetry_export import selection
+            remaining = seconds - (time.monotonic() - started)
+            if remaining <= 0:
+                raise ResolutionError('budget_exhausted', 'lock export deadline reached')
+            try:
+                runtime, available_groups = selection(stage, executable=executable,
+                    version_request=version_request, timeout=remaining, directory=poetry_directory)
+            except subprocess.TimeoutExpired as exc:
+                raise ResolutionError('budget_exhausted', 'native Poetry inspection timed out') from exc
+            selected_groups = [g for g in groups if canonicalize_name(g) in available_groups]
+        else:
+            runtime = select(requirement, executable, version_request)
         if groups != ('dev', 'test') and set(selected_groups) != set(groups):
             raise Invalid('Selected Python group is missing')
-        version_request = metadata(root, '.python-version', inputs).strip() if (root / '.python-version').exists() else None
-        runtime = select(requirement, executable, version_request)
         if not tool:
             raise ResolutionError('unavailable', 'Install the native ' + ('uv' if lock_name == 'uv.lock' else
                 'Poetry with poetry-plugin-export') + ' tool in the trusted toolchain')
         tool_path = Path(tool).resolve()
-        if lock_name == 'poetry.lock' and not tool_path.is_relative_to('/usr'):
-            raise ResolutionError('unavailable', 'Poetry must be provisioned in the trusted /usr runtime')
         save(stage / 'resolver-tool.json', {'path': str(tool_path),
-            'sha256': hashlib.sha256(tool_path.read_bytes()).hexdigest(), 'runtime': runtime, 'inputs': inputs})
-        (stage / 'pyproject.toml').write_text(manifest_text)
-        (stage / lock_name).write_text(lock_text)
+            'sha256': hashlib.sha256(tool_path.read_bytes()).hexdigest(), 'runtime': runtime, 'inputs': inputs,
+            **({'poetry_tool': poetry_receipt} if lock_name == 'poetry.lock' else {})})
         output = stage / 'exported.txt'
         if lock_name == 'uv.lock':
             # uv rejects --frozen together with --no-sources. Candidate export
@@ -390,10 +400,7 @@ def export_lock(root, stage, rules, *, executable=None, source=None, groups=('de
                 *[x for g in selected_groups for x in ('--group', g)],
                 *[x for e in extras for x in ('--extra', e)], '--output-file', str(output)]]
         else:
-            commands = [[tool, '--no-interaction', 'check', '--lock'],
-                [tool, '--no-interaction', 'export', '--format=requirements.txt', '--output', str(output),
-                 *[x for g in selected_groups for x in ('--with', g)],
-                 *[x for e in extras for x in ('--extras', e)]]]
+            commands = [['poetry-native-export']]
         run = runner or run_metadata
         env = resolver_environment(stage)
         env.update(POETRY_VIRTUALENVS_CREATE='false', POETRY_KEYRING_ENABLED='false')
@@ -404,7 +411,14 @@ def export_lock(root, stage, rules, *, executable=None, source=None, groups=('de
             attempt = {'command': 'export' if 'export' in argv else 'check', 'outcome': 'running'}
             attempts.append(attempt)
             try:
-                proc = run(argv, cwd=stage, env=env, capture_output=True, text=True, timeout=remaining)
+                if lock_name == 'poetry.lock':
+                    from .poetry_tool import run as run_poetry
+                    from .poetry_export import EXPORT
+                    proc = run_poetry(EXPORT, {'runtime': runtime,
+                        'groups': ['main', *selected_groups], 'extras': list(extras)},
+                        cwd=stage, timeout=remaining, directory=poetry_directory)
+                else:
+                    proc = run(argv, cwd=stage, env=env, capture_output=True, text=True, timeout=remaining)
             except subprocess.TimeoutExpired as exc:
                 raise ResolutionError('budget_exhausted', 'native lock export timed out') from exc
             attempt['returncode'] = proc.returncode
@@ -414,17 +428,25 @@ def export_lock(root, stage, rules, *, executable=None, source=None, groups=('de
                 raise ResolutionError('unavailable', 'Native lock check/export failed; check consistency and installed tooling; '
                                       'signals=' + (','.join(attempt['signals']) or 'unclassified'))
             attempt['outcome'] = 'exported'
+        if lock_name == 'poetry.lock':
+            declarations = json.loads(metadata(stage, 'declarations.json', {}))
+            if not isinstance(declarations, list) or len(declarations) > 1024:
+                raise Invalid('Malformed native Poetry declarations')
         if (stage / lock_name).read_text() != lock_text or (stage / 'pyproject.toml').read_text() != manifest_text:
             raise Invalid('Locked export unexpectedly changed authoritative inputs')
         exported = metadata(stage, output.name, {})
         environment = target_environment(runtime['executable'])
         resolved = compiled_pins(exported, environment)
-        selected = pins(resolved, extras={}) if resolved else {}
+        selected_extras = {}
+        selected = pins(resolved, extras=selected_extras) if resolved else {}
         for line in [*declarations, *constraints]:
             declaration = checked_requirement(line)
-            if declaration.marker and not declaration.marker.evaluate(environment):
+            if declaration.marker and not any(declaration.marker.evaluate({**environment, 'extra': e})
+                                                for e in ('', *extras)):
                 continue
             name = canonicalize_name(declaration.name)
+            if line in declarations:
+                selected_extras.setdefault(name, []).extend(declaration.extras)
             if ((name in selected and not declaration.specifier.contains(selected[name], prereleases=True)) or
                     (line in declarations and name not in selected)):
                 raise Invalid('Locked export violates an original dependency constraint')
@@ -438,7 +460,7 @@ def export_lock(root, stage, rules, *, executable=None, source=None, groups=('de
                 raise Invalid('Native lock export omitted required artifact hashes')
             hashes[canonicalize_name(declaration.name)] = {v.lower() for v in values}
         provider = provider or PyPIEvidence(native=rules.get('allow_native_wheels', False), python=runtime['executable'])
-        records = []
+        records, wheels, downloaded = [], {}, 0
         for name, version in selected.items():
             if len(records) >= max_assessments:
                 raise ResolutionError('budget_exhausted', 'locked candidate assessment limit reached')
@@ -455,7 +477,29 @@ def export_lock(root, stage, rules, *, executable=None, source=None, groups=('de
                 raise EvidenceError('Registry identity or artifact digest differs from authoritative lock')
             if evaluate(record, rules):
                 raise ResolutionError('unsatisfiable', 'Frozen lock contains a forbidden version; explicitly review a native lock update')
+            if lock_name == 'poetry.lock':
+                from .poetry_resolution import wheel_metadata
+                wheel = stage / ('locked-artifact-' + str(len(records)) + '.whl')
+                provider.download(record, wheel)
+                downloaded += wheel.stat().st_size
+                if downloaded > 512 * 1024 * 1024:
+                    raise ResolutionError('budget_exhausted', 'Poetry locked download budget exhausted')
+                if time.monotonic() - started >= seconds:
+                    raise ResolutionError('budget_exhausted', 'Poetry locked download deadline reached')
+                wheel_metadata(wheel, record)
+                wheels[name] = wheel
             records.append({k: record[k] for k in ('name', 'version', 'url', 'sha256')})
+        if lock_name == 'poetry.lock':
+            from .package_install import validate_wheels
+            # Lock metadata and exporter output are untrusted declarations.
+            # Require the actual checked wheels to close their dependency graph,
+            # including extras that the exporter strips from exact pins.
+            validate_wheels(wheels, selected, environment, extended=True, extras=selected_extras)
+            if time.monotonic() - started >= seconds:
+                raise ResolutionError('budget_exhausted', 'Poetry locked validation deadline reached')
+            for name, sha in inputs.items():
+                if hashlib.sha256(metadata(root, name, {}).encode()).hexdigest() != sha:
+                    raise Invalid('Poetry inputs changed during locked export')
         verify(runtime)
         outcome = 'resolved'
         return {'pins': resolved, 'runtime': runtime, 'inputs': inputs, 'artifacts': records,

@@ -345,8 +345,9 @@ TOML editor; uv lock updates retain declarations and use additive exclusions.
 Selected groups/extras remain bound to the policy across revisions. See
 [current dependency status](DEPENDENCY_STATUS.md) for the format matrix and
 remaining native validation. Local Python preparation and private Python routing
-have passed focused manager checks. Task 3 remains incomplete: Poetry updates,
-pnpm/Yarn completion and full ecosystem integration are still required.
+have passed focused manager checks. The full native manager check passed all 32
+[Poetry tests](POETRY.md), including approval terminals and compatible age/CVSS
+selection. pnpm/Yarn completion and full ecosystem integration are still required.
 
 ## Publication and recovery
 

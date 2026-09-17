@@ -74,7 +74,12 @@ imports, compiled editable builds, multi-source terminal reviews and offline
 dynamic-lock validation. See the [local setup guide](harness/ONBOARDING.md#local-python-preparation)
 for live-edit limits, full-build selection, rejection and recovery.
 [Full ecosystem acceptance remains incomplete](harness/DEPENDENCY_STATUS.md);
-Poetry, Node import and broader product gates retain their requirements.
+Node import and broader product gates retain their requirements.
+Native manager checks cover Poetry locked import, reviewed
+`ptw deps add/remove/update`, protected imports, compatible age/CVSS and wheel
+selection, Python constraints and dependency-group preservation. All 35 Poetry
+tests passed without skips in the manager's full native check.
+Use the [pinned tool setup and terminal flows](harness/POETRY.md).
 
 The repository includes experimental policy, authorization, diagnostic and escalation components. See the [architecture](docs/architecture.md), [data availability](docs/evidence.md), [future work](docs/roadmap.md) and [contribution guide](CONTRIBUTING.md).
 
