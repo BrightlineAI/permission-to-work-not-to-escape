@@ -135,9 +135,64 @@ def checked_requirement(line):
     return requirement
 
 
-def python_inputs(root, *, source=None, groups=('dev', 'test'), extras=()):
+def optional_dependencies(project, extras=(), *, discovery=False):
+    """Validate and normalize optional declarations without executing project code."""
+    optional = project.get('optional-dependencies', {})
+    if not isinstance(optional, dict) or not isinstance(extras, (list, tuple)):
+        raise Invalid('Malformed Python optional dependencies or extra selection')
+    if discovery and 'optional-dependencies' in project.get('dynamic', []):
+        # Names remain requests until the approved backend supplies metadata.
+        # Validate their syntax now, and require actual membership after discovery.
+        optional = {e: [] for e in extras if isinstance(e, str)}
+    result = {}
+    try:
+        for name, values in optional.items():
+            key = canonicalize_name(name, validate=True)
+            if key in result or not isinstance(values, list):
+                raise Invalid('Ambiguous or malformed Python extra')
+            for value in values:
+                checked_requirement(value)
+            result[key] = values
+        selected = [canonicalize_name(e, validate=True) for e in extras]
+    except (TypeError, ValueError) as exc:
+        raise Invalid('Invalid Python extra name or requirement') from exc
+    if len(selected) != len(set(selected)) or not set(selected) <= result.keys():
+        raise Invalid('Unknown or duplicate Python extra')
+    return result, selected
+
+
+def expand_local_requirements(project, requirements, environment):
+    """Expand references to this reviewed distribution, never a registry namesake."""
+    optional, _ = optional_dependencies(project)
+    name = canonicalize_name(project['name'], validate=True)
+    pending, expanded, result = list(requirements), set(), []
+    for raw in pending:
+        if len(pending) > 1024:
+            raise Invalid('Too many local dependency declarations')
+        req = checked_requirement(raw)
+        if canonicalize_name(req.name) != name:
+            result.append(raw)
+            continue
+        if req.marker and not req.marker.evaluate({**environment, 'extra': ''}):
+            continue
+        version = project.get('version')
+        if not version or not req.specifier.contains(version, prereleases=True):
+            raise Invalid('Self-referencing requirement conflicts with reviewed local version')
+        extras = {canonicalize_name(e) for e in req.extras}
+        if not extras <= optional.keys():
+            raise Invalid('Unknown self-referencing local extra')
+        for extra in sorted(extras - expanded):
+            expanded.add(extra)
+            pending.extend(optional[extra])
+    return result
+
+
+def python_inputs(root, *, source=None, groups=('dev', 'test'), extras=(), dynamic_metadata=None, discovery=False,
+                  local_mode=None):
     """Read static declarations and confined includes, never execute a backend."""
     root = Path(root)
+    if local_mode not in (None, 'editable', 'wheel'):
+        raise Invalid('Invalid local Python installation mode')
     inputs, constraints, requirements = {}, [], []
     requires_python = ''
     project_meta = None
@@ -146,6 +201,11 @@ def python_inputs(root, *, source=None, groups=('dev', 'test'), extras=()):
         project = project_meta.get('project', {})
         if not isinstance(project, dict):
             raise Invalid('Expected a static project table')
+        if discovery or dynamic_metadata is not None:
+            from .python_local import project_metadata
+            entries = {'pyproject.toml': {'data': metadata(root, 'pyproject.toml', inputs).encode()}}
+            project, _ = project_metadata(entries, '', dynamic_metadata, discovery=discovery)
+            project_meta = {**project_meta, 'project': project}
         requires_python = project.get('requires-python', '')
     choices = [n for n in ('requirements.in', 'requirements.txt', 'pyproject.toml') if (root / n).exists()]
     if source is None:
@@ -166,16 +226,15 @@ def python_inputs(root, *, source=None, groups=('dev', 'test'), extras=()):
         if not project or project_meta.get('tool', {}).get('poetry'):
             raise Invalid('Poetry metadata requires its native lock/export adapter')
         dynamic = project.get('dynamic', [])
-        if not isinstance(dynamic, list) or any(k in dynamic for k in ('dependencies', 'optional-dependencies')):
+        if not isinstance(dynamic, list) or (not discovery and dynamic_metadata is None and
+                any(k in dynamic for k in ('dependencies', 'optional-dependencies'))):
             raise Invalid('Dynamic metadata needs explicitly approved offline source preparation')
         requirements = project.get('dependencies', [])
-        optional = project.get('optional-dependencies', {})
-        if not isinstance(requirements, list) or not isinstance(optional, dict):
+        optional, selected_extras = optional_dependencies(project, extras, discovery=discovery)
+        if not isinstance(requirements, list):
             raise Invalid('Malformed Python dependencies')
         requirements = list(requirements)
-        for extra in extras:
-            if extra not in optional or not isinstance(optional[extra], list):
-                raise Invalid('Unknown or malformed Python extra')
+        for extra in selected_extras:
             requirements.extend(optional[extra])
         group_map = project_meta.get('dependency-groups', {})
         if not isinstance(group_map, dict):
@@ -206,6 +265,8 @@ def python_inputs(root, *, source=None, groups=('dev', 'test'), extras=()):
             raise Invalid('Configured sources/workspaces/overrides require a reviewed source adapter')
         constraints.extend(uv_config.get('constraint-dependencies', []))
     else:
+        local_entries = []
+
         def include(name, constrained, trail):
             if name in trail or len(trail) >= 16:
                 raise Invalid('Cyclic or excessive requirement includes')
@@ -217,11 +278,41 @@ def python_inputs(root, *, source=None, groups=('dev', 'test'), extras=()):
                     child = str(Path(name).parent / child)
                     include(child, constrained or match[1] == 'c' or match[2] == 'constraint', [*trail, name])
                 else:
-                    checked_requirement(line)
-                    (constraints if constrained else requirements).append(line)
+                    # Interpret only a reference to the already selected Python
+                    # root. Never pass local paths to the metadata resolver, where
+                    # uv may execute first-party code even with --no-build.
+                    local = re.fullmatch(r'(?:(-e\s*|--editable(?:=|\s+)))?\./?(?:\[([^\[\]]+)\])?', line)
+                    if local:
+                        mode = 'editable' if local[1] else 'wheel'
+                        if constrained or local_mode != mode:
+                            raise Invalid('Local requirements need matching explicit --python-editable or --python-wheel approval; not a constraint')
+                        if local_entries:
+                            raise Invalid('Duplicate local project requirement')
+                        requested = local[2].split(',') if local[2] else []
+                        if project_meta is None:
+                            raise Invalid('Local requirement needs a bound pyproject.toml')
+                        _, selected = optional_dependencies(project_meta['project'], extras, discovery=discovery)
+                        _, required = optional_dependencies(project_meta['project'], requested, discovery=discovery)
+                        if not set(required) <= set(selected):
+                            raise Invalid('Local requirement extras must be explicitly selected with --python-extras')
+                        local_entries.append(line)
+                    else:
+                        checked_requirement(line)
+                        (constraints if constrained else requirements).append(line)
                 if len(requirements) + len(constraints) > 1024:
                     raise Invalid('Too many dependency declarations')
         include(source, False, [])
+        if local_mode is not None and not local_entries:
+            raise Invalid('Local preparation with requirements authority needs an explicit root entry')
+        if local_entries:
+            local_requirements, local_constraints, local_inputs, _ = python_inputs(
+                root, source='pyproject.toml', groups=groups, extras=extras,
+                dynamic_metadata=dynamic_metadata, discovery=discovery)
+            requirements.extend(local_requirements)
+            constraints.extend(local_constraints)
+            inputs.update(local_inputs)
+            if len(requirements) + len(constraints) > 1024 or len(inputs) > 64:
+                raise Invalid('Too many local dependency declarations or inputs')
     for line in [*requirements, *constraints]:
         if not isinstance(line, str):
             raise Invalid('Requirements must be strings')
@@ -245,7 +336,8 @@ def compiled_pins(content, environment):
 
 
 def resolve_python(root, stage, rules, *, executable=None, source=None, groups=('dev', 'test'), extras=(),
-                   provider=None, runner=None, max_rounds=8, max_assessments=256, seconds=180, registry_config=None):
+                   provider=None, runner=None, max_rounds=8, max_assessments=256, seconds=180, registry_config=None,
+                   local_build=False, dynamic_metadata=None, discovery=False, build_requirements=None, local_mode=None):
     """Resolve compatible candidates, exclude confirmed violations, retain every attempt.
 
     Provider/runner injection is a test seam, never model-controlled configuration.
@@ -255,27 +347,90 @@ def resolve_python(root, stage, rules, *, executable=None, source=None, groups=(
     stage.mkdir(parents=True, exist_ok=True)
     attempts, outcome = [], 'invalid'
     started = time.monotonic()
+    locked_plan = None
     try:
         if (type(max_rounds) is not int or not 1 <= max_rounds <= 8 or
                 type(max_assessments) is not int or not 1 <= max_assessments <= 256 or
                 not isinstance(seconds, (int, float)) or not 0 < seconds <= 180):
             raise Invalid('Resolution budgets may only narrow the fixed limits')
+        if build_requirements is not None and not local_build:
+            raise Invalid('Backend requirements require reviewed local preparation')
+        if local_mode is not None and not local_build:
+            raise Invalid('Local requirements require reviewed local preparation')
         if any((root / name).exists() for name in ('uv.lock', 'poetry.lock')):
+            if local_build and (root / 'poetry.lock').exists():
+                raise Invalid('Local setup with native locks still needs build-requirement integration')
             if registry_config is not None or getattr(provider, 'routes', None):
                 raise Invalid('Private Python native locks require a reviewed source adapter; use explicit requirements or static PEP 621 authority')
             from .python_lock import export_lock
             result = export_lock(root, stage / 'native-lock', rules, executable=executable,
-                source=source, groups=groups, extras=extras, provider=provider, runner=runner, seconds=seconds)
-            outcome = 'resolved'
-            return result
-        requirements, constraints, inputs, requires_python = python_inputs(root, source=source, groups=groups, extras=extras)
+                source=source, groups=groups, extras=extras, provider=provider, runner=runner, seconds=seconds,
+                max_assessments=max_assessments)
+            if not local_build:
+                outcome = 'resolved'
+                return result
+            # Export is metadata-only and already rejects dynamic projects and
+            # unreviewed sources. Build execution still needs the source review.
+            locked_plan = result
+            source = 'pyproject.toml'
+        if (discovery or dynamic_metadata is not None) and not local_build:
+            raise Invalid('Dynamic values require explicitly reviewed local preparation')
+        requirements, constraints, inputs, requires_python = python_inputs(
+            root, source=source, groups=groups, extras=extras, dynamic_metadata=dynamic_metadata, discovery=discovery,
+            local_mode=local_mode)
+        if locked_plan is not None:
+            if any(inputs.get(name) != value for name, value in locked_plan['inputs'].items()
+                   if name in inputs):
+                raise Invalid('Local metadata changed during locked export')
+            inputs.update(locked_plan['inputs'])
+            # Keep every selected transitive dependency, including its artifact
+            # identity, while allowing uv to resolve additional build tools.
+            locked_requirements = [r['name'] + '==' + r['version'] + ' --hash=sha256:' + r['sha256']
+                                   for r in locked_plan['artifacts']]
+            requirements.extend(locked_requirements)
+            constraints.extend(locked_requirements)
+        if local_build:
+            config = tomllib.loads(metadata(root, 'pyproject.toml', inputs))
+            local_project = {**config.get('project', {}), **(dynamic_metadata or {})}
+            local_name = canonicalize_name(local_project.get('name', ''), validate=True)
+            build_system = config.get('build-system')
+            if not isinstance(build_system, dict):
+                raise Invalid('Local preparation requires a build-system table')
+            build = build_system.get('requires')
+            if not isinstance(build, list) or not all(isinstance(r, str) for r in build):
+                raise Invalid('Local preparation requires explicit build-system.requires')
+            for raw in build:
+                if canonicalize_name(checked_requirement(raw).name) == local_name:
+                    raise Invalid('Build requirement cannot resolve the local project from a registry')
+            if build_requirements is not None:
+                from .python_local import checked_hook_requirements
+                build = build + checked_hook_requirements(build_requirements, local_name)
+            if len(requirements) > 1024:
+                raise Invalid('Too many local build and runtime requirements')
         version_request = metadata(root, '.python-version', inputs).strip() if (root / '.python-version').exists() else None
         runtime = select(requires_python, executable, version_request)
+        if locked_plan is not None and runtime != locked_plan['runtime']:
+            raise Invalid('Local runtime changed during locked export')
         from .package_install import target_environment
         environment = target_environment(runtime['executable'])
+        if local_build:
+            local_constraints = [r for r in constraints
+                                 if canonicalize_name(checked_requirement(r).name) == local_name]
+            if any(checked_requirement(r).extras for r in local_constraints):
+                raise Invalid('Local version constraints cannot request extras')
+            if not discovery:
+                expand_local_requirements(local_project, local_constraints, environment)
+            # Unknown local versions are checked after discovery. They never
+            # constrain a public namesake in the bootstrap registry resolver.
+            constraints = [r for r in constraints if r not in local_constraints]
+            requirements = (list(build) if discovery else
+                            expand_local_requirements(local_project, requirements, environment) + build)
+            if len(requirements) > 1024:
+                raise Invalid('Too many local build and runtime requirements')
         if not requirements:
             outcome = 'resolved'
-            return {'pins': [], 'runtime': runtime, 'inputs': inputs, 'artifacts': [], 'attempts': []}
+            return {'pins': [], 'runtime': runtime, 'inputs': inputs, 'artifacts': [], 'attempts': [],
+                    **({'authority': locked_plan['authority']} if locked_plan is not None else {})}
         uv = shutil.which('uv')
         if not uv:
             raise Invalid('uv is required; no resolver fallback')
@@ -369,7 +524,7 @@ def resolve_python(root, stage, rules, *, executable=None, source=None, groups=(
             for name, version in selected.items():
                 key = name, version
                 if key not in cache:
-                    if len(cache) >= max_assessments:
+                    if len(cache) + (len(locked_plan['artifacts']) if locked_plan is not None else 0) >= max_assessments:
                         raise ResolutionError('budget_exhausted', 'candidate assessment limit reached')
                     if time.monotonic() - started >= seconds:
                         raise ResolutionError('budget_exhausted', 'candidate assessment deadline reached')
@@ -390,7 +545,8 @@ def resolve_python(root, stage, rules, *, executable=None, source=None, groups=(
                 attempt['outcome'] = outcome = 'resolved'
                 return {'pins': resolved, 'runtime': runtime, 'inputs': inputs,
                         'artifacts': [{k: e[k] for k in ('name', 'version', 'url', 'sha256')} for e in records],
-                        'attempts': attempts}
+                        'attempts': attempts,
+                        **({'authority': locked_plan['authority']} if locked_plan is not None else {})}
             attempt['outcome'] = 'policy_exclusion'
             if rejected <= excluded:
                 raise ResolutionError('unsatisfiable', 'native resolver retained an excluded candidate')

@@ -78,9 +78,11 @@ def drive(store, session, assignment, *, model="gpt-5.6-sol", effort="low", max_
     with store.locked() as db:
         _, bundle = store.project(db, session["project"])
     inv = bundle["inventory"]
+    from .python_local import prepared_sets
     view = {
         "assignment": assignment, "project": session["project"], "task": session["task"],
         "grants": session["grants"], "packages": session["packages"],
+        "prepared_package_sets": prepared_sets(store, session['token']),
         "resources": {g["resource"]: inv["resources"][g["resource"]] for g in session["grants"]},
         "commands": [c for c in bundle["policy"]["project"]["commands"] if c["id"] in session["commands"]],
         "candidate_delegate_tasks": [{k: v for k, v in t.items() if k != "escalation"} for t in bundle["policy"]["tasks"]],

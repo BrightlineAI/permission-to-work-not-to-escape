@@ -135,7 +135,7 @@ class Supervisor:
                 raise Invalid("Sandbox launch failed: " + result.stderr[:500])
             return unit
 
-    def engine(self, token, command, *, stderr=None, terminal=False, service_seconds=200):
+    def engine(self, token, command, *, stderr=None, terminal=False, service_seconds=200, preparation=False):
         """Trusted adapter only: start a fixed model runtime or confined build.
 
         Native tool permissions are fixed by codex.generate. The model cannot call
@@ -144,7 +144,9 @@ class Supervisor:
         if not isinstance(service_seconds, int) or not 1 <= service_seconds <= 28800:
             raise Invalid("Trusted service lifetime must be 1 to 28800 seconds")
         with self.store.locked() as db:
-            actor = self.store.session(db, token)
+            actor = self.store.session(db, token, preparation=preparation)
+            if preparation and terminal:
+                raise Invalid('Preparation cannot start an interactive runtime')
             project, _ = self.store.project(db, actor["project"])
             if project["stopped"]:
                 raise Invalid("Project stopped")

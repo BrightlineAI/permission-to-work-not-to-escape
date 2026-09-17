@@ -89,7 +89,7 @@ def extract_result(archive_path, destination):
                 raise UnsafeExport("Broken or cyclic build output link") from exc
 
 
-def run_build(store, token, command, target):
+def run_build(store, token, command, target, *, preparation=False):
     """Convert the adapter's sole writable bind into bounded disposable memory."""
     try:
         boundary = command.index("--")
@@ -103,7 +103,7 @@ def run_build(store, token, command, target):
     bounded = prefix + ["--", "/usr/bin/python3", "-I", "-S", "-c", WRAPPER, *payload]
     supervisor = Supervisor(store)
     with tempfile.TemporaryFile(dir=store.directory) as logs, tempfile.TemporaryFile(dir=store.directory) as archive:
-        process, unit = supervisor.engine(token, bounded, stderr=logs)
+        process, unit = supervisor.engine(token, bounded, stderr=logs, **({'preparation': True} if preparation else {}))
         process.stdin.close()
         deadline, size = time.monotonic() + 180, 0
         try:

@@ -47,6 +47,7 @@ def execute(store, token, definition, before, settings):
         raise Invalid("nono is required; no unconfined fallback")
     mounts = {}
     local_descriptor = {}
+    editable_artifacts = {}
     with store.locked() as db:
         actor = store.session(db, token)
         project, bundle = store.project(db, actor["project"])
@@ -59,11 +60,16 @@ def execute(store, token, definition, before, settings):
             from .python_runtime import verify
             verify(runtime)
         for identity in options.get("package_sets", []):
-            mount = mounted_set(store, db, actor, identity, definition=definition)
+            mount = mounted_set(store, db, actor, identity, definition=definition, snapshot=before)
             ecosystem = db.execute("SELECT ecosystem FROM package_sets WHERE id=?", (identity,)).fetchone()[0]
             if ecosystem in mounts:
                 raise Invalid("Only one package set per ecosystem")
             mounts[ecosystem] = mount
+            if ecosystem == 'pypi':
+                from .python_local import editable_artifact_entries
+                row = db.execute('SELECT local_source FROM package_sets WHERE id=?', (identity,)).fetchone()
+                if row['local_source'] is not None:
+                    editable_artifacts = editable_artifact_entries(mount, json.loads(row['local_source']))
             if ecosystem == 'npm':
                 from .dependency_binding import verify_local_sources
                 local_descriptor = verify_local_sources(bundle, actor, definition)
@@ -71,6 +77,9 @@ def execute(store, token, definition, before, settings):
         target = Path(temporary) / "tree"
         target.mkdir(mode=0o700)
         materialize(before, target)
+        if before.keys() & editable_artifacts.keys():
+            raise Invalid('Editable build artifacts collide with command inputs')
+        materialize(editable_artifacts, target)
         command = runtime_namespace() + ["--bind", str(target), "/target",
                                         "--ro-bind", str(Path(nono).resolve()), "/nono"]
         permissions = ["/nono", "run", "--sandbox-policy", "landlock", "--block-net",
@@ -139,4 +148,9 @@ def execute(store, token, definition, before, settings):
         # materialize creates structural parents for exact nested resources.
         # They are not new agent outputs, but new siblings under them still are.
         after = {p: e for p, e in after.items() if not (p in scaffold and e["kind"] == "dir")}
+        from .workspace import same
+        for path, entry in editable_artifacts.items():
+            if not same(after.get(path), entry):
+                raise OutsideScope('Command changed a prepared editable build artifact')
+            del after[path]
         return after, outcome

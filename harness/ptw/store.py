@@ -62,12 +62,16 @@ class Store:
                 db.execute("ALTER TABLE package_sets ADD COLUMN ecosystem TEXT NOT NULL DEFAULT 'pypi'")
             if "policy_sha256" not in {r[1] for r in db.execute("PRAGMA table_info(package_sets)")}:
                 db.execute("ALTER TABLE package_sets ADD COLUMN policy_sha256 TEXT")
+            if 'local_source' not in {r[1] for r in db.execute('PRAGMA table_info(package_sets)')}:
+                db.execute("ALTER TABLE package_sets ADD COLUMN local_source TEXT")
             if 'dependency_revision' not in {r[1] for r in db.execute('PRAGMA table_info(projects)')}:
                 db.execute('ALTER TABLE projects ADD COLUMN dependency_revision TEXT')
             if "commands" not in {r[1] for r in db.execute("PRAGMA table_info(sessions)")}:
                 db.execute("ALTER TABLE sessions ADD COLUMN commands TEXT NOT NULL DEFAULT '[]'")
             if "closed" not in {r[1] for r in db.execute("PRAGMA table_info(sessions)")}:
                 db.execute("ALTER TABLE sessions ADD COLUMN closed INTEGER NOT NULL DEFAULT 0")
+            if 'preparation_source' not in {r[1] for r in db.execute('PRAGMA table_info(sessions)')}:
+                db.execute('ALTER TABLE sessions ADD COLUMN preparation_source TEXT')
             if "setup_pending" not in {r[1] for r in db.execute("PRAGMA table_info(projects)")}:
                 db.execute("ALTER TABLE projects ADD COLUMN setup_pending INTEGER NOT NULL DEFAULT 0")
             # Lock spans intent commit, effect and completion. A pending row visible after
@@ -93,21 +97,61 @@ class Store:
                 db.close()
             os.close(fd)
 
-    def activate(self, bundle, *, setup_pending=False):
+    def activate(self, bundle, *, setup_pending=False, discovery_sha256=None):
         checked = check_approval(bundle)
+        if not setup_pending and any(s['mode'] == 'discovery' for s in
+                checked['policy']['project'].get('python_dependencies', {}).get('sources', [])):
+            raise Invalid('Discovery requires pending setup')
         inv = checked["inventory"]
         root = Path(inv["root"])
         if self.directory == root or self.directory.is_relative_to(root) or root.is_relative_to(self.directory):
             raise Invalid("Resource root and protected state must be separate trees")
         project = checked["policy"]["project"]["id"]
         with self.locked() as db:
-            if db.execute("SELECT 1 FROM projects WHERE id=?", (project,)).fetchone():
+            existing = db.execute("SELECT 1 FROM projects WHERE id=?", (project,)).fetchone()
+            if discovery_sha256 is not None:
+                row, old = self.project(db, project)
+                sources = old['policy']['project'].get('python_dependencies', {}).get('sources', [])
+                if (not setup_pending or row['stopped'] or not row['setup_pending'] or
+                        old['approval']['sha256'] != discovery_sha256 or not sources or
+                        old['inventory']['root'] != inv['root'] or
+                        {t['id'] for t in old['policy']['tasks']} != {t['id'] for t in checked['policy']['tasks']}):
+                    raise Invalid('Discovery refinement requires the same unstopped pending project')
+                if (db.execute('SELECT 1 FROM sessions WHERE project=? AND closed=0', (project,)).fetchone() or
+                        db.execute('SELECT 1 FROM workloads WHERE project=? AND stopped=0', (project,)).fetchone()):
+                    raise Invalid('Discovery sessions and workloads must end before refinement')
+                from .workspace import Workspace, scan
+                from .python_local import snapshot_digest
+                Workspace(self).integrity(db, project, old)
+                if db.execute('SELECT 1 FROM package_sets WHERE project=?', (project,)).fetchone():
+                    raise Invalid('Discovery refinement cannot reuse a prepared installation')
+                for source in sources:
+                    if snapshot_digest(scan(old['inventory'], source['resources'])) != source['snapshot_sha256']:
+                        raise Invalid('Source changed since discovery review')
+                    if source['mode'] != 'discovery':
+                        # Static hook discovery may refine packages, not source
+                        # identity, build mode or mutability. Resource IDs can
+                        # shift when final setup adds generated metadata files.
+                        def binding(item, inventory):
+                            value = dict(item)
+                            for field in ('resources', 'editable_resources'):
+                                if field in value:
+                                    value[field] = sorted(inventory['resources'][r]['path'] for r in value[field])
+                            return value
+                        candidates = checked['policy']['project'].get('python_dependencies', {}).get('sources', [])
+                        if not any(binding(candidate, inv) == binding(source, old['inventory']) for candidate in candidates):
+                            raise Invalid('Static hook review cannot change its approved source binding')
+            elif existing:
                 raise Invalid("Project identity already exists; approval cannot reset history")
             db.execute("BEGIN IMMEDIATE")
-            db.execute("INSERT INTO projects(id,bundle,setup_pending) VALUES(?,?,?)",
-                       (project, canonical(bundle), int(setup_pending)))
-            for task in checked["policy"]["tasks"]:
-                db.execute("INSERT INTO task_counts(project,task) VALUES(?,?)", (project, task["id"]))
+            if discovery_sha256 is not None:
+                db.execute('UPDATE projects SET bundle=? WHERE id=?', (canonical(bundle), project))
+                db.execute('DELETE FROM bindings WHERE project=?', (project,))
+            else:
+                db.execute("INSERT INTO projects(id,bundle,setup_pending) VALUES(?,?,?)",
+                           (project, canonical(bundle), int(setup_pending)))
+                for task in checked["policy"]["tasks"]:
+                    db.execute("INSERT INTO task_counts(project,task) VALUES(?,?)", (project, task["id"]))
             for name, resource in inv["resources"].items():
                 if checked["policy"]["version"] == 4:
                     from .workspace_policy import resource_info
@@ -134,13 +178,23 @@ class Store:
             if row["stopped"] or bundle["approval"]["sha256"] != policy_sha256:
                 raise Invalid("Stopped or mismatched setup cannot commit")
             check_approval(bundle)
+            if any(s['mode'] == 'discovery' for s in
+                   bundle['policy']['project'].get('python_dependencies', {}).get('sources', [])):
+                raise Invalid('Discovery approval cannot make a project ready')
             from .workspace import Workspace
             Workspace(self).integrity(db, project, bundle)
             validate_artifacts()
+            if db.execute('SELECT 1 FROM sessions WHERE project=? AND preparation_source IS NOT NULL '
+                          'AND closed=0', (project,)).fetchone():
+                raise Invalid('Preparation sessions must end before setup can commit')
+            if db.execute('SELECT 1 FROM workloads w JOIN sessions s ON w.session=s.id '
+                          'WHERE w.project=? AND s.preparation_source IS NOT NULL AND w.stopped=0',
+                          (project,)).fetchone():
+                raise Invalid('Preparation termination must be confirmed before setup can commit')
             db.execute("UPDATE projects SET setup_pending=0 WHERE id=?", (project,))
 
     @staticmethod
-    def session(db, token):
+    def session(db, token, *, preparation=False):
         if not isinstance(token, str) or len(token) < 20:
             raise Invalid("Unknown session credential")
         row = db.execute("SELECT * FROM sessions WHERE token_hash=?", (hashlib.sha256(token.encode()).hexdigest(),)).fetchone()
@@ -148,7 +202,49 @@ class Store:
             raise Invalid("Unknown session credential")
         if row["closed"]:
             raise Invalid("Session ended; its credential and descendants are no longer active")
+        if row['preparation_source'] is not None:
+            if not preparation:
+                raise Invalid('Preparation session cannot perform ordinary project actions')
+            project = db.execute('SELECT stopped,setup_pending FROM projects WHERE id=?', (row['project'],)).fetchone()
+            if project is None or project['stopped'] or not project['setup_pending']:
+                raise Invalid('Preparation requires an unstopped pending setup')
         return row
+
+    def register_preparation(self, project, task, identity, policy_sha256):
+        """Trusted setup adapter only: one approved source, read-only, no delegation.
+
+        Unlike ordinary registration, this credential cannot reach general tools.
+        Its use must opt into the preparation boundary at every admission point.
+        """
+        with self.locked() as db:
+            row, bundle = self.project(db, project)
+            if row['stopped'] or not row['setup_pending'] or bundle['approval']['sha256'] != policy_sha256:
+                raise Invalid('Preparation requires the exact approved pending setup')
+            check_approval(bundle)
+            descriptor = bundle['policy']['project'].get('python_dependencies', {})
+            source = next((s for s in descriptor.get('sources', []) if s['id'] == identity), None)
+            target = next((t for t in bundle['policy']['tasks'] if t['id'] == task), None)
+            if source is None or not source['allow_build'] or target is None:
+                raise Invalid('Preparation needs an explicitly approved source and task')
+            allowed = scope(target['grants'])
+            if any('read' not in allowed.get(r, set()) for r in source['resources']):
+                raise Invalid('Preparation source exceeds task read grants')
+            from .package_evidence import pins
+            names = sorted('pypi:' + n for n in pins(descriptor['pins'], extras={})) if descriptor['pins'] else []
+            if not set(names) <= set(target.get('packages', [])):
+                raise Invalid('Preparation dependencies exceed task package grants')
+            if db.execute('SELECT 1 FROM sessions WHERE project=? AND preparation_source IS NOT NULL '
+                          'AND closed=0', (project,)).fetchone():
+                raise Invalid('Setup already has an active preparation session')
+            sid, token = 'agent_' + secrets.token_hex(8), secrets.token_urlsafe(32)
+            grants = [{'resource': r, 'actions': ['read']} for r in source['resources']]
+            db.execute('INSERT INTO sessions(id,token_hash,project,task,parent,grants,depth,packages,commands,preparation_source) '
+                       'VALUES(?,?,?,?,NULL,?,0,?,?,?)',
+                       (sid, hashlib.sha256(token.encode()).hexdigest(), project, task,
+                        canonical(grants), canonical(names), '[]', identity))
+            return {'session': sid, 'token': token, 'project': project, 'task': task,
+                    'parent': None, 'grants': grants, 'packages': names, 'commands': [],
+                    'preparation_source': identity}
 
     def close_session(self, token):
         """Revoke one session and its descendants without stopping other parents."""

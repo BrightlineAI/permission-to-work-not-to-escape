@@ -17,11 +17,34 @@ a model call. Read the short review: files, directories, commands, package names
 and warning/stopping thresholds. Enter `details` for exact commands and generated
 configuration, or `customize` to change scope and thresholds, followed by a new
 review. Type `yes` only if it matches your intent. Blank input, `reject`, `cancel`,
-EOF and Ctrl-C never approve. Repository scripts are not executed during setup.
+EOF and Ctrl-C never approve. Repository scripts execute during setup only when
+local Python preparation is explicitly selected and approved as described below.
 
 For example, a root-file Python project can use:
 
     ptw codex --goal "Maintain this application" --language python --editable '' --files app.py,README.md
+
+For an existing static pure-Python package with `pyproject.toml`, a standard
+registry backend, `src` and `tests`, current source adds reviewed editable setup:
+
+    ptw codex --editable src,tests --files README.md --python-editable src --setup-only
+
+The review identifies backend execution, assessed build dependencies and the
+source snapshot. Type `yes` to prepare offline, then run `ptw codex`. Source edits
+within `src` appear in subsequent protected imports without reinstalling. Build
+configuration changes require another review. For a fixed wheel installation,
+replace `--python-editable src` with `--python-wheel`; any source change then needs
+reviewed re-preparation. The manager passed both terminal flows. Add
+`--python-extras NAME` to select a declared optional dependency group; the manager
+passed those fixtures. Dynamic metadata prompts first for confined discovery,
+then for installation of the reviewed result; the manager passed the wheel flow.
+Dynamic editable setup adds a separate editable-hook review after discovery.
+The manager passed this flow, including dynamic optional dependencies.
+`--python-native-wheels` requests native output for wheel or editable mode.
+The manager passed compiled editable import/rebuild fixtures; compiled-input changes
+need reviewed re-preparation with `--revise`. Live Python edits alongside static
+declarative setuptools extensions are implemented but await native validation. See
+[local preparation limits and recovery](ONBOARDING.md#local-python-preparation).
 
 For an existing backend/frontend layout, the current source also accepts:
 
@@ -119,8 +142,13 @@ source bindings. For private Python, pass
 `--python-registry-config /absolute/operator/python-routes.json` at setup and
 review its bound hash in `details`. Credentials stay in an external operator
 file; see the [registry contract and measured coverage](DEPENDENCY_STATUS.md#private-python-setup-and-verification).
-Python editable sources, pnpm and dynamic Python metadata still
-need implementation. Install scripts require explicit build policy. Metadata such as package
+Root `-e .`/`.` requirements now use matching explicit local preparation flags;
+their static and dynamic native fixtures passed manager validation. Static uv-lock
+local preparation now preserves the locked graph while resolving build tools;
+its empty-graph terminal fixtures passed manager validation. Nonempty combined
+runtime/build graph fixtures await native validation. Other local paths, multiple
+Python distributions, dynamic local native-lock integration and pnpm still need
+implementation. Install scripts require explicit build policy. Metadata such as package
 manifests is read only during agent work; dependency/scope changes need review.
 For a dependency change, use the operator terminal, for example
 `ptw deps update 'idna>=3.10,<4' --ecosystem pypi --source pyproject.toml`.

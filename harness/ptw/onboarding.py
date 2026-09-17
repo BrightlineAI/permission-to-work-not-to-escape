@@ -10,6 +10,7 @@ import secrets
 import shutil
 import sys
 import time
+import tomllib
 
 from .monitor import ensure
 from .policy import Invalid, approve, compile_policy, digest, load, parse_json, save
@@ -57,14 +58,14 @@ def detect(repo):
     return "javascript" if any(repo.glob("*.js")) else None
 
 
-def resolve_python(repo, stage):
+def resolve_python(repo, stage, *, native_wheels=False):
     from .dependency_resolution import resolve_python as resolve
     from .setup_templates import RULES
     options = load(stage / 'python-options.json') if (stage / 'python-options.json').exists() else {}
     if (stage / 'pypi-registry.json').exists():
         from .registry import private_json
         options['registry_config'] = private_json(stage / 'pypi-registry.json')
-    result = resolve(repo, stage / 'python-resolution', RULES, **options)
+    result = resolve(repo, stage / 'python-resolution', {**RULES, 'allow_native_wheels': native_wheels}, **options)
     save(stage / 'python-plan.json', result)
     if not result['pins']:
         return None
@@ -221,6 +222,21 @@ def setup(repo, directory, args, previous=None):
     language = args.language or detect(repo) or ask("Language (python/javascript/typescript/mixed)", "python")
     if language not in ("python", "javascript", "typescript", 'mixed'):
         raise Invalid("Choose python, javascript, typescript or mixed.")
+    local_editable = getattr(args, 'python_editable', None)
+    local_wheel = getattr(args, 'python_wheel', False)
+    native_wheels = getattr(args, 'python_native_wheels', False)
+    local_build = local_editable is not None or local_wheel
+    if native_wheels and not local_build:
+        raise Invalid('--python-native-wheels requires --python-wheel or --python-editable')
+    review_hooks = getattr(args, 'python_build_requirements', False)
+    if review_hooks and not local_build:
+        raise Invalid('--python-build-requirements requires local wheel or editable preparation')
+    if review_hooks and local_editable is not None and not split_scope(local_editable):
+        raise Invalid('--python-editable must name explicitly selected source paths')
+    if local_editable is not None and local_wheel:
+        raise Invalid('Choose one local Python installation mode')
+    if local_build and language not in ('python', 'mixed'):
+        raise Invalid('Local Python preparation requires a Python project')
     from .workspace_policy import directory_fd, relative
     python_root = getattr(args, 'python_root', None)
     node_root = getattr(args, 'node_root', None)
@@ -310,10 +326,22 @@ def setup(repo, directory, args, previous=None):
                 (shadow / name).write_text(data(repo / name, 8 * 1024 * 1024))
         python_options = {key: getattr(args, flag) for key, flag in
                           (('executable', 'python'), ('source', 'python_source')) if getattr(args, flag, None)}
+        if local_build:
+            python_options['local_mode'] = 'editable' if local_editable is not None else 'wheel'
         for key in ('groups', 'extras'):
             value = getattr(args, 'python_' + key, None)
             if value is not None:
                 python_options[key] = split_scope(value)
+        discovery = None
+        dynamic = False
+        if local_build and (shadow / python_root / 'pyproject.toml').exists():
+            project = tomllib.loads(data(shadow / python_root / 'pyproject.toml')).get('project', {})
+            if not isinstance(project, dict):
+                raise Invalid('Local project metadata must be a table')
+            dynamic = bool(project.get('dynamic'))
+            if dynamic and review_hooks:
+                raise Invalid('--python-build-requirements currently requires static metadata; dynamic discovery has its own review')
+        identity = "repo-" + directory.name + "-" + secrets.token_hex(4)
         if language in ('python', 'mixed'):
             from .dependency_resolution import python_inputs
             if any((repo / python_root / n).exists() for n in ('uv.lock', 'poetry.lock')):
@@ -321,7 +349,8 @@ def setup(repo, directory, args, previous=None):
                 # All authoritative files were already copied to staging above.
                 source_inputs = {}
             else:
-                _, _, source_inputs, _ = python_inputs(repo / python_root, **{k: v for k, v in python_options.items() if k != 'executable'})
+                _, _, source_inputs, _ = python_inputs(repo / python_root,
+                    **{k: v for k, v in python_options.items() if k != 'executable'}, discovery=dynamic)
             for local_name in source_inputs:
                 name = str(Path(python_root) / local_name)
                 inputs.setdefault(name, fingerprint(repo / name))
@@ -330,7 +359,30 @@ def setup(repo, directory, args, previous=None):
                 destination = shadow / name
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 destination.write_text(data(repo / name, 8 * 1024 * 1024))
-            save(stage / 'python-options.json', python_options)
+            if dynamic or review_hooks:
+                from .python_discovery import review
+                discovery = review(repo, directory, stage, shadow, scope, python_root, python_options,
+                                   goal, warn, stop, identity, native_wheels=native_wheels,
+                                   **({'hooks_only': True, 'editable_paths': split_scope(local_editable)
+                                       if local_editable is not None else ()} if review_hooks else {}))
+                if dynamic:
+                    python_options['dynamic_metadata'] = discovery['dynamic_metadata']
+                python_options['build_requirements'] = discovery['build_requirements']
+                if dynamic and local_editable is not None:
+                    # Wheel metadata cannot stand in for PEP 660's distinct hook.
+                    # Preserve both reviews and use the same pending controller.
+                    hook_stage = stage / 'editable-discovery'
+                    hook_stage.mkdir()
+                    if (stage / 'pypi-registry.json').exists():
+                        save(hook_stage / 'pypi-registry.json', load(stage / 'pypi-registry.json'))
+                    discovery = review(repo, directory, hook_stage, shadow, scope, python_root, python_options,
+                        goal, warn, stop, identity, native_wheels=native_wheels, hooks_only=True,
+                        editable_paths=split_scope(local_editable), previous=discovery)
+                    python_options['build_requirements'] = discovery['build_requirements']
+                    approved = hook_stage / ('discovery-build-approved.json'
+                        if (hook_stage / 'discovery-build-approved.json').exists() else 'discovery-approved.json')
+                    save(stage / 'discovery-final-approved.json', load(approved))
+            save(stage / 'python-options.json', {**python_options, **({'local_build': True} if local_build else {})})
         if language != "python" and not (shadow / node_root / "package.json").exists():
             manifest = {"name": "project", "version": "1.0.0", "private": True, "type": "module"}
             if language == "typescript":
@@ -343,7 +395,7 @@ def setup(repo, directory, args, previous=None):
                      "include": [name + "/**/*.ts" if kind == "tree" else name
                                  for name, kind in scope.items() if kind == "tree" or name.endswith(".ts")]})
         print("Preparing typed template; resolving dependency metadata without running project code...", flush=True)
-        requirements = resolve_python(shadow / python_root, stage) if language in ('python', 'mixed') else None
+        requirements = resolve_python(shadow / python_root, stage, **({'native_wheels': True} if native_wheels else {})) if language in ('python', 'mixed') else None
         npm_lock = resolve_npm(shadow / node_root, stage) if language != "python" else None
         metadata = [name for name in metadata_names if (shadow / name).exists()]
         names = package_names(requirements, npm_lock)
@@ -355,7 +407,6 @@ def setup(repo, directory, args, previous=None):
                   'the installation authority; the original yarn.lock remains in project history.', flush=True)
         python = python_plan['runtime']['executable'] if python_plan else '/usr/bin/python3'
         catalog = command_catalog(scope, metadata, shadow, python)
-        identity = "repo-" + directory.name + "-" + secrets.token_hex(4)
         revision = 0
         while True:
             if not 1 <= warn <= stop <= 100:
@@ -369,6 +420,7 @@ def setup(repo, directory, args, previous=None):
                 generated["tsconfig.json"] = json.dumps(tsconfig, indent=2) + "\n"
             trees = [name for name, kind in scope.items() if kind == "tree" and not (repo / name).exists()]
             proposal, inv = template(repo, identity, goal, scope, metadata, catalog, names, warn, stop)
+            proposal['project']['packages']['allow_native_wheels'] = native_wheels
             if python_plan:
                 proposal['project']['python_runtime'] = python_plan['runtime']
                 dependency_inputs = {str(Path(python_root) / name): value for name, value in python_plan['inputs'].items()}
@@ -383,6 +435,26 @@ def setup(repo, directory, args, previous=None):
                         (shadow / python_root / n).exists() for n in ('requirements.in', 'requirements.txt')) else 'requirements')}
                 if python_registry_config:
                     proposal['project']['python_dependencies']['registry_config_sha256'] = digest(python_registry_config)
+                if local_build:
+                    from .python_local import describe_source
+                    prefix = python_root + '/' if python_root else ''
+                    # Only selected paths and existing Python metadata belong to
+                    # this source. Generated pins are bound separately at commit.
+                    paths = {n for n in scope if n.startswith(prefix)}
+                    paths.add(prefix + 'pyproject.toml')
+                    mapping = {v['path']: k for k, v in inv['resources'].items()}
+                    mutable = split_scope(local_editable) if local_editable is not None else []
+                    if local_editable is not None and (not mutable or any(n not in paths or n not in scope for n in mutable)):
+                        raise Invalid('--python-editable must name explicitly selected source paths')
+                    if any(n not in mapping for n in paths):
+                        raise Invalid('Local preparation requires a bound pyproject.toml')
+                    source = describe_source(inv, [mapping[n] for n in sorted(paths)],
+                        identity='python-project', path=python_root, allow_build=True,
+                        editable_resources=[mapping[n] for n in mutable], extras=python_options.get('extras', ()),
+                        dynamic_metadata=python_options.get('dynamic_metadata'))
+                    if discovery and source['snapshot_sha256'] != discovery['source_sha256']:
+                        raise Invalid('Source changed after discovery; restart preparation review')
+                    proposal['project']['python_dependencies']['sources'] = [source]
             if npm_plan:
                 dependency_inputs = {str(Path(node_root) / name): value for name, value in npm_plan['inputs'].items()}
                 if npm_lock:
@@ -472,6 +544,8 @@ def setup(repo, directory, args, previous=None):
             print("Approved. Repository policy is a review copy; only the protected approval is active.", flush=True)
             return record
     except BaseException as exc:
+        from .python_discovery import recover as recover_discovery
+        recover_discovery(directory)
         save(stage / "failure.json", {"type": type(exc).__name__, "message": safe_text(str(exc)),
                                     "elapsed_seconds": time.monotonic() - started})
         raise
@@ -494,6 +568,13 @@ def short_review(bundle, generated, trees):
         f"; minimum age {rules['min_release_age_days']} days; reject CVSS >= {rules['deny_cvss_at_or_above']}" +
         f"; evidence <= {rules['evidence_max_age_seconds']}s; native wheels {rules['allow_native_wheels']}" +
         "; source builds " + (", ".join(rules["build_packages"]) or "none"),
+        'Local Python preparation: ' + ('; '.join(
+            s['name'] + '==' + s['version'] + ' (' + s['mode'] + ' at ' + (s['path'] or '.') +
+            '); execute backend offline after approval; live edits: ' +
+            (', '.join(inv['resources'][r]['path'] for r in s.get('editable_resources', [])) or 'none (rebuild after source changes)') +
+            '; extras: ' + (', '.join(s.get('extras', [])) or 'none') +
+            '; snapshot ' + s['snapshot_sha256']
+            for s in project.get('python_dependencies', {}).get('sources', [])) or 'none'),
         f"Combined violations: warn at {project['escalation']['warn_at']}; stop at {project['escalation']['stop_at']}",
         "Tasks: work; verify (read only, syntax checks only). All other paths/network denied.",
         "On approval create: " + (", ".join([*trees, *generated, ".ptw/policy.json"]) or "none"),
@@ -511,6 +592,8 @@ def start(args):
         fcntl.flock(fd, fcntl.LOCK_EX)
         from .setup_transaction import recover
         recover(directory)
+        from .python_discovery import recover as recover_discovery
+        recover_discovery(directory)
         from .dependency_revision import recover as recover_dependencies
         recover_dependencies(directory)
         record = load(directory / "project.json") if (directory / "project.json").exists() else None
@@ -523,7 +606,9 @@ def start(args):
             print("A new approval will stop all current project sessions. Existing history is retained.", flush=True)
             record = setup(repo, directory, args, previous=record)
         elif (any(getattr(args, name, None) is not None for name in ("goal", "editable", "files", "language", "warn_at", "stop_at", "history",
-                    'python', 'python_source', 'python_extras', 'python_groups', 'python_root', 'node_root', 'npm_registry_config', 'python_registry_config'))
+                    'python', 'python_source', 'python_editable', 'python_extras', 'python_groups', 'python_root', 'node_root', 'npm_registry_config', 'python_registry_config'))
+              or getattr(args, 'python_wheel', False) or getattr(args, 'python_native_wheels', False)
+              or getattr(args, 'python_build_requirements', False)
               or getattr(args, "model_proposal", False)):
             raise Invalid("This project already has an approved policy. Use ptw codex --revise to change it.")
     finally:

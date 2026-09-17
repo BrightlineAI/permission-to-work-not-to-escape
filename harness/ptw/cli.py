@@ -24,6 +24,11 @@ def main(argv=None):
     interactive.add_argument("--language", choices=["python", "javascript", "typescript", "mixed"])
     interactive.add_argument('--python', help='Installed system Python executable to review')
     interactive.add_argument('--python-source', help='Authoritative relative requirements file or pyproject.toml')
+    local_python = interactive.add_mutually_exclusive_group()
+    local_python.add_argument('--python-editable', help='Comma-separated selected source paths whose edits remain live in the local Python project; backend execution requires policy approval')
+    local_python.add_argument('--python-wheel', action='store_true', help='Build and install the selected local Python project as a wheel after explicit policy review')
+    interactive.add_argument('--python-native-wheels', action='store_true', help='Request native output in the local wheel/editable review, including assessed Python dependencies')
+    interactive.add_argument('--python-build-requirements', action='store_true', help='Review offline build requirement discovery before preparing a static local wheel or editable project')
     interactive.add_argument('--python-extras', help='Comma-separated pyproject extras to include')
     interactive.add_argument('--python-groups', help='Comma-separated pyproject dependency groups (default dev,test)')
     interactive.add_argument('--python-root', help='Relative Python project root (default root or detected backend)')
@@ -39,7 +44,7 @@ def main(argv=None):
     operations.add_argument("--status", action="store_true")
     operations.add_argument("--stop", action="store_true")
     operations.add_argument("--review", action="store_true")
-    operations.add_argument("--setup-only", action="store_true")
+    interactive.add_argument("--setup-only", action="store_true", help="Finish reviewed setup or revision without opening Codex")
     operations.add_argument("--revise", action="store_true", help="Review a new policy version; stop old work before switching")
     dependencies = commands.add_parser('deps', help='Review an add/remove/update while preserving project history')
     dependencies.add_argument('operation', choices=['add', 'remove', 'update'])
@@ -161,6 +166,8 @@ def main(argv=None):
                     action, monitor, recover, change, replace]:
         command.add_argument("--state", required=True, help="Private controller directory outside resources")
     args = parser.parse_args(argv)
+    if args.command == 'codex' and args.setup_only and (args.status or args.stop or args.review):
+        parser.error('--setup-only cannot be combined with --status, --stop or --review')
     try:
         result = execute(args)
         print(json.dumps(result, indent=2))

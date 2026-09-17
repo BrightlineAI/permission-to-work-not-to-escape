@@ -14,7 +14,7 @@ from .package_install import file_manifest, install_wheels, target_environment, 
 from .policy import Invalid, OutsideScope, canonical, digest
 
 
-def mounted_set(store, db, actor, identity, *, definition=None):
+def mounted_set(store, db, actor, identity, *, definition=None, snapshot=None):
     if not re.fullmatch(r"pkg_[0-9a-f]{24}", identity):
         raise OutsideScope("Invalid package set identity")
     row = db.execute("SELECT * FROM package_sets WHERE id=? AND project=?", (identity, actor["project"])).fetchone()
@@ -26,6 +26,15 @@ def mounted_set(store, db, actor, identity, *, definition=None):
     if row['ecosystem'] == 'npm':
         from .dependency_binding import verify_local_sources
         verify_local_sources(bundle, actor, definition)
+    if row['local_source'] is not None:
+        from .python_local import reuse_source, verify_native_reuse
+        from .workspace import scan
+        receipt = json.loads(row['local_source'])
+        source = reuse_source(bundle, actor, receipt['source_id'], definition, snapshot)
+        current = scan(bundle['inventory'], source['resources'])
+        reuse_source(bundle, actor, receipt['source_id'], definition, current)
+        verify_native_reuse(bundle, source, receipt, snapshot)
+        verify_native_reuse(bundle, source, receipt, current)
     if row['policy_sha256'] is not None and row['policy_sha256'] != bundle['approval']['sha256']:
         raise Invalid('Package set belongs to an obsolete policy revision')
     runtime = bundle['policy']['project'].get('python_runtime')

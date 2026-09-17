@@ -56,6 +56,24 @@ the paper's frozen experiments.
 
 Current dependency work adds reviewed Python runtimes, mixed-project setup,
 workspace source scopes and explicit `ptw deps add/remove/update` reviews.
+For a local Python package, use
+`ptw codex --editable src,tests --python-editable src --setup-only` and review the
+source resources and offline backend execution. Pure-Python implementation edits
+then appear in protected imports. Use `--python-wheel` for a fixed installation,
+`--python-extras NAME` for optional dependencies, and
+`--python-build-requirements` to review additional backend requirements.
+Dynamic metadata uses separate discovery and installation reviews.
+Add `--python-native-wheels` to request native output. Compiled inputs need
+explicit `ptw codex --revise` re-preparation after changes. Current source also
+permits live Python edits alongside declarative setuptools extensions; that new
+path awaits native validation. Generated libraries remain private and scoped to
+command inputs. Requirements containing `-e .` accept the same explicit editable
+review with `--python-source requirements.in`. Static `uv.lock` projects retain
+locked runtime versions and artifact hashes while resolving additional build
+requirements. The manager passed all 162 preceding tests, including dynamic
+metadata reviews, compiled imports/rebuilds, root requirements terminal flows
+and combined locked runtime/build dependencies.
+Broader local formats remain incomplete. See the [local setup flow](harness/ONBOARDING.md#local-python-preparation).
 [Full ecosystem acceptance remains incomplete](harness/DEPENDENCY_STATUS.md);
 the format matrix distinguishes implemented paths and pending native checks
 from ordinary formats that still need implementation.

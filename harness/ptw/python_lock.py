@@ -34,7 +34,7 @@ def static_lock_project(document):
 
 
 def export_lock(root, stage, rules, *, executable=None, source=None, groups=('dev', 'test'),
-                extras=(), provider=None, runner=None, seconds=180):
+                extras=(), provider=None, runner=None, seconds=180, max_assessments=256):
     """Frozen import never repairs a stale or forbidden lock behind the review.
 
     Export hashes are constraints on independently fetched registry artifacts.
@@ -50,6 +50,8 @@ def export_lock(root, stage, rules, *, executable=None, source=None, groups=('de
     inputs = {}
     try:
         if not isinstance(seconds, (int, float)) or not 0 < seconds <= 180:
+            raise Invalid('Resolution budgets may only narrow the fixed limits')
+        if type(max_assessments) is not int or not 1 <= max_assessments <= 256:
             raise Invalid('Resolution budgets may only narrow the fixed limits')
         locks = [name for name in ('uv.lock', 'poetry.lock') if (root / name).exists()]
         if len(locks) != 1:
@@ -160,6 +162,8 @@ def export_lock(root, stage, rules, *, executable=None, source=None, groups=('de
         provider = provider or PyPIEvidence(native=rules.get('allow_native_wheels', False), python=runtime['executable'])
         records = []
         for name, version in selected.items():
+            if len(records) >= max_assessments:
+                raise ResolutionError('budget_exhausted', 'locked candidate assessment limit reached')
             remaining = seconds - (time.monotonic() - started)
             if remaining <= 0:
                 raise ResolutionError('budget_exhausted', 'locked evidence deadline reached')

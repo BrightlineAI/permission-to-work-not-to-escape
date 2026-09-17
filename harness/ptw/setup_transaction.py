@@ -286,10 +286,20 @@ def publish(repo, directory, stage, bundle, record, generated, trees, inputs, pr
             if operation["old"] is not None:
                 move(destination, Path(operation["backup"]))
             move(Path(operation["source"]), destination)
-        store.activate(bundle, setup_pending=True)
+        discovery_path = stage / ('discovery-final-approved.json' if (stage / 'discovery-final-approved.json').exists()
+                                  else 'discovery-build-approved.json' if (stage / 'discovery-build-approved.json').exists()
+                                  else 'discovery-approved.json')
+        discovery = load(discovery_path) if discovery_path.exists() else None
+        store.activate(bundle, setup_pending=True,
+                       **({'discovery_sha256': discovery['approval']['sha256']} if discovery else {}))
         journal["phase"] = "activated-pending"
         atomic(path, journal)
-        store.commit_setup(record["project"], record["policy_sha256"], lambda: validate_artifacts(journal))
+        from .python_local import prepare_setup, validate_prepared_setup
+        receipts = prepare_setup(store, bundle, record['task'], stage)
+        def validate_commit():
+            validate_artifacts(journal)
+            validate_prepared_setup(store, bundle, receipts)
+        store.commit_setup(record["project"], record["policy_sha256"], validate_commit)
         journal["phase"] = "committed"
         atomic(path, journal)
         # Backups and receipts are evidence; move them outside the user repository.

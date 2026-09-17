@@ -124,6 +124,20 @@ def validate_wheels(wheels, selected, environment=None, *, extended=False, extra
                 raise
             raise EvidenceError("Invalid wheel metadata") from exc
     if extended:
+        validate_dependencies(metadata_by_name, selected, env, extras=extras)
+
+
+def validate_dependencies(metadata_by_name, selected, env, *, extras=None):
+    """Check wheel or installed distribution metadata without executing it."""
+    for name, meta in metadata_by_name.items():
+        if (len(meta.get_all('Name', [])) != 1 or len(meta.get_all('Version', [])) != 1 or
+                canonicalize_name(meta['Name']) != name or Version(meta['Version']) != Version(selected[name])):
+            raise EvidenceError('Distribution identity differs from approved pin')
+        requires_python = meta.get_all('Requires-Python', [])
+        if len(requires_python) > 1 or (requires_python and
+                not SpecifierSet(requires_python[0]).contains(env['python_full_version'])):
+            raise EvidenceError('Distribution does not support the confined Python interpreter')
+    if metadata_by_name:
         # Resolve extras to a fixed point, including extras requested transitively.
         active = {name: set((extras or {}).get(name, [])) for name in metadata_by_name}
         for _ in range(1024):

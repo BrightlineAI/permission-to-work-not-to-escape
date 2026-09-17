@@ -55,9 +55,11 @@ class Adapter:
         with self.store.locked() as db:
             _, bundle = self.store.project(db, self.session["project"])
         policy, inv = bundle["policy"], bundle["inventory"]
+        from .python_local import prepared_sets
         return {
             "project": self.session["project"], "task": self.session["task"],
             "grants": self.session["grants"], "packages": self.session["packages"],
+            "prepared_package_sets": prepared_sets(self.store, self.session['token']),
             "resources": inv["resources"],
             "commands": [c for c in policy["project"]["commands"]
                          if c["id"] in self.session["commands"]],

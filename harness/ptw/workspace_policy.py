@@ -44,10 +44,41 @@ WORKSPACE_SCHEMA['properties']['project']['properties']['npm_dependencies'] = ob
     })},
 })
 WORKSPACE_SCHEMA['properties']['project']['properties']['python_dependencies']['properties'].update({
+    'sources': {'type': 'array', 'maxItems': 64, 'items': obj({
+        'id': ID,
+        'path': {'type': 'string', 'maxLength': 1024},
+        'name': {'type': 'string', 'minLength': 1},
+        'version': {'type': 'string', 'minLength': 1},
+        'mode': {'enum': ['wheel', 'editable', 'discovery']},
+        'allow_build': {'type': 'boolean'},
+        'resources': {'type': 'array', 'minItems': 1, 'maxItems': 128,
+                      'uniqueItems': True, 'items': ID},
+        'snapshot_sha256': {'type': 'string', 'pattern': '^[0-9a-f]{64}$'},
+    })},
     'registry_config_sha256': {'type': 'string', 'pattern': '^[0-9a-f]{64}$'},
     'groups': {'type': 'array', 'maxItems': 64, 'uniqueItems': True, 'items': {'type': 'string'}},
     'extras': {'type': 'array', 'maxItems': 64, 'uniqueItems': True, 'items': {'type': 'string'}},
     'authority': {'enum': ['requirements', 'pyproject.toml', 'uv.lock', 'poetry.lock']},
+})
+LOCAL_SOURCE = WORKSPACE_SCHEMA['properties']['project']['properties']['python_dependencies']['properties']['sources']['items']
+LOCAL_SOURCE['required'].remove('version')
+LOCAL_SOURCE['properties'].update({
+    'extras': {'type': 'array', 'maxItems': 64, 'uniqueItems': True,
+               'items': {'type': 'string', 'pattern': '^[a-z0-9]+(-[a-z0-9]+)*$'}},
+    'dynamic_metadata': {'type': 'object', 'minProperties': 1, 'additionalProperties': False,
+                         'properties': {
+                             'version': {'type': 'string', 'minLength': 1, 'maxLength': 128},
+                             'requires-python': {'type': 'string', 'maxLength': 1024},
+                             'dependencies': {'type': 'array', 'maxItems': 64,
+                                              'items': {'type': 'string', 'maxLength': 4096}},
+                             'optional-dependencies': {'type': 'object', 'maxProperties': 64,
+                                 'propertyNames': {'pattern': '^[a-z0-9]+(-[a-z0-9]+)*$'},
+                                 'additionalProperties': {'type': 'array', 'maxItems': 64,
+                                     'items': {'type': 'string', 'maxLength': 4096}}},
+                         }},
+    'editable_resources': {'type': 'array', 'minItems': 1, 'maxItems': 128,
+                           'uniqueItems': True, 'items': ID},
+    'build_sha256': {'type': 'string', 'pattern': '^[0-9a-f]{64}$'},
 })
 WORKSPACE_SCHEMA['properties']['project']['properties']['npm_dependencies']['properties']['registry_config_sha256'] = {
     'type': 'string', 'pattern': '^[0-9a-f]{64}$'}
@@ -133,6 +164,8 @@ def validate_workspace(policy, inv):
         if (len(descriptor['artifacts']) != len(chosen) or
                 {e['name']: e['version'] for e in descriptor['artifacts']} != chosen):
             raise Invalid('Dependency artifact identities do not match pins')
+        from .python_local import validate_sources
+        validate_sources(policy, inv)
     paths = [r["path"] for r in inv["resources"].values()]
     npm = policy['project'].get('npm_dependencies')
     if npm:
