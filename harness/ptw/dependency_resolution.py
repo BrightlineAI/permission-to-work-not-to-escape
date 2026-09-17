@@ -232,9 +232,12 @@ def resolve_python(root, stage, rules, *, executable=None, source=None, groups=(
                 type(max_assessments) is not int or not 1 <= max_assessments <= 256 or
                 not isinstance(seconds, (int, float)) or not 0 < seconds <= 180):
             raise Invalid('Resolution budgets may only narrow the fixed limits')
-        for name in ('uv.lock', 'poetry.lock'):
-            if (root / name).exists():
-                raise Invalid(name + ' needs native locked export; refusing to discard the authoritative lock')
+        if any((root / name).exists() for name in ('uv.lock', 'poetry.lock')):
+            from .python_lock import export_lock
+            result = export_lock(root, stage / 'native-lock', rules, executable=executable,
+                source=source, groups=groups, extras=extras, provider=provider, runner=runner, seconds=seconds)
+            outcome = 'resolved'
+            return result
         requirements, constraints, inputs, requires_python = python_inputs(root, source=source, groups=groups, extras=extras)
         version_request = metadata(root, '.python-version', inputs).strip() if (root / '.python-version').exists() else None
         runtime = select(requires_python, executable, version_request)
@@ -252,6 +255,8 @@ def resolve_python(root, stage, rules, *, executable=None, source=None, groups=(
         runner = runner or run_metadata
         provider = provider or PyPIEvidence(native=rules.get('allow_native_wheels', False),
                                            python=runtime['executable'])
+        if isinstance(provider, PyPIEvidence):
+            provider.deadline = started + seconds
         source_path, output = stage / 'requirements.in', stage / 'resolved.txt'
         source_path.write_text('\n'.join(requirements) + '\n')
         # Output pins are preferences, never hard constraints on unrelated versions.

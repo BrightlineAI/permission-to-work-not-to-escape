@@ -28,6 +28,7 @@ def main(argv=None):
     interactive.add_argument('--python-groups', help='Comma-separated pyproject dependency groups (default dev,test)')
     interactive.add_argument('--python-root', help='Relative Python project root (default root or detected backend)')
     interactive.add_argument('--node-root', help='Relative Node project root (default root or detected frontend)')
+    interactive.add_argument('--npm-registry-config', help='Private operator registry configuration outside the repository; credentials are broker-only references')
     interactive.add_argument("--warn-at", type=int)
     interactive.add_argument("--stop-at", type=int)
     interactive.add_argument("--history", help="Optional selected, sanitized history as untrusted evidence")
@@ -39,6 +40,15 @@ def main(argv=None):
     operations.add_argument("--review", action="store_true")
     operations.add_argument("--setup-only", action="store_true")
     operations.add_argument("--revise", action="store_true", help="Review a new policy version; stop old work before switching")
+    dependencies = commands.add_parser('deps', help='Review an add/remove/update while preserving project history')
+    dependencies.add_argument('operation', choices=['add', 'remove', 'update'])
+    dependencies.add_argument('specs', nargs='+')
+    dependencies.add_argument('--repo', default=str(Path.cwd()))
+    dependencies.add_argument('--ecosystem', choices=['pypi', 'npm'], required=True)
+    dependencies.add_argument('--root', default='', help='Relative ecosystem root, for example backend or frontend')
+    dependencies.add_argument('--source', help='Authoritative requirements.in/txt path inside Python root')
+    dependencies.add_argument('--group', help='npm dependencies/devDependencies/optionalDependencies/peerDependencies')
+    dependencies.add_argument('--task', default='work')
     sample = commands.add_parser("sample", help="Create a fresh synthetic project")
     sample.add_argument("--out", required=True)
     sample.add_argument("--packages", action="store_true", help="Include reviewed Python package control example")
@@ -168,6 +178,9 @@ def main(argv=None):
 
 
 def execute(args):
+    if args.command == 'deps':
+        from .dependency_revision import start
+        return start(args)
     if args.command == "codex":
         from .onboarding import start
         return start(args)

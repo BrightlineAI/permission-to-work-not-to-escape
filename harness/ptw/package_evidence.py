@@ -119,6 +119,7 @@ class PyPIEvidence:
         self.http = build_opener(ProxyHandler({}), NoRedirect())
         self.native, self.sources = native, set(sources)
         self.python = python
+        self.deadline = None
 
     def fetch(self, url, data=None, limit=4 * 1024 * 1024):
         endpoint = urlsplit(url)
@@ -129,8 +130,13 @@ class PyPIEvidence:
         request = Request(url, data=json.dumps(data).encode() if data is not None else None,
                           headers={"Content-Type": "application/json", "User-Agent": "permission-to-work/0.2"})
         try:
-            with self.http.open(request, timeout=15) as response:
+            remaining = self.deadline - time.monotonic() if self.deadline is not None else 15
+            if remaining <= 0:
+                raise EvidenceError('Evidence deadline reached')
+            with self.http.open(request, timeout=min(15, remaining)) as response:
                 raw = response.read(limit + 1)
+            if self.deadline is not None and time.monotonic() >= self.deadline:
+                raise EvidenceError('Evidence deadline reached')
             if len(raw) > limit:
                 raise EvidenceError("Response exceeds size limit")
             return raw

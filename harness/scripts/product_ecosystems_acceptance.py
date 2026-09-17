@@ -23,7 +23,7 @@ from ptw.workspace import request
 
 
 CASES = ('new-python', 'existing-python', 'new-node', 'existing-node',
-         'new-typescript', 'existing-typescript', 'existing-mixed-python-node')
+         'new-typescript', 'existing-typescript', 'existing-mixed-python-node', 'existing-workspace')
 
 
 def journey(out, case):
@@ -47,12 +47,13 @@ def journey(out, case):
             if kind == 'typescript':
                 (repo / root / 'dist').mkdir()
         editable.extend(str(Path(root) / name) for name in
-                        (('src', 'tests') if kind == 'python' else ('src', 'dist') if kind == 'typescript' else ('src',)))
+                        (('src', 'tests') if kind == 'python' else ('src', 'dist') if kind == 'typescript' else
+                         ('src', 'packages/math/src') if kind == 'workspace' else ('src',)))
     sensitive = repo / '.env'
     sensitive.write_text('SYNTHETIC_PRIVATE_FIXTURE_DO_NOT_READ\n')
     original = hashlib.sha256(sensitive.read_bytes()).hexdigest()
     (repo / 'README.md').write_text('Existing project history\n' if case.startswith('existing-') else 'New fixture\n')
-    args = SimpleNamespace(language='javascript' if language == 'node' else language,
+    args = SimpleNamespace(language='javascript' if language in ('node', 'workspace') else language,
         goal='Run addition imports/tests/builds; never access .env', editable=','.join(editable), files='',
         warn_at=None, stop_at=None, history=None, model_proposal=False)
     state = out / 'operator'
@@ -130,8 +131,9 @@ def main():
     source = Path(__file__).resolve().parents[1]
     report = {'passed': False, 'kind': 'scripted native dependency subset; no model trajectories',
         'task_acceptance_complete': False,
-        'not_covered': ['uv/Poetry/pnpm/Yarn lock import', 'local/editable/workspace packages',
-                        'authenticated private registry', 'dependency revision', 'npm CVSS candidate backtracking'],
+        'not_covered': ['Python native lock import and editable packages', 'pnpm/Yarn migration',
+                        'authenticated private registry', 'dependency revision', 'npm CVSS candidate backtracking',
+                        'narrower workspace delegates and unrelated-job native controls'],
         'source_hashes': {str(p.relative_to(source)): hashlib.sha256(p.read_bytes()).hexdigest()
                          for p in sorted((source / 'ptw').glob('*.py'))}, 'cases': []}
     for case in args.case or CASES:

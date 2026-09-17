@@ -46,6 +46,7 @@ def execute(store, token, definition, before, settings):
     if not nono:
         raise Invalid("nono is required; no unconfined fallback")
     mounts = {}
+    local_descriptor = {}
     with store.locked() as db:
         actor = store.session(db, token)
         project, bundle = store.project(db, actor["project"])
@@ -63,6 +64,9 @@ def execute(store, token, definition, before, settings):
             if ecosystem in mounts:
                 raise Invalid("Only one package set per ecosystem")
             mounts[ecosystem] = mount
+            if ecosystem == 'npm':
+                from .dependency_binding import verify_local_sources
+                local_descriptor = verify_local_sources(bundle, actor, definition)
     with tempfile.TemporaryDirectory(prefix="workspace-", dir=store.directory) as temporary:
         target = Path(temporary) / "tree"
         target.mkdir(mode=0o700)
@@ -79,6 +83,24 @@ def execute(store, token, definition, before, settings):
             if ecosystem == "pypi":
                 environment += ["PYTHONPATH=/python-packages:/target"]
             else:
+                if local_descriptor.get('sources'):
+                    # Only this command's authorized snapshot is available to
+                    # local imports. The registry cache contains metadata and
+                    # checked registry artifacts, never other project source.
+                    snapshot = Path(temporary) / 'local-sources'
+                    snapshot.mkdir()
+                    materialize(before, snapshot)
+                    for source in local_descriptor['sources']:
+                        local = source['path']
+                        seed = snapshot / local_descriptor.get('root', '') / local
+                        if not seed.is_dir():
+                            raise OutsideScope('Local source absent from the authorized command snapshot')
+                        nested = mount / local / 'node_modules'
+                        if nested.exists():
+                            (seed / 'node_modules').mkdir(exist_ok=True)
+                        command += ['--ro-bind', str(seed), '/node-packages/' + local]
+                        if nested.exists():
+                            command += ['--ro-bind', str(nested), '/node-packages/' + local + '/node_modules']
                 command += ["--symlink", "/node-packages/node_modules", "/node_modules"]
                 environment += ["NODE_PATH=/node-packages/node_modules",
                                 "PATH=/node-packages/node_modules/.bin:/usr/bin:/bin"]

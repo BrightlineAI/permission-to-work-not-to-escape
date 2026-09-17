@@ -34,6 +34,25 @@ WORKSPACE_SCHEMA['properties']['project']['properties']['python_dependencies'] =
         'url': {'type': 'string'}, 'sha256': {'type': 'string', 'pattern': '^[0-9a-f]{64}$'},
     })},
 })
+WORKSPACE_SCHEMA['properties']['project']['properties']['npm_dependencies'] = obj({
+    'inputs': {'type': 'object', 'maxProperties': 64,
+              'additionalProperties': {'type': 'string', 'pattern': '^[0-9a-f]{64}$'}},
+    'lock_sha256': {'type': 'string', 'pattern': '^[0-9a-f]{64}$'},
+    'artifacts': {'type': 'array', 'maxItems': 1024, 'items': obj({
+        'name': {'type': 'string'}, 'version': {'type': 'string'},
+        'url': {'type': 'string'}, 'integrity': {'type': 'string'},
+    })},
+})
+WORKSPACE_SCHEMA['properties']['project']['properties']['npm_dependencies']['properties']['registry_config_sha256'] = {
+    'type': 'string', 'pattern': '^[0-9a-f]{64}$'}
+WORKSPACE_SCHEMA['properties']['project']['properties']['npm_dependencies']['properties'].update({
+    'root': {'type': 'string', 'maxLength': 1024},
+    'sources': {'type': 'array', 'maxItems': 64, 'items': obj({
+        'path': {'type': 'string', 'minLength': 1, 'maxLength': 1024},
+        'resources': {'type': 'array', 'minItems': 1, 'maxItems': 128, 'uniqueItems': True, 'items': ID},
+        'snapshot_sha256': {'type': 'string', 'pattern': '^[0-9a-f]{64}$'},
+    })},
+})
 for node in [WORKSPACE_SCHEMA["properties"]["project"], WORKSPACE_SCHEMA["properties"]["tasks"]["items"]]:
     node["properties"]["grants"]["items"]["properties"]["actions"]["items"]["enum"] = FILE_ACTIONS
     node["required"].append("commands")
@@ -109,6 +128,27 @@ def validate_workspace(policy, inv):
                 {e['name']: e['version'] for e in descriptor['artifacts']} != chosen):
             raise Invalid('Dependency artifact identities do not match pins')
     paths = [r["path"] for r in inv["resources"].values()]
+    npm = policy['project'].get('npm_dependencies')
+    if npm:
+        for name in npm['inputs']:
+            relative(name)
+        identities = [(e['name'], e['version']) for e in npm['artifacts']]
+        if len(identities) != len(set(identities)) or not {'npm:' + n for n, _ in identities} <= set(
+                policy['project']['packages']['allowed_names']):
+            raise Invalid('npm dependency resolution duplicates identities or expands package scope')
+        root = relative(npm.get('root', ''), empty=True)
+        seen = set()
+        for source in npm.get('sources', []):
+            path = relative(source['path'])
+            if path in seen:
+                raise Invalid('Duplicate npm local source')
+            seen.add(path)
+            location = str(PurePosixPath(root) / path)
+            for key in source['resources']:
+                if key not in inv['resources'] or not inv['resources'][key]['path'].startswith(location + '/'):
+                    raise Invalid('Local npm source resources must stay in their approved source directory')
+                if 'read' not in scope(policy['project']['grants']).get(key, set()):
+                    raise Invalid('Local npm source requires explicit project read authority')
     for i, path in enumerate(paths):
         for other in paths[i + 1:]:
             if path == other or path.startswith(other + "/") or other.startswith(path + "/"):

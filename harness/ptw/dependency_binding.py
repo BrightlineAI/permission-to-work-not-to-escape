@@ -1,16 +1,22 @@
 """Bind preparation and reuse to reviewed declarations and artifact identities."""
 import hashlib
+import json
 import os
 
-from .policy import Invalid, open_resource
+from .policy import Invalid, OutsideScope, digest, open_resource, scope
 from .workspace_policy import relative
 
 
 def verify_inputs(bundle):
-    descriptor = bundle['policy']['project'].get('python_dependencies')
-    if not descriptor:
-        return
-    for name, expected in descriptor['inputs'].items():
+    inputs = {}
+    for ecosystem in ('python_dependencies', 'npm_dependencies'):
+        descriptor = bundle['policy']['project'].get(ecosystem)
+        if descriptor:
+            for name, expected in descriptor['inputs'].items():
+                if name in inputs and inputs[name] != expected:
+                    raise Invalid('Conflicting dependency input bindings')
+                inputs[name] = expected
+    for name, expected in inputs.items():
         relative(name)
         try:
             fd = open_resource(bundle['inventory'], name, os.O_RDONLY)
@@ -20,6 +26,34 @@ def verify_inputs(bundle):
             raise Invalid('Reviewed dependency input is missing or replaced; review a dependency revision') from exc
         if len(content) > 8 * 1024 * 1024 or hashlib.sha256(content).hexdigest() != expected:
             raise Invalid('Reviewed dependency input changed; review a dependency revision')
+
+
+def verify_npm(bundle, lock, evidence=None):
+    descriptor = bundle['policy']['project'].get('npm_dependencies')
+    if descriptor:
+        if digest(lock) != descriptor['lock_sha256']:
+            raise Invalid('Install differs from the reviewed npm lock')
+        if evidence is not None:
+            actual = [{k: e[k] for k in ('name', 'version', 'url', 'integrity')} for e in evidence]
+            order = lambda e: (e['name'], e['version'])
+            if sorted(actual, key=order) != sorted(descriptor['artifacts'], key=order):
+                raise Invalid('npm artifact origin or integrity changed after review')
+    from .npm import NpmPlan
+    plan = NpmPlan(lock)
+    if set(plan.locals) != {s['path'] for s in (descriptor or {}).get('sources', [])}:
+        raise Invalid('Local npm packages require their exact approved source descriptor')
+
+
+def verify_local_sources(bundle, actor, definition=None):
+    """A package grant never implies source read authority, even for a cached set."""
+    descriptor = bundle['policy']['project'].get('npm_dependencies', {})
+    grants = scope(json.loads(actor['grants']))
+    for source in descriptor.get('sources', []):
+        if any('read' not in grants.get(r, set()) for r in source['resources']):
+            raise OutsideScope('Local package source exceeds session read grants')
+        if definition is not None and not set(source['resources']) <= set(definition['resources']):
+            raise OutsideScope('Local package source exceeds command inputs')
+    return descriptor
 
 
 def verify_selection(bundle, selected, extras):

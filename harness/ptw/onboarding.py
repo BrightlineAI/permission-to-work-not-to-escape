@@ -76,70 +76,19 @@ def resolve_python(repo, stage):
 
 
 def resolve_npm(repo, stage):
-    lock = repo / "package-lock.json"
-    manifest = parse_json(data(repo / "package.json"))
-    if not isinstance(manifest, dict) or any(not isinstance(manifest.get(k, {}), dict) for k in
-            ("dependencies", "devDependencies", "optionalDependencies", "peerDependencies")):
-        raise Invalid("Expected package.json object and dependency maps")
-    if manifest.get("workspaces"):
-        raise Invalid("npm workspaces require the separate workspace adapter; no unsafe fallback.")
-    if any((repo / name).exists() for name in ('pnpm-lock.yaml', 'yarn.lock')):
-        raise Invalid('pnpm/Yarn locks require explicit native import; refusing to replace the authoritative lock')
-    has_dependencies = any(manifest.get(k) for k in
-                           ("dependencies", "devDependencies", "optionalDependencies", "peerDependencies"))
-    if lock.exists():
-        resolved = parse_json(data(lock, 8 * 1024 * 1024))
-        if (not isinstance(resolved, dict) or resolved.get("lockfileVersion") not in (2, 3)
-                or not isinstance(resolved.get("packages"), dict)):
-            raise Invalid("Expected package-lock.json version 2/3 with a packages object")
-        if not has_dependencies and resolved["packages"] == {"": resolved["packages"].get("")}:
-            root = resolved["packages"][""]
-            if isinstance(root, dict) and not any(root.get(k) for k in
-                    ("dependencies", "devDependencies", "optionalDependencies", "peerDependencies", "workspaces")):
-                return None
-        from .npm import NpmPlan
-        NpmPlan(resolved)
-        for key in ('dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies'):
-            if manifest.get(key, {}) != resolved['packages'][''].get(key, {}):
-                raise Invalid('package.json and package-lock.json disagree; review a native lock update')
-        return lock
-    if not has_dependencies:
-        return None
-    cleaned = {"name": "ptw-resolution", "version": "1.0.0", "private": True}
-    for key in ("dependencies", "devDependencies", "optionalDependencies", "peerDependencies"):
-        cleaned[key] = manifest.get(key, {})
-        for name, spec in cleaned[key].items():
-            if not isinstance(spec, str) or not re.fullmatch(r"[A-Za-z0-9.*<>=~^|+ -]+", spec):
-                raise Invalid("Only npm public registry version ranges are supported during automatic locking.")
-            if not re.fullmatch(r"(?:@[a-z0-9._-]+/)?[a-z0-9._-]+", name):
-                raise Invalid("Invalid npm dependency name")
-    npm = shutil.which("npm")
-    if not npm:
-        raise Invalid("Node/npm are missing.")
-    folder = stage / "npm"
-    folder.mkdir(mode=0o700)
-    save(folder / "package.json", cleaned)
-    from .dependency_resolution import resolver_environment, run_metadata
+    from .npm_resolution import resolve_npm as resolve
     from .setup_templates import RULES
-    from datetime import datetime, timezone
-    env = resolver_environment(folder)
-    cutoff = datetime.fromtimestamp(time.time() - RULES['min_release_age_days'] * 86400, timezone.utc).isoformat()
-    result = run_metadata([npm, "install", "--package-lock-only", "--ignore-scripts", "--no-audit", "--no-fund",
-                             '--before=' + cutoff,
-                             "--registry=https://registry.npmjs.org", "--userconfig=/dev/null",
-                             "--globalconfig=" + str(folder / "empty-global"), "--cache=" + str(folder / "cache")],
-                            cwd=folder, capture_output=True, text=True, timeout=180, env=env)
-    if result.returncode:
-        raise Invalid("npm metadata-only locking failed; no unchecked fallback")
-    resolved = load(folder / "package-lock.json")
-    # The root name is metadata, not an installed registry identity.
-    resolved["name"] = manifest.get("name", "project")
-    resolved["version"] = manifest.get("version", "1.0.0")
-    resolved["packages"][""]["name"] = resolved["name"]
-    resolved["packages"][""]["version"] = resolved["version"]
-    from .npm import NpmPlan
-    NpmPlan(resolved)
-    save(lock, resolved)
+    provider = None
+    if (stage / 'npm-registry.json').exists():
+        from .registry import RoutedNpmEvidence, private_json
+        provider = RoutedNpmEvidence(private_json(stage / 'npm-registry.json'))
+    result = resolve(repo, stage / 'npm-resolution', RULES, provider=provider)
+    save(stage / 'npm-plan.json', result)
+    if result['lock'] is None:
+        return None
+    lock = repo / 'package-lock.json'
+    if not lock.exists():
+        save(lock, result['lock'])
     return lock
 
 
@@ -230,6 +179,8 @@ def review_text(bundle):
         lines.append('Reviewed Python runtime: ' + json.dumps(policy['project']['python_runtime'], sort_keys=True))
     if 'python_dependencies' in policy['project']:
         lines.append('Reviewed dependency inputs and artifacts: ' + json.dumps(policy['project']['python_dependencies'], sort_keys=True))
+    if 'npm_dependencies' in policy['project']:
+        lines.append('Reviewed npm inputs and artifacts: ' + json.dumps(policy['project']['npm_dependencies'], sort_keys=True))
     return "\n".join(lines)
 
 
@@ -282,6 +233,10 @@ def setup(repo, directory, args, previous=None):
     roots = sorted(set(([python_root] if language in ('python', 'mixed') else []) +
                        ([node_root] if language != 'python' else [])))
     metadata_names = [str(Path(root) / name) for root in roots for name in METADATA]
+    if language != 'python' and (repo / node_root / 'package.json').exists():
+        from .npm_resolution import node_inputs
+        _, node_metadata = node_inputs(repo / node_root)
+        metadata_names = sorted(set(metadata_names) | {str(Path(node_root) / name) for name in node_metadata})
 
     def command_catalog(scope, metadata, shadow, python):
         result = []
@@ -314,6 +269,14 @@ def setup(repo, directory, args, previous=None):
     stage.mkdir(mode=0o700)
     started = time.monotonic()
     try:
+        registry_config = None
+        if getattr(args, 'npm_registry_config', None):
+            from .registry import private_json, outside_repository
+            if Path(args.npm_registry_config).resolve().is_relative_to(repo):
+                raise Invalid('Registry configuration must remain outside project source')
+            registry_config = private_json(args.npm_registry_config)
+            outside_repository(registry_config, repo)
+            save(stage / 'npm-registry.json', registry_config)
         if not 1 <= warn <= stop <= 100:
             raise Invalid("Use thresholds 1 <= warning <= stop <= 100.")
         scope = selected(repo, directories, files)
@@ -339,7 +302,12 @@ def setup(repo, directory, args, previous=None):
                 python_options[key] = split_scope(value)
         if language in ('python', 'mixed'):
             from .dependency_resolution import python_inputs
-            _, _, source_inputs, _ = python_inputs(repo / python_root, **{k: v for k, v in python_options.items() if k != 'executable'})
+            if any((repo / python_root / n).exists() for n in ('uv.lock', 'poetry.lock')):
+                # Native exporters validate these declarations with their lock.
+                # All authoritative files were already copied to staging above.
+                source_inputs = {}
+            else:
+                _, _, source_inputs, _ = python_inputs(repo / python_root, **{k: v for k, v in python_options.items() if k != 'executable'})
             for local_name in source_inputs:
                 name = str(Path(python_root) / local_name)
                 inputs.setdefault(name, fingerprint(repo / name))
@@ -367,6 +335,7 @@ def setup(repo, directory, args, previous=None):
         names = package_names(requirements, npm_lock)
         generated = {name: data(shadow / name, 8 * 1024 * 1024) for name in metadata if inputs[name] is None}
         python_plan = load(stage / 'python-plan.json') if (stage / 'python-plan.json').exists() else None
+        npm_plan = load(stage / 'npm-plan.json') if (stage / 'npm-plan.json').exists() else None
         python = python_plan['runtime']['executable'] if python_plan else '/usr/bin/python3'
         catalog = command_catalog(scope, metadata, shadow, python)
         identity = "repo-" + directory.name + "-" + secrets.token_hex(4)
@@ -390,6 +359,27 @@ def setup(repo, directory, args, previous=None):
                     dependency_inputs[str(requirements.relative_to(shadow))] = hashlib.sha256(data(requirements).encode()).hexdigest()
                 proposal['project']['python_dependencies'] = {
                     'inputs': dependency_inputs, 'pins': python_plan['pins'], 'artifacts': python_plan['artifacts']}
+            if npm_plan:
+                dependency_inputs = {str(Path(node_root) / name): value for name, value in npm_plan['inputs'].items()}
+                if npm_lock:
+                    dependency_inputs[str(npm_lock.relative_to(shadow))] = hashlib.sha256(data(npm_lock, 8 * 1024 * 1024).encode()).hexdigest()
+                proposal['project']['npm_dependencies'] = {'inputs': dependency_inputs,
+                    'lock_sha256': digest(npm_plan['lock']), 'artifacts': npm_plan['artifacts']}
+                if npm_plan.get('sources'):
+                    from .workspace import scan, stamp
+                    source_descriptors = []
+                    for path in npm_plan['sources']:
+                        location = str(Path(node_root) / path)
+                        resources = [key for key, value in inv['resources'].items()
+                                     if value['path'].startswith(location + '/')]
+                        if not any(inv['resources'][key]['path'] != location + '/package.json' for key in resources):
+                            raise Invalid('Select explicit source resources for npm local package: ' + location)
+                        snapshot = scan(inv, resources)
+                        source_descriptors.append({'path': path, 'resources': resources,
+                            'snapshot_sha256': digest({p: [stamp(e), e.get('mode')] for p, e in snapshot.items()})})
+                    proposal['project']['npm_dependencies'].update(root=node_root, sources=source_descriptors)
+                if registry_config:
+                    proposal['project']['npm_dependencies']['registry_config_sha256'] = digest(registry_config)
             if getattr(args, "model_proposal", False):
                 print("OPTIONAL MODEL PROPOSAL: additional model latency; authority remains fixed.", flush=True)
                 proposal, generation = optional_proposal(proposal, inv, trees, args.history,
@@ -439,6 +429,17 @@ def setup(repo, directory, args, previous=None):
                       "bundle": str(stage / "approved.json"), "language": language, "task": "work",
                       "policy_sha256": bundle["approval"]["sha256"], "publication_sha256": publication_hash}
             save(stage / "registration.json", record)
+            if registry_config:
+                # Only references are retained, never the credential bytes.
+                # This content-addressed private file is inert until its exact
+                # descriptor is activated by the publication transaction.
+                controller = Store(directory / 'controller')
+                destination = controller.directory / ('npm-registry-' + digest(registry_config) + '.json')
+                if destination.exists():
+                    if load(destination) != registry_config:
+                        raise Invalid('Private registry configuration integrity failure')
+                else:
+                    save(destination, registry_config)
             publish(repo, directory, stage, bundle, record, generated, trees, inputs, previous)
             save(stage / "outcome.json", {"committed": True, "setup_review_seconds": time.monotonic() - started,
                                          "model_proposal": bool(getattr(args, "model_proposal", False))})
@@ -484,6 +485,8 @@ def start(args):
         fcntl.flock(fd, fcntl.LOCK_EX)
         from .setup_transaction import recover
         recover(directory)
+        from .dependency_revision import recover as recover_dependencies
+        recover_dependencies(directory)
         record = load(directory / "project.json") if (directory / "project.json").exists() else None
         if record is None:
             if args.status or args.stop or args.review:
@@ -494,7 +497,7 @@ def start(args):
             print("A new approval will stop all current project sessions. Existing history is retained.", flush=True)
             record = setup(repo, directory, args, previous=record)
         elif (any(getattr(args, name, None) is not None for name in ("goal", "editable", "files", "language", "warn_at", "stop_at", "history",
-                    'python', 'python_source', 'python_extras', 'python_groups', 'python_root', 'node_root'))
+                    'python', 'python_source', 'python_extras', 'python_groups', 'python_root', 'node_root', 'npm_registry_config'))
               or getattr(args, "model_proposal", False)):
             raise Invalid("This project already has an approved policy. Use ptw codex --revise to change it.")
     finally:

@@ -58,21 +58,42 @@ class NpmPlan:
     def __init__(self, lock):
         if not isinstance(lock, dict) or lock.get("lockfileVersion") not in (2, 3):
             raise Invalid("npm needs a package-lock.json version 2 or 3")
+        self.original_lock = copy.deepcopy(lock)
         nodes = lock.get("packages")
         if not isinstance(nodes, dict) or "" not in nodes or not 2 <= len(nodes) <= 2049:
             raise Invalid("npm lock must contain its root and 1 to 2048 package locations")
         self.nodes = copy.deepcopy(nodes)
         self.selected = {}
+        self.locals, self.links, self.registry = {}, {}, {}
+        from .workspace_policy import relative
         for path, entry in self.nodes.items():
-            if not isinstance(entry, dict) or entry.get("link") or entry.get("inBundle"):
-                raise Invalid("Linked and bundled package entries require a separate source adapter")
+            if not isinstance(entry, dict):
+                raise Invalid('Malformed npm package entry')
+            if path and not NODE_PATH.fullmatch(path) and '/node_modules/' not in path:
+                relative(path)
+                if any(p.startswith('.') or p in ('node_modules', 'private', 'secrets') for p in path.split('/')):
+                    raise Invalid('Unsafe npm local source location')
+                name = entry.get('name')
+                if not isinstance(name, str) or not re.fullmatch(NAME, name) or not isinstance(entry.get('version'), str):
+                    raise Invalid('Local npm source requires name and version')
+                self.locals[path] = entry
+        for path, entry in self.nodes.items():
+            if entry.get('inBundle'):
+                raise Invalid('Bundled package entries require separate assessment')
             if path == "":
-                if entry.get("workspaces"):
-                    raise Invalid("Workspace lockfiles need an explicitly scoped source workspace")
                 continue
-            if not isinstance(path, str) or not NODE_PATH.fullmatch(path):
+            if path in self.locals:
+                continue
+            if not isinstance(path, str) or not (NODE_PATH.fullmatch(path) or any(
+                    path.startswith(local + '/') and NODE_PATH.fullmatch(path[len(local) + 1:]) for local in self.locals)):
                 raise Invalid("Unsafe npm package location")
             name = path.rsplit("node_modules/", 1)[1]
+            if entry.get('link'):
+                target = entry.get('resolved')
+                if target not in self.locals or self.locals[target]['name'] != name:
+                    raise Invalid('npm link must identify an approved in-project source')
+                self.links[path] = target
+                continue
             if entry.get("name", name) != name:
                 raise Invalid("npm aliases cannot borrow another package's policy identity")
             version = entry.get("version")
@@ -81,16 +102,21 @@ class NpmPlan:
             if not isinstance(entry.get("resolved"), str) or not isinstance(entry.get("integrity"), str):
                 raise Invalid("npm lock needs registry URL and integrity for every package")
             self.selected[name + "@" + version] = version
+            self.registry[path] = entry
         if len(self.selected) > 1024:
             raise Invalid("Too many distinct npm package versions")
         if not all(semver_check([(v, v) for v in self.selected.values()])):
             raise Invalid("npm versions must be canonical exact semver")
+        if self.locals and not all(semver_check([(e['version'], e['version']) for e in self.locals.values()])):
+            raise Invalid('Local npm versions must be canonical semver')
         self.manifest = {"name": "ptw-private-environment", "version": "0.0.0", "private": True}
         for field in DEPENDENCIES:
             if field in nodes[""]:
                 self.manifest[field] = nodes[""][field]
         if "peerDependenciesMeta" in nodes[""]:
             self.manifest["peerDependenciesMeta"] = nodes[""]["peerDependenciesMeta"]
+        if 'workspaces' in nodes['']:
+            self.manifest['workspaces'] = nodes['']['workspaces']
         self.nodes[""] = self.manifest
         self.lock = {"name": self.manifest["name"], "version": "0.0.0", "lockfileVersion": 3,
                      "requires": True, "packages": self.nodes}
@@ -99,11 +125,13 @@ class NpmPlan:
     def validate_graph(self):
         checks = []
         for path, entry in self.nodes.items():
+            if path in self.links:
+                continue
             peer_meta = entry.get("peerDependenciesMeta", {})
             if not isinstance(peer_meta, dict) or any(not isinstance(v, dict) for v in peer_meta.values()):
                 raise Invalid("Malformed npm peer metadata")
             for field in DEPENDENCIES:
-                if path and field == "devDependencies":
+                if path in self.registry and field == "devDependencies":
                     continue  # A registry dependency's own development tools are not installed.
                 dependencies = entry.get(field, {})
                 if not isinstance(dependencies, dict):
@@ -111,7 +139,17 @@ class NpmPlan:
                 for name, constraint in dependencies.items():
                     if not re.fullmatch(NAME, name) or not isinstance(constraint, str) or len(constraint) > 1000:
                         raise Invalid("Malformed npm dependency")
-                    checks.append((None, constraint))
+                    local_constraint = constraint.startswith('file:')
+                    if local_constraint:
+                        from .workspace_policy import relative
+                        target = relative(constraint[5:])
+                        # npm file declarations are relative to the declaring
+                        # package. Parent traversal is deliberately not accepted.
+                        target = str(PurePosixPath(path) / target) if path else target
+                        if target not in self.locals or self.locals[target]['name'] != name:
+                            raise Invalid('npm file dependency is not a confined local source')
+                    else:
+                        checks.append((None, constraint))
                     if field == "dependencies" and name in entry.get("optionalDependencies", {}):
                         continue
                     # Peers resolve beside the package, not inside its own node_modules.
@@ -121,7 +159,8 @@ class NpmPlan:
                     while True:
                         location = (candidate + "/" if candidate else "") + "node_modules/" + name
                         if location in self.nodes:
-                            found = self.nodes[location]["version"]
+                            selected = self.locals[self.links[location]] if location in self.links else self.nodes[location]
+                            found = selected['version']
                             break
                         if not candidate:
                             break
@@ -132,15 +171,14 @@ class NpmPlan:
                         if optional:
                             continue
                         raise Invalid("Locked dependency is missing: " + name + " required by " + (path or "root"))
-                    checks.append((found, constraint))
+                    if not local_constraint:
+                        checks.append((found, constraint))
         if checks and not all(semver_check(checks)):
             raise Invalid("npm dependency/peer version mismatch or unsupported dependency source")
 
     def bind_evidence(self, evidence):
         by_name = {e["name"] + "@" + e["version"]: e for e in evidence}
-        for path, entry in self.nodes.items():
-            if not path:
-                continue
+        for path, entry in self.registry.items():
             name = path.rsplit("node_modules/", 1)[1]
             e = by_name[name + "@" + entry["version"]]
             if entry["resolved"] != e["url"] or entry["integrity"] != e["integrity"]:
@@ -172,7 +210,7 @@ class NpmPlan:
                     raise EvidenceError("npm archive identity differs from the assessed release")
                 if manifest.get("bundleDependencies") or manifest.get("bundledDependencies"):
                     raise EvidenceError("Bundled dependencies are not independently checked")
-                for path, entry in self.nodes.items():
+                for path, entry in self.registry.items():
                     if path and path.rsplit("node_modules/", 1)[1] == e["name"] and entry["version"] == e["version"]:
                         for field in ("dependencies", "optionalDependencies", "peerDependencies", "peerDependenciesMeta"):
                             if manifest.get(field, {}) != entry.get(field, {}):
@@ -183,7 +221,7 @@ class NpmPlan:
                 needs_build = any(k in hooks for k in LIFECYCLE) or "package/binding.gyp" in seen
                 # npm's rebuild uses this lock hint. Derive it from the archive;
                 # an untrusted lock must not suppress an authorized build.
-                for path, entry in self.nodes.items():
+                for path, entry in self.registry.items():
                     if path and path.rsplit("node_modules/", 1)[1] == e["name"] and entry["version"] == e["version"]:
                         entry["hasInstallScript"] = needs_build
                 if needs_build:
@@ -198,6 +236,12 @@ class NpmPlan:
         target.mkdir(mode=0o700)
         (target / "package.json").write_text(json.dumps(self.manifest))
         (target / "package-lock.json").write_text(json.dumps(self.lock))
+        for path, entry in self.locals.items():
+            folder = target / path
+            folder.mkdir(parents=True)
+            # Only reviewed metadata placeholders live in the package cache.
+            # Actual source is mounted from the authorized command snapshot.
+            (folder / 'package.json').write_text(json.dumps(entry))
         driver = artifacts / "install.cjs"
         driver.write_text("""
 const cp = require('node:child_process');
@@ -206,8 +250,8 @@ const plan = JSON.parse(fs.readFileSync('/artifacts/plan.json','utf8'));
 const common = ['--offline','--ignore-scripts','--no-audit','--no-fund','--bin-links=true',
  '--userconfig=/tmp/empty-user-npmrc','--globalconfig=/tmp/empty-global-npmrc','--cache=/tmp/npm-cache','--prefix=/target'];
 function npm(args) { cp.execFileSync('/usr/bin/node',['/npm/bin/npm-cli.js',...args],{stdio:'inherit'}); }
-npm(['cache','add',...plan.artifacts.map(x=>'/artifacts/'+x),...common]);
-npm(['ci',...common,'--engine-strict','--workspaces=false','--include=dev','--include=optional','--include=peer']);
+if (plan.artifacts.length) npm(['cache','add',...plan.artifacts.map(x=>'/artifacts/'+x),...common]);
+npm(['ci',...common,'--engine-strict','--include=dev','--include=optional','--include=peer']);
 for (const name of plan.builds) {
  npm(['rebuild',name,...common.filter(x=>x!=='--ignore-scripts'),'--ignore-scripts=false']);
 }
@@ -218,9 +262,9 @@ for (const name of plan.builds) {
             "--chdir", "/target", "--", "/usr/bin/node", "/artifacts/install.cjs"]
         run_build(command)
         actual = {}
-        for path in (target / "node_modules").rglob("package.json"):
+        for path in target.rglob('package.json'):
             relative = str(path.parent.relative_to(target))
-            if NODE_PATH.fullmatch(relative):
+            if relative in self.registry or NODE_PATH.fullmatch(relative):
                 info = parse_json(path.read_text())
                 actual[relative] = (info.get("name"), info.get("version"))
         # Optional platform-incompatible entries may be absent, but no unreviewed
@@ -228,14 +272,14 @@ for (const name of plan.builds) {
         for path, (name, version) in actual.items():
             if path not in self.nodes or name != path.rsplit("node_modules/", 1)[1] or version != self.nodes[path]["version"]:
                 raise EvidenceError("npm installed a package outside the reviewed lock")
-        for path, entry in self.nodes.items():
+        for path, entry in self.registry.items():
             if path and path not in actual and not entry.get("optional"):
                 raise EvidenceError("npm omitted a required package: " + path)
         # Do not let a forged optional flag hide a required dependency omitted by
         # platform selection or a failing lifecycle script.
         full_nodes = self.nodes
         try:
-            self.nodes = {p: e for p, e in full_nodes.items() if not p or p in actual}
+            self.nodes = {p: e for p, e in full_nodes.items() if not p or p in actual or p in self.locals or p in self.links}
             self.validate_graph()
         finally:
             self.nodes = full_nodes
@@ -244,10 +288,18 @@ for (const name of plan.builds) {
 class NpmEvidence(PyPIEvidence):
     hosts = ("registry.npmjs.org", "api.osv.dev")
 
+    def packument(self, name):
+        return parse_json(self.fetch('https://registry.npmjs.org/' + quote(name, safe=''), limit=16 * 1024 * 1024))
+
+    def artifact_allowed(self, url, name):
+        endpoint = urlsplit(url)
+        return (endpoint.scheme == 'https' and endpoint.hostname == 'registry.npmjs.org' and
+                not endpoint.username and not endpoint.password and endpoint.port in (None, 443))
+
     def assess(self, name, version):
         checked = time.time()
         try:
-            document = parse_json(self.fetch("https://registry.npmjs.org/" + quote(name, safe=""), limit=16 * 1024 * 1024))
+            document = self.packument(name)
             record = document["versions"][version]
             if record["name"] != name or record["version"] != version:
                 raise ValueError()
@@ -258,8 +310,7 @@ class NpmEvidence(PyPIEvidence):
             expected = base64.b64decode(integrity[7:], validate=True)
             if len(expected) != 64 or base64.b64encode(expected).decode() != integrity[7:]:
                 raise ValueError()
-            url = urlsplit(dist["tarball"])
-            if url.scheme != "https" or url.hostname != "registry.npmjs.org" or url.username or url.password or url.port not in (None, 443):
+            if not self.artifact_allowed(dist['tarball'], name):
                 raise ValueError()
             return {"name": name, "version": version, "filename": hashlib.sha256((name + "@" + version).encode()).hexdigest() + ".tgz",
                     "url": dist["tarball"], "integrity": integrity, "sha256": "",

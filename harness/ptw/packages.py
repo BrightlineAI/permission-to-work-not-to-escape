@@ -23,6 +23,9 @@ def mounted_set(store, db, actor, identity):
     _, bundle = store.project(db, actor['project'])
     from .dependency_binding import verify_inputs
     verify_inputs(bundle)
+    if row['ecosystem'] == 'npm':
+        from .dependency_binding import verify_local_sources
+        verify_local_sources(bundle, actor)
     if row['policy_sha256'] is not None and row['policy_sha256'] != bundle['approval']['sha256']:
         raise Invalid('Package set belongs to an obsolete policy revision')
     runtime = bundle['policy']['project'].get('python_runtime')
@@ -52,6 +55,11 @@ class PackageControl:
         if ecosystem == "npm":
             from .npm import NpmPlan
             plan = NpmPlan(specs)
+            from .dependency_binding import verify_npm
+            with self.store.locked() as db:
+                actor = self.store.session(db, token)
+                _, bundle = self.store.project(db, actor['project'])
+                verify_npm(bundle, specs)
             selected = plan.selected
         else:
             selected = pins(specs, extras=extras)
@@ -79,6 +87,13 @@ class PackageControl:
             self.store.record(db, actor["id"], event, request_hash, request, response)
             return actor, project, bundle, response
         names = self.scope_names(selected, request["resource"], bundle["policy"]["version"])
+        if request['resource'] == 'npm':
+            from .dependency_binding import verify_local_sources
+            try:
+                verify_local_sources(bundle, actor)
+            except OutsideScope as exc:
+                response = self.store.deny(db, actor, project, bundle, event, request_hash, request, str(exc))
+                return actor, project, bundle, response
         if (not bundle["policy"]["project"].get("packages") or
                 (request["resource"] == "npm" and bundle["policy"]["version"] < 3) or
                 not names <= set(json.loads(actor["packages"]))):
@@ -112,8 +127,8 @@ class PackageControl:
             raise Invalid("Python extras require a reviewed version 3 policy")
         ecosystem = request["resource"]
         if ecosystem == "npm":
-            from .npm import NpmEvidence
-            provider = self.provider or NpmEvidence()
+            from .registry import provider_for
+            provider = self.provider or provider_for(self.store, bundle)
         else:
             provider = self.provider or PyPIEvidence(native=rules.get("allow_native_wheels", False),
                 sources=[x[5:] for x in rules.get("build_packages", []) if x.startswith("pypi:")], python=python)
@@ -140,6 +155,9 @@ class PackageControl:
                     reasons.extend(evaluate(record, rules))
                 if not plan:
                     verify_artifacts(bundle, evidence)
+                else:
+                    from .dependency_binding import verify_npm
+                    verify_npm(bundle, plan.original_lock, evidence)
                 if not reasons:
                     wheelhouse = staging / "wheels"
                     wheelhouse.mkdir(mode=0o700)
