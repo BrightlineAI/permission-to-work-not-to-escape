@@ -252,9 +252,20 @@ reads, and an allowed sibling path. They never read credentials from system tree
 Twenty selected non-native tests pass against this correction, including Python
 and npm routing and the existing CLI PTY review tests with mocked login/monitor
 integrations. The existing successful external-credential native journey remains
-unchanged; its manager rerun against this correction is pending. Earlier native
-results do not certify the added mount exclusions. This correction changes no
-tooling interface or dependency; local mount construction establishes the issue,
+unchanged. The manager subsequently passed all 17 private-Python tests without
+failures or skips in 7.515 seconds on 2026-09-17, including the added mount
+exclusions and the native journey. The retained receipt is `check-baseline-1.log`
+in manager run `task-8-1789614885942527504`; its test-source SHA-256 is
+`ace0e6eba8b52aebab77b6f58f389ace0ecc8946a989f9202d20554bc2acd1cb`.
+All four recorded runtime/test source hashes match this implementation, and the
+associated immutable-intent guard passed. The native assertions again confirmed
+actual wheel installation and protected import, resolver/build/application
+isolation, all 13 denied installs without a published package set, retained
+violation counts and unrelated-process survival. This supersedes the earlier
+private-Python results for the corrected source; other ecosystem gates and
+external private accounts remain unverified. Raw logs stay outside the checkout.
+This correction changes no tooling interface or dependency; local mount
+construction and retained manager receipts establish the finding and verification,
 so additional external research adds no evidence.
 
 The HEAD compatibility fix follows the pinned
