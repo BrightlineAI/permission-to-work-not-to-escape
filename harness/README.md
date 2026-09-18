@@ -176,6 +176,22 @@ checks. Source tests with mocked integrations establish only their stated
 behavior. For installed-user acceptance, use fresh wheel installations with
 PYTHONPATH unset, prove installed hashes, and never reuse this editable environment.
 
+The standalone Node import gate includes its cross-manager cases and selected
+ecosystem, pnpm and Yarn regressions:
+
+```sh
+PTW_LINUX_TESTS=1 python -B -m unittest discover -s harness/tests -p test_product_node_import.py -v
+```
+
+Broad discovery runs those selected regressions through their owning modules
+once. Partial discovery still includes selections whose owning modules are
+excluded by the filename pattern. Named loading of the Node gate retains all
+its selections. This uses the standard
+[unittest load_tests protocol](https://docs.python.org/3.12/library/unittest.html#load-tests-protocol),
+which supplies the discovery pattern; no global test-ID deduplication is used.
+Structural cases in `test_product_reassessment.py` inspect actual suites without
+running native fixtures, checking membership, multiplicity and visible load errors.
+
 Native discovery that includes `test_product_reassessment.py` also retains a fresh
 private `REGRESSION_TIMING_EVIDENCE` directory. It records source hashes and flushed
 start/end records for each test, class setup, teardown and cleanup. The two Yarn

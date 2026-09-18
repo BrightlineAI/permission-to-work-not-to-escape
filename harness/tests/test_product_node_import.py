@@ -4,6 +4,7 @@ Reuse accepted fixture builders, not inherited test counts. Each case performs
 new controller operations against both pinned native tools in separate projects.
 Synthetic registry evidence is explicit; no model or external account is used.
 """
+from fnmatch import fnmatchcase
 import hashlib
 import importlib.util
 import json
@@ -318,6 +319,11 @@ REGRESSIONS = {
 
 def load_tests(loader, tests, pattern):
     for case, methods in REGRESSIONS.items():
+        # These owners are sibling modules with ordinary discovery. Let them
+        # supply their cases when selected by the enclosing filename pattern.
+        # Named loading (pattern=None) and the standalone gate retain all cases.
+        if pattern is not None and fnmatchcase(case.split('.')[0] + '.py', pattern):
+            continue
         tests.addTests(loader.loadTestsFromNames([case + '.' + name for name in methods]))
     return tests
 

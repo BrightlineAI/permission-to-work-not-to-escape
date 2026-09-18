@@ -1,5 +1,6 @@
 """Deterministic advisory transitions, not predictions or model trajectories."""
 import concurrent.futures
+from collections import Counter
 import copy
 import hashlib
 import json
@@ -29,6 +30,91 @@ def load_tests(loader, tests, pattern):
     from regression_timing import enable
     enable()
     return tests
+
+
+class DiscoveryTests(unittest.TestCase):
+    """Inspect real suites without executing native fixtures or their setup."""
+
+    @staticmethod
+    def cases(suite):
+        for test in suite:
+            if isinstance(test, unittest.TestSuite):
+                yield from DiscoveryTests.cases(test)
+            else:
+                yield test
+
+    def discover(self, pattern):
+        loader = unittest.TestLoader()
+        suite = loader.discover(str(Path(__file__).parent), pattern=pattern)
+        self.assertEqual(loader.errors, [])
+        return list(self.cases(suite))
+
+    def test_standalone_node_gate_retains_every_selected_case(self):
+        import test_product_node_import as gate
+        loader = unittest.TestLoader()
+        expected = list(self.cases(loader.loadTestsFromTestCase(gate.NodeImportTests)))
+        for case, methods in gate.REGRESSIONS.items():
+            expected.extend(self.cases(loader.loadTestsFromNames(
+                [case + '.' + method for method in methods])))
+        self.assertEqual(loader.errors, [])
+        self.assertEqual(len(expected), 57)
+        for suite in (loader.loadTestsFromModule(gate),
+                      self.discover('test_product_node_import.py')):
+            # TestCase equality includes the class and method, preserving the
+            # actual fixtures rather than merely matching printable IDs.
+            self.assertEqual(list(self.cases(suite)), expected)
+        self.assertEqual(loader.errors, [])
+
+    def test_discovery_removes_only_selections_owned_by_discovered_modules(self):
+        import test_product_node_import as gate
+
+        def original_hook(loader, tests, pattern):
+            for case, methods in gate.REGRESSIONS.items():
+                tests.addTests(loader.loadTestsFromNames(
+                    [case + '.' + method for method in methods]))
+            return tests
+
+        # Partial discovery must still import selections from excluded owners.
+        for pattern in ('test*.py', 'test_product_[np]*.py'):
+            with self.subTest(pattern=pattern):
+                with patch.object(gate, 'load_tests', original_hook):
+                    before = self.discover(pattern)
+                after = self.discover(pattern)
+                self.assertEqual(set(after), set(before))
+                self.assertTrue(set(unittest.TestLoader().loadTestsFromTestCase(
+                    gate.NodeImportTests)) <= set(after))
+                before_counts, after_counts = Counter(before), Counter(after)
+                selected = unittest.TestLoader().loadTestsFromNames([
+                    case + '.' + method for case, methods in gate.REGRESSIONS.items()
+                    for method in methods])
+                duplicated = Counter(test for test in self.cases(selected)
+                                     if before_counts[test] == 2)
+                self.assertTrue(duplicated)
+                self.assertEqual(after_counts + duplicated, before_counts)
+                self.assertTrue(all(after_counts[test] == 1 for test in duplicated))
+                if pattern == 'test*.py':
+                    self.assertEqual(sum(duplicated.values()), 51)
+
+    def test_missing_selection_and_owner_load_failure_remain_errors(self):
+        import test_product_node_import as gate
+        import test_product_pnpm as owner
+        loader = unittest.TestLoader()
+        with patch.dict(gate.REGRESSIONS, {
+                'test_product_pnpm.PnpmNativeTests': ('test_missing_selection',)}, clear=True):
+            suite = loader.loadTestsFromModule(gate)
+        self.assertEqual(len(loader.errors), 1)
+        self.assertIn('test_missing_selection', loader.errors[0])
+        self.assertTrue(any(test.id().startswith('unittest.loader._FailedTest.')
+                            for test in self.cases(suite)))
+
+        loader = unittest.TestLoader()
+        with patch.object(owner, 'load_tests', create=True,
+                          side_effect=RuntimeError('synthetic owner loading failure')):
+            suite = loader.discover(str(Path(__file__).parent), pattern='test*.py')
+        self.assertEqual(len(loader.errors), 1)
+        self.assertIn('synthetic owner loading failure', loader.errors[0])
+        self.assertIn('unittest.loader._FailedTest.test_product_pnpm',
+                      [test.id() for test in self.cases(suite)])
 
 
 class DiagnosticTimingTests(unittest.TestCase):
