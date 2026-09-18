@@ -10,10 +10,16 @@ import time
 from .codex import DISABLED, require_login
 from .monitor import health
 from .policy import Invalid, load, save
+from .setup_transaction import atomic
 from .supervisor import Supervisor
 
 
-def codex_command(store, session_path, work, prompt=None, *, interactive=True):
+def codex_command(store, session_path, work, prompt=None, *, interactive=True, conversation=None, resume=None):
+    if resume is not None:
+        from .conversation import native_id
+        native_id(resume)
+        if not interactive or conversation is None:
+            raise Invalid('Protected resume requires a bound interactive conversation')
     require_login()
     executable = shutil.which("codex")
     if not executable:
@@ -41,13 +47,23 @@ def codex_command(store, session_path, work, prompt=None, *, interactive=True):
     # Keep the same real model and its capabilities; no model substitution.
     model = {**models[0], "apply_patch_tool_type": None, "experimental_supported_tools": []}
     catalog = work / "model-catalog.json"
-    save(catalog, {"models": [model]})
+    # A resumed conversation reuses its control workspace. Regenerate the
+    # restricted catalog on every attachment without following an old target.
+    atomic(catalog, {"models": [model]})
     empty_config = work / "empty-config.toml"
     if not empty_config.exists():
         fd = os.open(empty_config, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
         with os.fdopen(fd, "w") as handle:
             handle.write("[projects." + json.dumps(str(work)) + ']\ntrust_level = "trusted"\n')
     wrapper = [bwrap, "--die-with-parent", "--bind", "/", "/"]
+    if conversation is not None:
+        # Only these rollouts are visible to this trusted native client. Auth
+        # stays at its original location and is neither inspected nor copied.
+        conversation = Path(conversation)
+        for name in ('sessions', 'archived_sessions'):
+            private = conversation / ('native-' + name)
+            private.mkdir(mode=0o700, exist_ok=True)
+            wrapper += ['--bind', str(private), str(config_root / name)]
     config = config_root / "config.toml"
     if not config.exists():
         # Codex normally creates this on first use. Never overwrite an existing
@@ -63,6 +79,8 @@ def codex_command(store, session_path, work, prompt=None, *, interactive=True):
         base += ["exec", "--ignore-user-config", "--ignore-rules", "--skip-git-repo-check",
                  "--ephemeral", "--json"]
     else:
+        if resume is not None:
+            base += ['resume', resume]
         base += ["--no-alt-screen"]
     base += ["-C", str(work), "-m", "gpt-5.6-sol", "-a", "never"]
     values = {
@@ -99,6 +117,11 @@ def codex_command(store, session_path, work, prompt=None, *, interactive=True):
                 **{k: os.environ[k] for k in ("PTW_SYSTEMD_SCOPE", "PTW_NONO", "PTW_UV", "PTW_PNPM_TOOL") if k in os.environ},
             }.items()) + "}",
     }
+    if conversation is not None:
+        (conversation / 'native-state').mkdir(mode=0o700, exist_ok=True)
+        values['sqlite_home'] = json.dumps(str(conversation / 'native-state'))
+    # In pinned 0.154.0 nonempty CLI config overrides require the embedded
+    # app-server, so resumed threads cannot attach to a stale shared daemon.
     for key, value in values.items():
         base += ["-c", key + "=" + value]
     disabled = set(DISABLED) | {"hooks", "shell_snapshot", "multi_agent_v2", "remote_plugin",
@@ -117,13 +140,15 @@ def codex_command(store, session_path, work, prompt=None, *, interactive=True):
     return wrapper + ["--"] + base
 
 
-def launch(store, session, session_path, run_dir, *, prompt=None):
+def launch(store, session, session_path, run_dir, *, prompt=None, conversation=None, resume=None):
     if not sys.stdin.isatty():
         raise Invalid("ptw codex requires an interactive terminal. Use ptw run for automation.")
     if not health(store)["healthy"]:
         raise Invalid("Controller monitor is not healthy.")
     run_dir = Path(run_dir)
-    command = codex_command(store, session_path, run_dir / "work", prompt)
+    work = Path(conversation) / 'work' if conversation is not None else run_dir / 'work'
+    command = codex_command(store, session_path, work, prompt,
+                            conversation=conversation, resume=resume)
     # Record only fixed launch options and synthetic paths, never auth or tokens.
     save(run_dir / "launch.json", {"argv": command, "session": session["session"],
                                   "project": session["project"], "started": time.time()})
@@ -151,5 +176,13 @@ def launch(store, session, session_path, run_dir, *, prompt=None):
     status = store.status(session["project"])
     result = {"exit_code": code, "seconds": round(time.monotonic() - started, 3),
               "stopped": bool(status["stopped"]), "reason": status["reason"], "unit": unit}
+    if conversation is not None:
+        from .conversation import remember
+        try:
+            result['conversation'] = remember(Path(conversation), resume)
+            print('\nProtected continuation: ptw codex --task ' + session['task'] +
+                  ' --resume ' + result['conversation'], flush=True)
+        except Invalid as exc:
+            result['resume_unavailable'] = str(exc)
     save(run_dir / "result.json", result)
     return result

@@ -33,7 +33,7 @@ with open('/target/.ptw-command-result.json','w') as handle:
 """
 
 
-def execute(store, token, definition, before, settings):
+def prepare_command(store, token, definition, before, settings, temporary):
     try:
         options = parse_json(settings) if settings else {}
     except ValueError as exc:
@@ -73,61 +73,66 @@ def execute(store, token, definition, before, settings):
             if ecosystem == 'npm':
                 from .dependency_binding import verify_local_sources
                 local_descriptor = verify_local_sources(bundle, actor, definition)
-    with tempfile.TemporaryDirectory(prefix="workspace-", dir=store.directory) as temporary:
-        target = Path(temporary) / "tree"
-        target.mkdir(mode=0o700)
-        materialize(before, target)
-        if before.keys() & editable_artifacts.keys():
-            raise Invalid('Editable build artifacts collide with command inputs')
-        materialize(editable_artifacts, target)
-        command = runtime_namespace() + ["--bind", str(target), "/target",
-                                        "--ro-bind", str(Path(nono).resolve()), "/nono"]
-        permissions = ["/nono", "run", "--sandbox-policy", "landlock", "--block-net",
-                       "--allow", "/target", "--allow", "/tmp", "--no-rollback", "--no-audit", "--no-diagnostics"]
-        environment = ["PYTHONDONTWRITEBYTECODE=1", "PYTHONNOUSERSITE=1"]
-        for ecosystem, mount in mounts.items():
-            path = "/python-packages" if ecosystem == "pypi" else "/node-packages"
-            command += ["--ro-bind", str(mount), path]
-            permissions += ["--read", path]
-            if ecosystem == "pypi":
-                environment += ["PYTHONPATH=/python-packages:/target"]
-            else:
-                copies = {}
-                if any(Path(p).name == 'pnpm-lock.yaml' for p in local_descriptor.get('inputs', {})):
-                    copies = parse_json((mount / '.ptw-pnpm-sources.json').read_text())
-                elif any(Path(p).name == 'yarn.lock' for p in local_descriptor.get('inputs', {})):
-                    copies = parse_json((mount / '.ptw-yarn-sources.json').read_text())
-                # Mask metadata placeholders as well as their nested modules.
-                # A workspace link into an excluded member must expose no bytes.
-                for local in local_descriptor.get('excluded_sources', []):
+    target = Path(temporary) / "tree"
+    target.mkdir(mode=0o700)
+    materialize(before, target)
+    if before.keys() & editable_artifacts.keys():
+        raise Invalid('Editable build artifacts collide with command inputs')
+    materialize(editable_artifacts, target)
+    command = runtime_namespace() + ["--bind", str(target), "/target",
+                                    "--ro-bind", str(Path(nono).resolve()), "/nono"]
+    permissions = ["/nono", "run", "--sandbox-policy", "landlock", "--block-net",
+                   "--allow", "/target", "--allow", "/tmp", "--no-rollback", "--no-audit", "--no-diagnostics"]
+    environment = ["PYTHONDONTWRITEBYTECODE=1", "PYTHONNOUSERSITE=1"]
+    for ecosystem, mount in mounts.items():
+        path = "/python-packages" if ecosystem == "pypi" else "/node-packages"
+        command += ["--ro-bind", str(mount), path]
+        permissions += ["--read", path]
+        if ecosystem == "pypi":
+            environment += ["PYTHONPATH=/python-packages:/target"]
+        else:
+            copies = {}
+            if any(Path(p).name == 'pnpm-lock.yaml' for p in local_descriptor.get('inputs', {})):
+                copies = parse_json((mount / '.ptw-pnpm-sources.json').read_text())
+            elif any(Path(p).name == 'yarn.lock' for p in local_descriptor.get('inputs', {})):
+                copies = parse_json((mount / '.ptw-yarn-sources.json').read_text())
+            # Mask metadata placeholders as well as their nested modules.
+            # A workspace link into an excluded member must expose no bytes.
+            for local in local_descriptor.get('excluded_sources', []):
+                for location in [local, *copies.get(local, [])]:
+                    command += ['--tmpfs', '/node-packages/' + location]
+            if local_descriptor.get('sources'):
+                # Only this command's authorized snapshot is available to
+                # local imports. The registry cache contains metadata and
+                # checked registry artifacts, never other project source.
+                snapshot = Path(temporary) / 'local-sources'
+                snapshot.mkdir()
+                materialize(before, snapshot)
+                for source in local_descriptor['sources']:
+                    local = source['path']
+                    seed = snapshot / local_descriptor.get('root', '') / local
+                    if not seed.is_dir():
+                        raise OutsideScope('Local source absent from the authorized command snapshot')
                     for location in [local, *copies.get(local, [])]:
-                        command += ['--tmpfs', '/node-packages/' + location]
-                if local_descriptor.get('sources'):
-                    # Only this command's authorized snapshot is available to
-                    # local imports. The registry cache contains metadata and
-                    # checked registry artifacts, never other project source.
-                    snapshot = Path(temporary) / 'local-sources'
-                    snapshot.mkdir()
-                    materialize(before, snapshot)
-                    for source in local_descriptor['sources']:
-                        local = source['path']
-                        seed = snapshot / local_descriptor.get('root', '') / local
-                        if not seed.is_dir():
-                            raise OutsideScope('Local source absent from the authorized command snapshot')
-                        for location in [local, *copies.get(local, [])]:
-                            nested = mount / location / 'node_modules'
-                            if nested.exists():
-                                (seed / 'node_modules').mkdir(exist_ok=True)
-                            command += ['--ro-bind', str(seed), '/node-packages/' + location]
-                            if nested.exists():
-                                command += ['--ro-bind', str(nested), '/node-packages/' + location + '/node_modules']
-                command += ["--symlink", "/node-packages/node_modules", "/node_modules"]
-                environment += ["NODE_PATH=/node-packages/node_modules",
-                                "PATH=/node-packages/node_modules/.bin:/usr/bin:/bin"]
-        command += ["--", *permissions, "--", "/usr/bin/env", *environment,
-                    "/usr/bin/python3", "-I", "-S", "-c", WRAPPER, str(definition["timeout_seconds"]),
-                    definition.get('cwd', ''),
-                    *definition["argv"]]
+                        nested = mount / location / 'node_modules'
+                        if nested.exists():
+                            (seed / 'node_modules').mkdir(exist_ok=True)
+                        command += ['--ro-bind', str(seed), '/node-packages/' + location]
+                        if nested.exists():
+                            command += ['--ro-bind', str(nested), '/node-packages/' + location + '/node_modules']
+            command += ["--symlink", "/node-packages/node_modules", "/node_modules"]
+            environment += ["NODE_PATH=/node-packages/node_modules",
+                            "PATH=/node-packages/node_modules/.bin:/usr/bin:/bin"]
+    command += ["--", *permissions, "--", "/usr/bin/env", *environment,
+                "/usr/bin/python3", "-I", "-S", "-c", WRAPPER, str(definition["timeout_seconds"]),
+                definition.get('cwd', ''),
+                *definition["argv"]]
+    return target, command, editable_artifacts
+
+
+def execute(store, token, definition, before, settings):
+    with tempfile.TemporaryDirectory(prefix="workspace-", dir=store.directory) as temporary:
+        target, command, editable_artifacts = prepare_command(store, token, definition, before, settings, temporary)
         try:
             run_build(store, token, command, target)
         except UnsafeExport as exc:

@@ -39,9 +39,13 @@ def service_text(directory, *, legacy=False):
         "[Install]", "WantedBy=default.target", ""])
 
 
-def health(store):
-    with store.locked() as db:
-        row = db.execute("SELECT at,error FROM monitor_health WHERE id=1").fetchone()
+def health(store, *, db=None):
+    # Callers already holding the controller lock must reuse that connection.
+    # flock on a separately opened descriptor is not reentrant.
+    if db is None:
+        with store.locked() as locked_db:
+            return health(store, db=locked_db)
+    row = db.execute("SELECT at,error FROM monitor_health WHERE id=1").fetchone()
     age = time.time() - row["at"] if row else None
     return {"unit": unit_for(store.directory), "healthy": age is not None and 0 <= age < 5,
             "heartbeat_age_seconds": round(age, 3) if age is not None else None,

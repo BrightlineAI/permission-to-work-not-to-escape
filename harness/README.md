@@ -23,6 +23,13 @@ For ordinary Python, JavaScript or TypeScript repositories, start with the
 the policy, then work in the normal Codex terminal. The [automation workflow](PRACTICAL.md)
 and exact-file workflow below remain supported.
 
+Protected conversation continuation uses `ptw codex --resume ID` with fresh
+session credentials and retained policy counts. Focused native resume checks passed;
+see [daily workflow status and limits](DAILY.md).
+The [daily guide](DAILY.md) also covers reviewed Python/Node previews, scoped Git
+and exact operator checkpoint approval, with the composed native acceptance gate
+clearly separated from offline checks.
+
 ## Install on a Linux VPS
 
 For a compact installation without cloning the benchmark repository, use the

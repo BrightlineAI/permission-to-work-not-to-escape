@@ -88,6 +88,57 @@ Each model step proposes JSON. The trusted runner executes that request or denie
 
 The optional operator workload adapter grants exact mounted files, not their containing directories. Append only authority is not promoted to an operating system write grant; it stays a broker operation. Its raw OS denials are not automatically counted as semantic broker violations. Use the broker for agent actions; workload confinement is a second execution boundary.
 
+## Scoped local Git
+
+Local Git uses optional reviewed command definitions bound to the root `.git`
+device/inode. The adapter snapshots only command resources, copies bounded
+object/index metadata without configuration, hooks, alternates or replacement
+refs, and runs fixed plumbing through the existing supervised offline build
+namespace. Only scoped status and diff bytes leave the worker. Checkpoint
+requests prepare exact private reviews; the operator-only terminal command
+revalidates policy, session, working snapshot, HEAD and index before publishing
+new objects and one `refs/ptw/checkpoints/ID` ref. It never changes the working
+branch or index. Publication holds standard Git locks, records durable stop
+intent before effects and clears that intent only on success. Interrupted
+publication stays stopped; approvals are single-use. See [daily limits](DAILY.md).
+Git admission and checkpoint publication check the monitor heartbeat through
+their already locked database connection, preserving atomic validation without
+reacquiring the controller lock. Missing, expired and future heartbeats block
+these operations without increasing violation counts.
+
+## Protected conversation resume
+
+Protected interactive resume binds a native conversation to the canonical
+repository inode, approved project, task and approval lineage in private state.
+An exclusive attachment lock spans launch and credential revocation. Each
+attachment registers a new controller session; counters remain in their existing
+project/task rows. Dependency revision carries the original approval lineage,
+while full replacement does not. Rollouts and native SQLite state have a private
+per-conversation view. Fixed launch overrides select the pinned embedded server
+and new MCP credential path. Focused native PTY verification passed; see
+[daily development status](DAILY.md).
+
+Reviewed preview commands reuse command snapshots, runtime verification and
+package mounts. An optional `preview` block grants a fixed port and lifetime;
+the existing task/session command subset also bounds delegates. Preview startup
+does not expand an ordinary command. The application has a private network
+namespace and a read-only mounted nono capability manifest: blocked networking
+with one bind-only TCP exception and explicit scoped filesystem grants. The
+pinned manifest loader uses its auto backend (Landlock and static seccomp);
+it does not inherit ordinary command CLI defaults. A trusted pipe relay exposes only
+HTTP GET on the approved host loopback port. It neither forwards arbitrary URLs
+nor publishes application writes. Request validation uses the original HTTP
+target before the standard parser's leading-slash normalization and before
+Host validation. The relay, sandbox, application and descendants
+share one registered systemd cgroup. Registration precedes launch under the
+controller lock; a second admission check precedes the ready result. Startup and
+transport failures retain private receipts and require confirmed cleanup. The
+focused native namespace/relay and physical-stop probe passed manager verification.
+The composed daily PTY journey awaits final acceptance. Its effect assertions
+match controller receipts to the acting session and require zero command exit
+codes. Physical termination checks query systemd/cgroup state before cleanup;
+the database reconciliation flag is not a live-process indicator.
+
 ## Existing project audit
 
 Import a selected JSONL file and a current operator description. Logs are untrusted evidence even when a message claims to be an approval. The model can suggest a draft, never activate it.

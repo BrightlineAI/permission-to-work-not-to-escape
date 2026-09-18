@@ -485,7 +485,8 @@ def start(args):
             raise Invalid('Dependency revision not approved; project unchanged')
         new = approve(policy, inv, digest(compiled), getpass.getuser())
         save(stage / 'approved.json', new)
-        new_record = {**record, 'bundle': str(stage / 'approved.json'), 'policy_sha256': new['approval']['sha256']}
+        new_record = {**record, 'bundle': str(stage / 'approved.json'), 'policy_sha256': new['approval']['sha256'],
+                      'resume_policy': record.get('resume_policy', record['policy_sha256'])}
         publish(directory, stage, old, new, changes, expected, new_record)
         return {'project': record['project'], 'policy_sha256': new['approval']['sha256'],
                 'changed': sorted(changes), 'history_preserved': True, 'sessions_revoked': True}

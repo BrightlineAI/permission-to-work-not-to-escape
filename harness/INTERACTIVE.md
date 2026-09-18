@@ -112,9 +112,35 @@ Quit Codex with `/quit`. This ends that session, not other agents on the project
 Use `ptw codex --stop` to stop the whole project. `ptw codex --status` shows the
 shared state.
 
-Do not use the bare `codex resume` command printed by Codex at exit. It is not a
-protected entry point. Reopen through `ptw codex`; files and project history
-persist, but the new conversation starts fresh.
+To continue a saved protected conversation, use `ptw codex --resume ID` in the
+same repository. The launcher prints the protected continuation command after
+quit. Omit ID only when exactly one conversation matches the current project,
+task and approval. For a narrower session include the original `--task`.
+Plain `ptw codex` starts a new conversation. Do not use the bare native resume
+hint. Conversations started before protected recording was installed cannot
+be imported through resume.
+
+Resume retains conversation history and shared violation counts while issuing
+a new credential. The old session and its descendants stay revoked. Concurrent
+attachment to one conversation, a changed repository identity, a different task,
+missing history and unrelated approvals are rejected. An approved dependency
+revision retains the conversation binding; a full policy revision requires a
+new conversation. Project stop and monitor loss still prevent work. The native
+resume/tool-surface PTY check passed focused manager verification; see [daily status](DAILY.md).
+
+Preview setup accepts
+`--preview-python src/server.py:8000` or `--preview-node src/server.js:3000`
+during setup review. Existing projects require `--revise`. Once approved, ask
+Codex to start or stop the preview and open its returned local URL. See the
+[preview guide](DAILY.md#local-preview) for script environment, snapshot restart
+behavior and HTTP/resource limits. Focused native preview checks passed.
+
+For an ordinary Git repository, select `--git` during setup or revision. Ask
+Codex for scoped status/diff or to prepare a checkpoint of named files. Approve
+the returned `ptw checkpoint ID` review in a separate operator terminal. It
+creates a local checkpoint ref and preserves the branch and staging. See
+[Git scope and recovery](DAILY.md#scoped-local-git). Native Git checks passed;
+the composed live daily journey awaits manager acceptance.
 
 ## Policy changes are operator decisions
 

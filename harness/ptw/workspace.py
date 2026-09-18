@@ -16,7 +16,8 @@ MAX_FILE = 8 * 1024 * 1024
 MAX_TREE = 64 * 1024 * 1024
 MAX_ENTRIES = 4096
 ACTIONS = ["list", "read", "write", "append", "create", "delete", "rename",
-           "mkdir", "rmdir", "install", "run", "delegate", "finish"]
+           "mkdir", "rmdir", "install", "run", "delegate", "finish",
+           "service_start", "service_status", "service_stop", "git_status", "git_diff", "git_checkpoint"]
 REQUEST_SCHEMA = obj({key: {"type": "string"} for key in
                       ["action", "resource", "path", "destination", "content", "expected"]})
 REQUEST_SCHEMA["properties"]["action"]["enum"] = ACTIONS
@@ -260,6 +261,12 @@ class Workspace:
             Supervisor(self.store).reconcile()
 
     def _request(self, token, event, req):
+        if isinstance(req, dict) and req.get('action') in ('git_status', 'git_diff', 'git_checkpoint'):
+            from .local_git import git_request
+            return git_request(self, token, event, req)
+        if isinstance(req, dict) and req.get('action') in ('service_start', 'service_status', 'service_stop'):
+            from .preview import service_request
+            return service_request(self, token, event, req)
         with self.store.locked() as db:
             actor, project, bundle, prior = self.inspect(db, token, event, req)
             if prior is not None:
@@ -384,6 +391,10 @@ class Workspace:
             if name not in json.loads(actor["commands"]):
                 return self.deny(db, actor, project, bundle, event, req, "Command outside task or delegated scope: " + name)
             definition = next(c for c in bundle["policy"]["project"]["commands"] if c["id"] == name)
+            if 'preview' in definition:
+                return self.record(db, actor, event, req, 'blocked', 'Use service_start for a reviewed preview')
+            if 'git' in definition:
+                return self.record(db, actor, event, req, 'blocked', 'Use the typed git operation for this command')
             try:
                 self.integrity(db, actor["project"], bundle)
                 before = scan(bundle["inventory"], definition["resources"])

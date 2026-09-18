@@ -172,6 +172,35 @@ class Supervisor:
             process.communicate(timeout=5)
             raise Invalid("Codex supervised launch did not become ready")
 
+    def background(self, token, command, *, service_seconds):
+        """Trusted bounded preview worker; all descendants share its cgroup."""
+        if type(service_seconds) is not int or not 1 <= service_seconds <= 3620:
+            raise Invalid('Preview service lifetime outside bounds')
+        with self.store.locked() as db:
+            actor = self.store.session(db, token)
+            project, _ = self.store.project(db, actor['project'])
+            if project['stopped']:
+                raise Invalid('Project stopped')
+            unit = 'ptw-' + secrets.token_hex(12) + '.service'
+            db.execute('INSERT INTO workloads(unit,project,session) VALUES(?,?,?)',
+                       (unit, actor['project'], actor['id']))
+            try:
+                result = run(manager('systemd-run') + ['--quiet', '--collect', '--unit=' + unit,
+                    *service_identity(), '--property=KillMode=control-group',
+                    '--property=NoNewPrivileges=yes', '--property=ProtectControlGroups=yes',
+                    '--property=MemoryMax=768M', '--property=CPUQuota=100%', '--property=TasksMax=128',
+                    '--property=LimitFSIZE=536870912', '--property=StandardOutput=null',
+                    '--property=StandardError=null', '--property=RuntimeMaxSec=' + str(service_seconds),
+                    '--property=TimeoutStopSec=2', '--', *command])
+            except (OSError, subprocess.SubprocessError) as exc:
+                self.terminate(unit)
+                raise Invalid('Preview supervisor launch interrupted') from exc
+            if result.returncode:
+                # A launch timeout/failure must still be reconciled physically.
+                self.terminate(unit)
+                raise Invalid('Preview supervisor launch failed')
+            return unit
+
     @staticmethod
     def state(unit):
         if not re.fullmatch(r"ptw-[0-9a-f]{24}\.service", unit):

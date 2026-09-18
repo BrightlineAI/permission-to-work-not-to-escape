@@ -55,6 +55,9 @@ class Store:
                   manifest TEXT NOT NULL, created REAL NOT NULL);
                 CREATE TABLE IF NOT EXISTS monitor_health(
                   id INTEGER PRIMARY KEY, at REAL NOT NULL, error TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS previews(
+                  session TEXT, command TEXT, unit TEXT NOT NULL, directory TEXT NOT NULL,
+                  PRIMARY KEY(session,command));
             """)
             if "packages" not in {r[1] for r in db.execute("PRAGMA table_info(sessions)")}:
                 db.execute("ALTER TABLE sessions ADD COLUMN packages TEXT NOT NULL DEFAULT '[]'")

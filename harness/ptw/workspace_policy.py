@@ -17,6 +17,15 @@ COMMAND = obj({
     "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 120},
 })
 COMMAND['properties']['cwd'] = {'type': 'string', 'maxLength': 1024}
+COMMAND['properties']['preview'] = obj({
+    'port': {'type': 'integer', 'minimum': 1024, 'maximum': 65535},
+    'lifetime_seconds': {'type': 'integer', 'minimum': 1, 'maximum': 3600},
+})
+COMMAND['properties']['git'] = obj({
+    'operation': {'enum': ['status', 'diff', 'checkpoint']},
+    'device': {'type': 'integer', 'minimum': 0},
+    'inode': {'type': 'integer', 'minimum': 1},
+})
 WORKSPACE_SCHEMA['properties']['project']['properties']['python_runtime'] = obj({
     'executable': {'type': 'string', 'minLength': 1},
     'sha256': {'type': 'string', 'pattern': '^[0-9a-f]{64}$'},
@@ -198,6 +207,13 @@ def validate_workspace(policy, inv):
     grants = scope(policy["project"]["grants"])
     commands = {}
     for command in policy["project"]["commands"]:
+        if 'git' in command:
+            if ('preview' in command or command.get('cwd') or
+                    command['argv'] != ['/usr/bin/git', command['git']['operation']]):
+                raise Invalid('Git operations use the fixed local adapter only')
+            if any('.git' in inv['resources'][r]['path'].split('/')
+                   for r in command['resources'] if r in inv['resources']):
+                raise Invalid('Git metadata cannot be a worktree resource')
         cwd = relative(command.get('cwd', ''), empty=True)
         if cwd and not any(inv['resources'][r]['path'] == cwd or
                 inv['resources'][r]['path'].startswith(cwd + '/') or

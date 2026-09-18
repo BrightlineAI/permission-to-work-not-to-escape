@@ -74,6 +74,10 @@ class Adapter:
                 "rename": "destination=resource:relative/path; expected=current source hash",
                 "install": "resource is a readable dependency file; content=pypi, npm, pnpm (pnpm-lock.yaml) or yarn (yarn.lock)",
                 "run": 'resource=reviewed command ID; content={"package_sets":["receipt package_set ID"]}',
+                "service_start": 'resource=command ID with preview; content={"package_sets":["receipt package_set ID"]}; returns bounded localhost URL. Restart after edits for a fresh snapshot.',
+                "service_status/service_stop": 'resource=preview command ID from this session; other fields empty. Quit and shared stop also terminate previews.',
+                "git_status/git_diff": 'resource=reviewed git command ID; other fields empty. Results include only that command scope, comparing HEAD, index and working files.',
+                "git_checkpoint": 'resource=reviewed checkpoint command ID; content={"paths":["src/file.py"],"message":"Local checkpoint"}. This only prepares a review. Ask the operator to run the returned ptw checkpoint command in a separate terminal. It creates a local checkpoint ref, preserving branch/index.',
                 "delegate": "resource=narrower task ID; content=assignment; child is run by controller",
             },
         }

@@ -22,6 +22,10 @@ def main(argv=None):
     interactive.add_argument("--files", help="Comma separated exact top-level editable files, including missing files")
     interactive.add_argument("--model-proposal", action="store_true", help="Optional model proposal with additional latency; same scope constraints")
     interactive.add_argument("--language", choices=["python", "javascript", "typescript", "mixed"])
+    interactive.add_argument('--preview-python', metavar='PATH:PORT', help='Review a Python entry script and fixed localhost preview port; script receives PORT and HOST')
+    interactive.add_argument('--preview-node', metavar='PATH:PORT', help='Review a Node entry script and fixed localhost preview port; script receives PORT and HOST')
+    interactive.add_argument('--preview-seconds', type=int, help='Reviewed preview lifetime, 1 to 3600 seconds (default 900)')
+    interactive.add_argument('--git', action='store_true', help='Review scoped local Git status/diff and operator-approved checkpoint refs')
     interactive.add_argument('--python', help='Installed system Python executable to review')
     interactive.add_argument('--python-source', help='Authoritative relative requirements file or pyproject.toml')
     local_python = interactive.add_mutually_exclusive_group()
@@ -47,8 +51,13 @@ def main(argv=None):
     operations.add_argument("--status", action="store_true")
     operations.add_argument("--stop", action="store_true")
     operations.add_argument("--review", action="store_true")
+    operations.add_argument('--resume', nargs='?', const='', metavar='ID',
+                            help='Resume a recorded protected conversation for this project and task')
     interactive.add_argument("--setup-only", action="store_true", help="Finish reviewed setup or revision without opening Codex")
     operations.add_argument("--revise", action="store_true", help="Review a new policy version; stop old work before switching")
+    checkpoint = commands.add_parser('checkpoint', help='Review and explicitly approve one local checkpoint requested by protected Codex')
+    checkpoint.add_argument('identity')
+    checkpoint.add_argument('--repo', default=str(Path.cwd()))
     dependencies = commands.add_parser('deps', help='Review an add/remove/update while preserving project history')
     dependencies.add_argument('operation', choices=['add', 'remove', 'update'])
     dependencies.add_argument('specs', nargs='+')
@@ -171,8 +180,8 @@ def main(argv=None):
                     action, monitor, recover, change, replace]:
         command.add_argument("--state", required=True, help="Private controller directory outside resources")
     args = parser.parse_args(argv)
-    if args.command == 'codex' and args.setup_only and (args.status or args.stop or args.review):
-        parser.error('--setup-only cannot be combined with --status, --stop or --review')
+    if args.command == 'codex' and args.setup_only and (args.status or args.stop or args.review or args.resume is not None):
+        parser.error('--setup-only cannot be combined with --status, --stop, --review or --resume')
     try:
         result = execute(args)
         print(json.dumps(result, indent=2))
@@ -191,6 +200,9 @@ def main(argv=None):
 
 
 def execute(args):
+    if args.command == 'checkpoint':
+        from .local_git import review_checkpoint
+        return review_checkpoint(args)
     if args.command == 'deps':
         from .dependency_revision import start
         return start(args)

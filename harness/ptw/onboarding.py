@@ -177,6 +177,11 @@ def review_text(bundle):
     for command in policy["project"]["commands"]:
         lines.append("  " + command["id"] + ": " + json.dumps(command["argv"]) +
                      "; inputs=" + ", ".join(inv["resources"][r]["path"] for r in command["resources"]))
+        if 'preview' in command:
+            lines.append('    Preview: ' + json.dumps(command['preview']) +
+                         '; localhost HTTP GET only; 768 MiB RAM, 100% CPU, 128 tasks; snapshot, no publication')
+        if 'git' in command:
+            lines.append('    Local Git: scoped status/diff; checkpoint refs require a separate exact operator review; branch and index preserved')
     granted = {g["resource"] for g in policy["project"]["grants"]}
     lines.append("Denied: " + ", ".join(r["path"] for k, r in inv["resources"].items() if k not in granted))
     levels = policy["project"]["escalation"]
@@ -288,6 +293,11 @@ def setup(repo, directory, args, previous=None):
             for command in candidates(repo / root, kind, editable, config, metadata_root=shadow / root, python=python):
                 result.append({**command, 'id': (kind + '-' if language == 'mixed' else '') + command['id'],
                     'resources': [prefix + n for n in command['resources']], **({'cwd': root} if root else {})})
+        from .preview import candidates as preview_candidates
+        result.extend(preview_candidates(scope, metadata, python, args))
+        if getattr(args, 'git', False):
+            from .local_git import candidates as git_candidates
+            result.extend(git_candidates(repo, sorted(set(scope) | set(metadata))))
         return result
     goal = args.goal or ask("What should this project do, and what must it not do?")
     if not goal or len(goal) > 8000:
@@ -658,6 +668,11 @@ def short_review(bundle, generated, trees):
     return "\n".join(["\nPROJECT POLICY REVIEW", "Goal: " + project["description"],
         "Editable: " + ", ".join(writable), "Read only: " + (", ".join(readonly) or "none"),
         "Commands: " + (", ".join(c["id"] for c in project["commands"]) or "none"),
+        'Local Git: ' + ('scoped status/diff; checkpoint refs after separate exact review; no branch/index changes'
+                        if any('git' in c for c in project['commands']) else 'none'),
+        'Local previews: ' + ('; '.join(c['id'] + ': ' + json.dumps(c['argv']) +
+            ' on 127.0.0.1:' + str(c['preview']['port']) + ' for ' + str(c['preview']['lifetime_seconds']) +
+            's, 768 MiB RAM/100% CPU/128 tasks, HTTP GET only, scoped snapshot' for c in project['commands'] if 'preview' in c) or 'none'),
         'Python runtime: ' + (runtime['executable'] + ' (' + runtime['version'] +
             '); requires-python ' + (runtime['requires_python'] or 'unspecified') if runtime else 'not selected'),
         "No test-suite success is implied by setup or a syntax check; tests must actually exist and pass.",
@@ -702,7 +717,7 @@ def start(args):
         recover_dependencies(directory)
         record = load(directory / "project.json") if (directory / "project.json").exists() else None
         if record is None:
-            if args.status or args.stop or args.review:
+            if args.status or args.stop or args.review or getattr(args, 'resume', None) is not None:
                 raise Invalid("This repository has not been set up. Run ptw codex.")
             record = setup(repo, directory, args)
         elif args.revise:
@@ -710,10 +725,12 @@ def start(args):
             print("A new approval will stop all current project sessions. Existing history is retained.", flush=True)
             record = setup(repo, directory, args, previous=record)
         elif (any(getattr(args, name, None) is not None for name in ("goal", "editable", "files", "language", "warn_at", "stop_at", "history",
-                    'python', 'python_source', 'python_editable', 'python_extras', 'python_groups', 'python_root', 'node_root', 'npm_registry_config', 'python_registry_config'))
+                    'python', 'python_source', 'python_editable', 'python_extras', 'python_groups', 'python_root', 'node_root', 'npm_registry_config', 'python_registry_config',
+                    'preview_python', 'preview_node', 'preview_seconds'))
               or getattr(args, 'python_wheel', False) or getattr(args, 'python_native_wheels', False)
               or getattr(args, 'python_build_requirements', False)
               or getattr(args, 'python_full_build', False)
+              or getattr(args, 'git', False)
               or getattr(args, 'pnpm_build', None)
               or getattr(args, 'yarn_build', None)
               or getattr(args, "model_proposal", False)):
@@ -738,15 +755,18 @@ def start(args):
     if args.setup_only:
         return {"project": record["project"], "setup_seconds": round(time.monotonic() - started, 3),
                 "setup_only": True, "protected_terminal_ready": False}
-    session = store.register(record["project"], args.task or record["task"])
-    try:
-        run_dir = directory / "sessions" / session["session"]
-        save(run_dir / "session.json", session)
-        readiness = round(time.monotonic() - started, 3)
-        print(f"PROTECTED: {record['project']} | task {session['task']} | launcher ready in {readiness}s", flush=True)
-        from .terminal import launch
-        result = launch(store, session, run_dir / "session.json", run_dir, prompt=args.prompt)
-    finally:
-        store.close_session(session["token"])
-        Supervisor(store).reconcile()
+    from .conversation import attach
+    with attach(directory, record, args.task or record['task'], getattr(args, 'resume', None)) as (conversation, resume):
+        session = store.register(record["project"], args.task or record["task"])
+        try:
+            run_dir = directory / "sessions" / session["session"]
+            save(run_dir / "session.json", session)
+            readiness = round(time.monotonic() - started, 3)
+            print(f"PROTECTED: {record['project']} | task {session['task']} | launcher ready in {readiness}s", flush=True)
+            from .terminal import launch
+            result = launch(store, session, run_dir / "session.json", run_dir, prompt=args.prompt,
+                            conversation=conversation, resume=resume)
+        finally:
+            store.close_session(session["token"])
+            Supervisor(store).reconcile()
     return {**result, "launcher_ready_seconds": readiness}
