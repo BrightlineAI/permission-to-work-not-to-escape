@@ -60,6 +60,20 @@ and npm locks, including scoped workspace sources. See the precise format and
 validation boundaries in [dependency status](DEPENDENCY_STATUS.md)
 before treating this as complete ecosystem support.
 
+For pnpm v9 locks or Yarn Classic v1 locks, first provision the pinned isolated
+tool using the [pnpm](PNPM.md#bootstrap-the-tool) or [Yarn](YARN.md#bootstrap)
+guide. Then select only the needed workspace sources, for example:
+
+    ptw codex --editable src,dist --files packages/math/index.cjs --setup-only
+
+Review `details`, type `yes` to approve, then run `ptw codex`. Original manifests
+and locks remain authoritative. Dependency hooks need a separate named
+`--pnpm-build NAME` or `--yarn-build NAME` request and explicit policy approval;
+project build/test commands are reviewed separately. For dependency changes,
+run `ptw deps update 'example@^1.0.0' --ecosystem npm`, review the proposed
+native lock, and restart protected work after approval. Frozen setup does not
+repair stale or forbidden locks. See the tool guides for failure recovery.
+
 Missing exact files may be created later through protected tools. No root-directory
 write grant is needed. Metadata remains read only. New directories, generated
 locks/configuration and the review copy are staged and published only after
@@ -158,7 +172,8 @@ The manager's 300-test local suite passed the single/multiple-source native
 terminal flows, protected imports, live edits, compiled rebuilding and static
 and dynamic lock checks. See [source scope and review](ONBOARDING.md#local-python-preparation)
 and [measured evidence](DEPENDENCY_STATUS.md#local-python-evidence).
-Poetry, pnpm/Yarn and broader ecosystem integration remain required queued work.
+Poetry, pnpm and Yarn adapter milestones have passed manager acceptance.
+Combined Node and broader ecosystem/product integration remain separate gates.
 Install scripts require explicit build policy. Metadata such as package
 manifests is read only during agent work; dependency/scope changes need review.
 For a dependency change, use the operator terminal, for example

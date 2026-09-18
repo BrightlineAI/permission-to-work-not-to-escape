@@ -14,22 +14,24 @@ The [Poetry guide](POETRY.md) describes reproducible isolated tooling, locked
 import and reviewed add/remove/update. Native manager checks cover Python
 constraints, dependency-group preservation and compatible wheel selection.
 Focused native checks cover manifest-rooted reachability and inactive platform
-branches, including dependencies shared with active paths. Full acceptance of
-the current Poetry changes remains pending.
+branches, including dependencies shared with active paths. The Poetry milestone
+has passed manager acceptance.
 Broader ecosystem and installed-user acceptance remain separate.
 The [Yarn Classic guide](YARN.md) describes isolated tool bootstrap, frozen
 terminal setup, explicit build approval and reviewed dependency changes. Focused
 native checks cover protected installs, source confinement, builds, terminal
-review, revisions, private registries and compatible resolution. Regressions for
-default public Yarn origins and dependency-ordered builds await native checks;
-full Yarn acceptance is not yet established.
+review, revisions, private registries, compatible resolution, default public
+Yarn origins and dependency-ordered builds. The Yarn milestone has passed manager acceptance.
 The [pnpm guide](PNPM.md) covers isolated tool bootstrap, frozen workspace import
 and reviewed dependency changes. Protected imports and approved dependency builds
 have native manager coverage. Focused checks cover terminal setup and dependency
 revision integration, installed-content and exact peer-context verification.
-Directory-source confinement also has native manager coverage. Final acceptance
-of setup-build approval, private-registry, transitive/optional and revision-failure
-coverage remains pending.
+Directory-source confinement, setup-build approval, private registries,
+transitive/optional dependencies and revision failures have native manager coverage.
+The pnpm milestone has passed manager acceptance. The combined
+[Node import gate](DEPENDENCY_STATUS.md#node-import-integration) retains both
+adapters' security regressions and checks npm workspaces and TypeScript.
+Combined acceptance remains pending; adapter results do not establish full product readiness.
 
 For ordinary Python, JavaScript or TypeScript repositories, start with the
 [interactive quickstart](INTERACTIVE.md): install once, run `ptw codex`, review

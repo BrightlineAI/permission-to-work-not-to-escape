@@ -274,7 +274,10 @@ def resolve_npm(root, stage, rules, *, provider=None, runner=None, view_factory=
                     save(folder / 'package-lock.json', resolved)
                 view = view_factory(provider, excluded, started + seconds)
                 with view as endpoint:
+                    # The notifier requests npm's own metadata independently of
+                    # the project graph, poisoning the fail-closed view on error.
                     argv = [npm, 'install', '--package-lock-only', '--ignore-scripts', '--no-audit', '--no-fund',
+                        '--update-notifier=false',
                         '--before=' + cutoff, '--registry=' + endpoint, '--userconfig=/dev/null',
                         '--globalconfig=' + str(folder / 'empty-global'), '--cache=' + str(folder / 'cache'),
                         '--fetch-retries=0', '--fetch-timeout=' + str(max(1, int((started + seconds - time.monotonic()) * 1000)))]

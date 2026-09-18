@@ -476,6 +476,7 @@ class NpmResolutionTests(unittest.TestCase):
         for argv, opts in self.calls:
             self.assertTrue(any(a.startswith('--before=') for a in argv))
             self.assertIn('--ignore-scripts', argv)
+            self.assertIn('--update-notifier=false', argv)
             self.assertNotIn('NPM_TOKEN', opts['env'])
             self.assertNotIn('overrides', load(Path(opts['cwd']) / 'package.json'))
 
@@ -498,6 +499,22 @@ class NpmResolutionTests(unittest.TestCase):
         with self.assertRaises(ResolutionError) as raised:
             self.run_resolution(['2.0.0'], max_rounds=1)
         self.assertEqual(raised.exception.outcome, 'budget_exhausted')
+
+    def test_npm_metadata_error_rejects_successful_native_exit(self):
+        self.fixture()
+
+        class FailedView(self.view):
+            def __enter__(self):
+                self.error = 'Metadata unavailable: EvidenceError'
+                return super().__enter__()
+
+        self.view = FailedView
+        with self.assertRaisesRegex(EvidenceError, 'Metadata unavailable'):
+            self.run_resolution(['1.0.0'])
+        self.assertFalse((self.repo / 'package-lock.json').exists())
+        receipt = load(self.root / 'attempt-0/resolution.json')
+        self.assertEqual(receipt['outcome'], 'unavailable_evidence')
+        self.assertEqual(receipt['attempts'][0]['returncode'], 0)
 
     def test_npm_binds_inputs_lock_and_artifact_origin(self):
         from ptw.dependency_binding import verify_npm

@@ -79,21 +79,23 @@ Native manager checks cover Poetry locked import, reviewed
 `ptw deps add/remove/update`, protected imports, compatible age/CVSS and wheel
 selection, Python constraints, dependency-group preservation and manifest-rooted
 reachability. Focused native checks also cover inactive-platform lock preservation
-and compatible selection for shared active dependencies. Full acceptance of the
-current Poetry changes remains pending.
+and compatible selection for shared active dependencies. The Poetry milestone
+has passed its manager acceptance checks.
 Use the [pinned tool setup and terminal flows](harness/POETRY.md).
 
 For pnpm v9 locks, provision the pinned tool using the [pnpm guide](harness/PNPM.md),
 then run `ptw codex --setup-only` in the project and review the selected source
 scope. Dependency lifecycle scripts require an explicit `--pnpm-build NAME`
-request and policy approval. Final pnpm acceptance is pending; Yarn remains a
-separate milestone.
+request and policy approval. The pnpm adapter milestone has passed manager acceptance.
 
 For Yarn Classic v1 locks, follow the [isolated Yarn bootstrap](harness/YARN.md),
 then run `ptw codex --setup-only`. Original manifests and `yarn.lock` remain the
 installation authority. Use `--yarn-build NAME` to request dependency build
 approval and `ptw deps add/remove/update --ecosystem npm` for reviewed revisions.
-Final native Yarn acceptance remains pending.
+The Yarn adapter milestone has passed manager acceptance. The combined
+[Node import gate](harness/DEPENDENCY_STATUS.md#node-import-integration) also
+checks npm workspace confinement and real TypeScript compilation. Combined
+acceptance and broader product journeys remain separate from those adapter results.
 
 The repository includes experimental policy, authorization, diagnostic and escalation components. See the [architecture](docs/architecture.md), [data availability](docs/evidence.md), [future work](docs/roadmap.md) and [contribution guide](CONTRIBUTING.md).
 

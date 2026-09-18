@@ -3,9 +3,10 @@
 The controller imports reviewed pnpm v9 locks through the existing npm policy.
 Native manager checks cover protected workspace, peer and directory-source imports,
 approved dependency builds, source confinement, frozen terminal setup, reviewed
-updates and shared stopping. Final acceptance of the completed adapter and new
-setup-build, private-registry, transitive/optional and revision-failure tests is
-pending. Provisioning alone does not approve a project or authorize scripts.
+updates and shared stopping. The adapter milestone passed manager acceptance,
+including setup-build, private-registry, transitive/optional and revision-failure
+tests. Combined Node and full product acceptance remain separate.
+Provisioning alone does not approve a project or authorize scripts.
 
 ## Bootstrap the tool
 
@@ -150,8 +151,7 @@ or symbolic links, even inside an approved package. This also rejects sibling
 files such as `node_modules/example.js` that could shadow a reviewed package.
 The pinned tool's addition of empty `ignoredBuilds` bookkeeping is permitted;
 other installation metadata must remain structurally unchanged. Native manager
-checks cover the prior registry build and peer-context boundaries; acceptance
-of the complete-tree shadowing regressions remains pending.
+checks cover registry builds, peer contexts and complete-tree shadowing regressions.
 Root/local lifecycle hooks remain disabled. The pinned rebuild implementation
 does not handle implicit `binding.gyp` builds reliably; those require an explicit
 package build script. Build approval is not granted by provisioning the tool.
@@ -177,7 +177,8 @@ The supported boundary is the pinned tool, v9 locks, ordinary in-tree workspace
 and directory sources, and registry tarballs. Other lock generations, catalogs,
 patches, custom linkers, VCS dependencies and project plugins fail explicitly.
 This experimental adapter does not promise every package or unknown-vulnerability
-protection. Yarn and broader product acceptance remain separate milestones.
+protection. See the [combined Node import gate](DEPENDENCY_STATUS.md#node-import-integration)
+for integration coverage and remaining product validation.
 
 ## Interface sources
 

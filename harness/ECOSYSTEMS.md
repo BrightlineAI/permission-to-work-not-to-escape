@@ -15,6 +15,7 @@ from pending native journeys and missing ordinary adapters.
 | Exact Python pins | Pure and compatible native wheels, dependency markers, extras and wheel data |
 | PyPI source distributions | Explicitly authorized offline PEP 517 builds, with all build dependencies supplied and checked |
 | npm lock version 2 or 3 | Registry packages, scoped names, nested versions, peers and optional dependencies; workspace source descriptors |
+| pnpm v9 / Yarn Classic v1 lock | Native frozen import, confined workspace/directory sources, explicit dependency builds and reviewed revisions; [pnpm](PNPM.md) / [Yarn](YARN.md) tool bootstrap required |
 | JavaScript / TypeScript | CommonJS, ESM, TypeScript compilation and package executables |
 | npm install scripts | Only for named packages in the approved build list; confined and offline |
 

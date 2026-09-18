@@ -4,9 +4,10 @@ The adapter uses isolated Yarn Classic 1.22.22, original manifests and
 `yarn.lock`, with npm ecosystem security rules. It supports frozen setup,
 protected installs, workspace and in-tree directory sources, explicitly approved
 builds and reviewed dependency changes. Manager checks covered the existing
-suite, including revisions, private registries and graph validation. Regressions
-for default public Yarn origins and dependency-ordered builds await native
-verification. Full Yarn and overall ecosystem acceptance remain pending.
+suite, including revisions, private registries, graph validation, default public
+Yarn origins and dependency-ordered builds. The Yarn milestone passed manager
+acceptance. The [combined Node gate](DEPENDENCY_STATUS.md#node-import-integration)
+and overall ecosystem acceptance remain separate.
 
 ## Bootstrap
 

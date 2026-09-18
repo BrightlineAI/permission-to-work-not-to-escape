@@ -347,7 +347,8 @@ Selected groups/extras remain bound to the policy across revisions. See
 remaining native validation. Local Python preparation and private Python routing
 have passed focused manager checks. The full native manager check passed all 32
 [Poetry tests](POETRY.md), including approval terminals and compatible age/CVSS
-selection. pnpm/Yarn completion and full ecosystem integration are still required.
+selection. The [pnpm](PNPM.md) and [Yarn](YARN.md) adapter milestones also passed
+manager acceptance. Combined Node and full ecosystem integration remain separate gates.
 
 ## Publication and recovery
 

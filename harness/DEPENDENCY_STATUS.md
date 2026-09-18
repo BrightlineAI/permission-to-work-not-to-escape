@@ -14,10 +14,10 @@ is unchanged; broader Poetry integration, Node and product requirements still ap
 | Local wheel/editable projects | Explicit source resources, isolated builds, validated imports and reviewed rebuilding | No repository-wide grant or automatic missing-dependency approval |
 | Multiple local projects | Separate build graphs, local version/extra checks, one shared runtime installation | Local packages in build requirements fail closed |
 | uv.lock | Static native locked export; dynamic candidate export followed by approved offline freshness validation | Private-origin locks and unavailable offline metadata fail closed |
-| Poetry lock | Native locked export, manifest-rooted wheel graph checks, protected import and reviewed revisions with compatible age/CVSS/wheel selection; focused native checks cover inactive-platform preservation | Full acceptance of the current changes remains pending. Public wheel-only sources; local/private integration and installed-user acceptance remain separate; see [Poetry setup](POETRY.md) |
+| Poetry lock | Native locked export, manifest-rooted wheel graph checks, protected import and reviewed revisions with compatible age/CVSS/wheel selection; milestone passed manager acceptance | Public wheel-only sources; local/private integration and installed-user acceptance remain separate; see [Poetry setup](POETRY.md) |
 | npm v2/v3 lock | Root, workspaces and in-tree file sources; reviewed native revisions | Full Node/TypeScript integration acceptance remains queued |
-| Yarn Classic v1 | Native frozen authority, protected imports/builds, source confinement, terminal review, revisions, private registries and compatible resolution have manager coverage | Default public-origin and dependency-build-order regressions await native verification; final acceptance pending; see [Yarn guide](YARN.md) |
-| pnpm v9 lock | Native protected workspace/peer/directory imports, approved builds, frozen terminal setup, reviewed revisions and exact artifact/edge verification | Final acceptance of setup-build, private-registry, transitive/optional and revision-failure coverage pending; see [pnpm guide](PNPM.md) |
+| Yarn Classic v1 | Native frozen authority, protected imports/builds, source confinement, terminal review, revisions, private registries and compatible resolution; milestone passed manager acceptance | Combined Node and installed-user acceptance remain separate; see [Yarn guide](YARN.md) |
+| pnpm v9 lock | Native protected workspace/peer/directory imports, approved builds, frozen terminal setup, reviewed revisions and exact artifact/edge verification; milestone passed manager acceptance | Combined Node and installed-user acceptance remain separate; see [pnpm guide](PNPM.md) |
 
 Python uses an explicitly reviewed installed interpreter under `/usr` satisfying
 the original runtime requirements. uv resolves compatible candidates with the
@@ -32,6 +32,48 @@ single/multiple sources, dynamic metadata, hook reviews, native code and lockfil
 The [interactive guide](INTERACTIVE.md) covers normal protected work. Source code
 and registry packages have distinct identities: a local name is never silently
 substituted with a public namesake.
+
+## Node import integration
+
+The pnpm and Yarn milestones passed their separate manager acceptance checks.
+The combined `test_product_node_import.py` gate adds protected use of both tools,
+narrower delegates, foreign authority/package-set denial, changed-input and
+unapproved-hook rejection, explicitly approved builds and an unrelated-project
+control. The completed gate,
+including npm workspace and TypeScript compatibility, awaits full manager acceptance.
+
+The gate explicitly selects existing regressions for stale/malformed locks,
+missing/corrupt artifacts, source escapes and directory copies, registry identity,
+critical/young releases, compatible updates and exact-pin failure. Real terminal
+tests exercise details, reject, EOF and approval, revision rollback and concurrent
+edits. Authenticated local fixtures check credential confinement without an
+external account. Tests retain the original assertions and use native tooling.
+The TypeScript case uses the existing example and real public `typescript@5.8.3`
+compiler through npm security, then compiles and executes its emitted JavaScript.
+It requires live registry/advisory evidence; outages must fail, not skip.
+Native npm resolution disables its unrelated CLI update notification with
+[`--update-notifier=false`](https://docs.npmjs.com/cli/v10/using-npm/config/#update-notifier).
+The [pinned npm implementation](https://github.com/npm/cli/blob/v10.9.8/lib/cli/update-notifier.js)
+otherwise requests npm's own metadata through the project's registry view.
+Dependency metadata errors still abort resolution even if npm exits successfully;
+age, advisory, origin, integrity and response limits remain enforced.
+
+On the isolated Linux VPS, first install this checkout in the
+[source-test environment](README.md#run-the-tests), then run:
+
+```sh
+PTW_LINUX_TESTS=1 python -B -m unittest discover -s harness/tests -p test_product_node_import.py -v
+```
+
+Each native tool bootstraps into a fresh private directory. Test receipts record
+source/input hashes and physical outputs, including failures. The suite requires
+Node 22/npm, bubblewrap, nono, uv, openssl, sockets/network and a systemd user
+session. Run through the manager outside the coding sandbox. These deterministic
+fixtures and synthetic approvals are not model trajectories, fresh-wheel
+installed-user journeys or complete product acceptance. The accepted pnpm/Yarn
+adapters are unchanged; this gate reuses the primary
+sources documented in the [pnpm](PNPM.md#interface-sources) and
+[Yarn](YARN.md#interface-sources) guides.
 
 ## Local Python evidence
 
@@ -153,9 +195,9 @@ scope and violation history, revokes old sessions and stops registered work.
 Successful publication requires restarting protected work. Reject/cancel/EOF
 does not authorize publication; recovery never revives stopped sessions.
 
-Poetry local/private integration, pnpm/Yarn completion, full Node
-workspace acceptance and end-to-end ecosystem revisions remain required work.
-Trusted isolated Poetry/pnpm payloads must be provisioned explicitly; an ambient
+Poetry local/private integration, combined Node acceptance and end-to-end
+ecosystem journeys remain separate requirements. Trusted isolated Poetry/pnpm/Yarn
+payloads must be provisioned explicitly; an ambient
 shim or automatic Corepack download is not a verified tool installation.
 External/VCS sources, repository-selected plugins, arbitrary extra-marker boolean
 forms, symlink-based editable trees and uncontrolled build downloads are outside
