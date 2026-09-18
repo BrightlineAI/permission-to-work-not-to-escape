@@ -47,9 +47,10 @@ installation per case and no PYTHONPATH. It builds the current source using the
 release builder's hashed setuptools prerequisite, installs the hashed runtime
 lock, compares installed module hashes with current source in foreground and
 detached services, and checks the real project monitor's interpreter. It repeats
-identity verification after useful work. These native tests await successful
-manager validation. They use provisioned native tools and do not measure cold
-product installation, make model calls or test an external private account.
+identity verification after useful work. Manager checks passed this matrix;
+final-source integration acceptance remains pending. They use provisioned native
+tools and do not measure cold product installation, make model calls or test an
+external private account.
 
 Run the approved ecosystem suite from the isolated source-test environment:
 

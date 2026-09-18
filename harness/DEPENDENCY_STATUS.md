@@ -3,8 +3,8 @@
 The bounded adapters below are implemented. Private/local Python, Poetry, pnpm,
 Yarn and combined Node milestones passed manager acceptance. Focused native
 checks also passed the source journey matrix, npm policy-aware fallback and
-mixed/local dependency revisions. Fresh-wheel journeys are implemented;
-successful manager validation and final integration acceptance remain pending. These
+mixed/local dependency revisions. Manager checks passed the fresh-wheel journey
+matrix too; final-source integration acceptance remains pending. These
 results do not establish the full [product contract](PRODUCT_ACCEPTANCE.json).
 
 ## Current formats and approvals
@@ -230,7 +230,8 @@ and runtime lock, verifies exact installed module hashes in foreground and
 detached services, checks the actual monitor interpreter and repeats identity
 verification after useful work. The driver records source/input/wheel hashes,
 failed steps, terminal reviews and physical outputs in new private directories.
-These native checks await successful manager validation. Follow the
+Manager checks passed this matrix; final-source integration acceptance remains
+pending. Follow the
 [source-test installation instructions](README.md#run-the-tests) before running
 the approved suite; PYTHONPATH alone cannot establish detached-service identity.
 

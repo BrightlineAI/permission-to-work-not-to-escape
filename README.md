@@ -80,9 +80,9 @@ review. Lifecycle builds require named approval.
 The accepted adapters and focused native journeys establish useful imports,
 builds, compatible dependency selection and confined local/private sources.
 The [bounded support matrix and validation status](harness/DEPENDENCY_STATUS.md)
-distinguish these results from final integration acceptance. Fresh-wheel journey
-checks are implemented and await successful manager validation; complete product readiness
-and first-setup timing remain separate gates.
+distinguish these results from final integration acceptance. Manager checks passed
+the source and fresh-wheel journey matrices; final-source integration acceptance,
+complete product readiness and first-setup timing remain separate gates.
 
 The repository includes experimental policy, authorization, diagnostic and escalation components. See the [architecture](docs/architecture.md), [data availability](docs/evidence.md), [future work](docs/roadmap.md) and [contribution guide](CONTRIBUTING.md).
 

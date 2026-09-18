@@ -964,8 +964,15 @@ class PrivatePythonTests(unittest.TestCase):
         paths = [str(Path(root) / 'ptw-synthetic/credential.json') for root in
                  ('/usr', '/bin', '/sbin', '/lib', '/lib64', '/proc', '/sys', '/dev')]
         paths += ['/usr/local/share/ptw-synthetic/credential.json',
-                  str(alias / 'ptw-synthetic/credential.json'),
-                  str(self.root / '../../usr/ptw-synthetic/credential.json'), '/']
+                  str(alias / 'ptw-synthetic/credential.json'), '/']
+        # Temporary roots may live under /tmp, /var/tmp or a deeper directory.
+        # Exercise traversal from both depths without reading a credential file.
+        for base in (self.root.resolve(), self.root.resolve() / 'nested/fixture'):
+            base.mkdir(parents=True, exist_ok=True)
+            traversal = base.joinpath(*(['..'] * (len(base.parts) - 1)),
+                                      'usr/ptw-synthetic/credential.json')
+            self.assertEqual(traversal.resolve(), Path('/usr/ptw-synthetic/credential.json'))
+            paths.append(str(traversal))
         for value in paths:
             config = {'version': 1, 'packages': {'demo': {
                 'registry': 'https://private.invalid', 'advisories': 'https://private.invalid',

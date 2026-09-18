@@ -12,9 +12,9 @@ under explicit approval before work resumes. See the
 [bounded format matrix](DEPENDENCY_STATUS.md) and the [Poetry](POETRY.md),
 [pnpm](PNPM.md) and [Yarn Classic](YARN.md) tool guides.
 
-Adapter milestones and focused native source journeys have passed manager
-checks. Fresh-wheel journeys verify installed source hashes in foreground and
-detached processes; those new checks and final integration acceptance are pending.
+Adapter milestones and both source and fresh-wheel journey matrices have passed
+manager checks. Fresh-wheel journeys verify installed source hashes in foreground
+and detached processes; final-source integration acceptance remains pending.
 These deterministic tests do not establish complete product readiness, live
 Codex behavior or the first-setup timing target.
 
