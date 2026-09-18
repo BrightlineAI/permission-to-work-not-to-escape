@@ -1669,6 +1669,99 @@ class DependencyRevisionTests(unittest.TestCase):
         self.assertIn('pypi:unrelated', bundle['policy']['tasks'][0]['packages'])
         self.assertEqual(store.status('revision-project')['violations'], 1)
 
+    def test_failed_preparation_restores_bundle_bindings_and_history(self):
+        from ptw.dependency_revision import recover
+        directory, store, session, bundle, _ = self.activated()
+        def failed(*args):
+            with store.locked() as db:
+                row, current = store.project(db, 'revision-project')
+                self.assertTrue(row['setup_pending'])
+                self.assertNotEqual(current['approval'], bundle['approval'])
+            with self.assertRaisesRegex(Invalid, 'pending recovery'):
+                store.register('revision-project', 'work')
+            raise OSError('synthetic local build failure')
+        with patch('ptw.python_local.prepare_setup', side_effect=failed), \
+                self.assertRaisesRegex(OSError, 'local build failure'):
+            self.remove()
+        recover(directory)
+        recover(directory)
+        with store.locked() as db:
+            row, current = store.project(db, 'revision-project')
+            self.assertEqual(current, bundle)
+            self.assertFalse(row['setup_pending'])
+            self.assertIsNone(row['dependency_revision'])
+            self.assertEqual(row['violations'], 1)
+            from ptw.workspace import Workspace
+            Workspace(store).integrity(db, 'revision-project', current)
+            with self.assertRaises(Invalid):
+                store.session(db, session['token'])
+        verify_inputs(bundle)
+        self.assertEqual(load(directory / 'dependency-journal.json')['phase'], 'rolled-back')
+
+    def test_stop_during_preparation_survives_rollback(self):
+        _, store, _, bundle, _ = self.activated()
+        def stopped(*args):
+            store.stop('revision-project', 'synthetic stop during preparation')
+            return []
+        with patch('ptw.python_local.prepare_setup', side_effect=stopped), \
+                self.assertRaisesRegex(Invalid, 'Stopped or mismatched'):
+            self.remove()
+        with store.locked() as db:
+            row, current = store.project(db, 'revision-project')
+            self.assertEqual(current, bundle)
+            self.assertTrue(row['stopped'])
+            self.assertEqual(row['violations'], 1)
+
+    def test_interrupted_pending_revision_recovers_once_without_revival(self):
+        from ptw import dependency_revision as revision
+        directory, store, session, bundle, _ = self.activated()
+        with patch('ptw.python_local.prepare_setup', side_effect=OSError('interrupted build')), \
+                patch.object(revision, 'recover', side_effect=[None, RuntimeError('interrupted recovery')]), \
+                self.assertRaisesRegex(RuntimeError, 'interrupted recovery'):
+            self.remove()
+        with store.locked() as db:
+            row, pending = store.project(db, 'revision-project')
+            self.assertTrue(row['setup_pending'])
+            self.assertNotEqual(pending['approval'], bundle['approval'])
+        revision.recover(directory)
+        revision.recover(directory)
+        verify_inputs(bundle)
+        with store.locked() as db:
+            row, current = store.project(db, 'revision-project')
+            self.assertEqual(current, bundle)
+            self.assertFalse(row['setup_pending'])
+            self.assertIsNone(row['dependency_revision'])
+            self.assertEqual(row['violations'], 1)
+            with self.assertRaises(Invalid):
+                store.session(db, session['token'])
+
+    def test_preparation_recovery_does_not_rebind_replaced_unrelated_tree(self):
+        _, store, _, _, _ = self.activated()
+        def failed(*args):
+            (self.repo / 'src').rename(self.repo / 'original-src')
+            (self.repo / 'src').mkdir()
+            (self.repo / 'src/new.py').write_text('PRESERVE_CONCURRENT_DATA\n')
+            raise OSError('interrupted preparation')
+        with patch('ptw.python_local.prepare_setup', side_effect=failed), \
+                self.assertRaisesRegex(Invalid, 'replaced unrelated resource'):
+            self.remove()
+        self.assertTrue(store.status('revision-project')['stopped'])
+        self.assertEqual((self.repo / 'src/new.py').read_text(), 'PRESERVE_CONCURRENT_DATA\n')
+        self.assertEqual((self.repo / 'original-src/app.py').read_text(), 'VALUE = 42\n')
+
+    def test_registry_edits_preserve_local_requirements(self):
+        from ptw.dependency_revision import edit_requirements
+        original = '# local authority\n-e .\n./packages/math\ndemo==1.0\n'
+        self.assertEqual(edit_requirements(original, 'update', ['demo>=1,<2']),
+            '# local authority\n-e .\n./packages/math\ndemo>=1,<2\n')
+        self.assertEqual(edit_requirements(original, 'remove', ['demo']),
+            '# local authority\n-e .\n./packages/math\n')
+        with self.assertRaises(Invalid):
+            edit_requirements(original, 'remove', ['local-demo'])
+        for entry in ('-e ../outside', '-e /tmp/outside', './bad[extra', './bad$PATH'):
+            with self.subTest(entry=entry), self.assertRaises(Invalid):
+                edit_requirements(entry + '\ndemo==1.0\n', 'remove', ['demo'])
+
     def test_stop_during_publication_survives_rollback(self):
         from ptw import dependency_revision as revision
         _, store, _, _, _ = self.activated()
@@ -1809,6 +1902,353 @@ class DependencyRevisionTests(unittest.TestCase):
             self.assertEqual(store.status('revision-project')['violations'], 1)
             self.assertEqual((self.repo / 'requirements.txt').read_text(), 'demo==1.0\n' if reply == 'reject' else '')
         self.assertEqual(load(directory / 'project.json')['project'], 'revision-project')
+
+
+def native_evidence(label):
+    """Retain failures and the exact maintained inputs outside the checkout."""
+    import ptw
+    from ptw.policy import save
+    root = Path(tempfile.mkdtemp(prefix='ptw-ecosystems-' + label + '-'))
+    source = Path(__file__).resolve().parents[1]
+    paths = [*sorted((source / 'ptw').glob('*.py')), Path(__file__),
+             source / 'scripts/product_ecosystems_acceptance.py',
+             source / 'scripts/terminal_driver.py', source / 'requirements.lock',
+             source / 'tests/test_ecosystems.py', source / 'tests/test_product_pnpm.py',
+             source / 'tests/test_product_python_local.py',
+             *sorted(p for p in (source / 'examples/product-ecosystems').rglob('*') if p.is_file())]
+    save(root / 'source.json', {'imported_ptw': str(Path(ptw.__file__).resolve()),
+        'python': sys.executable, 'hashes': {
+            str(p.relative_to(source)): hashlib.sha256(p.read_bytes()).hexdigest() for p in paths}})
+    print('ECOSYSTEM_EVIDENCE ' + str(root), flush=True)
+    return root
+
+
+@unittest.skipUnless(os.environ.get('PTW_LINUX_TESTS') == '1',
+                     'manager native ecosystem terminal checks required')
+class NativeJourneyTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.evidence = native_evidence(cls.__name__)
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
+        import product_ecosystems_acceptance
+        cls.driver = product_ecosystems_acceptance
+
+    def journey(self, case):
+        from ptw.policy import save
+        attempt = self.evidence / case
+        try:
+            result = self.driver.journey(attempt, case, terminal=True)
+            self.assertTrue(result['passed'], result)
+            self.assertTrue(result['unrelated_process_alive_after_stop'])
+            self.assertFalse(result['denial']['allowed'])
+            self.assertEqual(len(result['installs']), 2 if 'mixed' in case else 1)
+            self.assertTrue(all(r['allowed'] for r in result['installs']))
+            self.assertTrue(all(c['result']['exit_code'] == 0 for c in result['commands']))
+            self.assertEqual(bool(result['source_creates']), case.startswith('new-'))
+            reviews = load(attempt / 'reviews.json')
+            self.assertEqual([r['answer'] for r in reviews],
+                ['reject', 'cancel', 'eof', 'yes'] if 'mixed' in case else ['yes'])
+            roots = [('python', 'backend'), ('typescript', 'frontend')] if 'mixed' in case else [
+                (case.split('-', 1)[1], '')]
+            fixture = Path(__file__).resolve().parents[1] / 'examples/product-ecosystems'
+            for language, folder in roots:
+                for name in ('pyproject.toml', 'package.json', 'tsconfig.json', 'package-lock.json'):
+                    original = fixture / language / name
+                    if original.exists():
+                        self.assertEqual((attempt / 'repo' / folder / name).read_bytes(), original.read_bytes())
+        except Exception as exc:
+            save(attempt / 'failure.json', {'error_type': type(exc).__name__, 'error': str(exc)})
+            raise
+        finally:
+            repo = attempt / 'repo'
+            save(attempt / 'project-hashes.json', {str(p.relative_to(repo)):
+                hashlib.sha256(p.read_bytes()).hexdigest() for p in repo.rglob('*') if p.is_file()})
+
+    def test_new_python(self):
+        self.journey('new-python')
+
+    def test_existing_python(self):
+        self.journey('existing-python')
+
+    def test_new_node(self):
+        self.journey('new-node')
+
+    def test_existing_node(self):
+        self.journey('existing-node')
+
+    def test_new_typescript(self):
+        self.journey('new-typescript')
+
+    def test_existing_typescript(self):
+        self.journey('existing-typescript')
+
+    def test_existing_mixed_python_typescript(self):
+        self.journey('existing-mixed-python-node')
+
+    def test_existing_npm_workspace(self):
+        self.journey('existing-workspace')
+
+
+class InstalledWheelJourneyTests(NativeJourneyTests):
+    """The same finite matrix in separate non-editable installations."""
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        try:
+            cls.wheel, cls.hashes = cls.driver.build_test_wheel(cls.evidence / 'build')
+        except BaseException as exc:
+            from ptw.policy import save
+            save(cls.evidence / 'build-failure.json', {'error_type': type(exc).__name__})
+            raise
+
+    def journey(self, case):
+        from ptw.policy import save
+        attempt = self.evidence / case
+        try:
+            result = self.driver.installed_journey(attempt, case, self.wheel, self.hashes)
+            self.assertTrue(result['passed'])
+            self.assertTrue(result['unrelated_process_alive_after_stop'])
+            self.assertFalse(result['denial']['allowed'])
+            self.assertEqual(len(result['installs']), 2 if 'mixed' in case else 1)
+            self.assertTrue(all(r['allowed'] for r in result['installs']))
+            self.assertTrue(all(c['result']['exit_code'] == 0 for c in result['commands']))
+            self.assertEqual(bool(result['source_creates']), case.startswith('new-'))
+            reviews = load(attempt / 'journey/reviews.json')
+            self.assertEqual([r['answer'] for r in reviews],
+                ['reject', 'cancel', 'eof', 'yes'] if 'mixed' in case else ['yes'])
+        except BaseException as exc:
+            save(attempt / 'failure.json', {'error_type': type(exc).__name__})
+            raise
+        finally:
+            repo = attempt / 'journey/repo'
+            save(attempt / 'project-hashes.json', {str(p.relative_to(repo)):
+                hashlib.sha256(p.read_bytes()).hexdigest() for p in repo.rglob('*') if p.is_file()})
+
+
+class WheelIdentityTests(unittest.TestCase):
+    def test_failed_and_timed_out_steps_keep_attempt_receipts(self):
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
+        from product_ecosystems_acceptance import wheel_step
+        with tempfile.TemporaryDirectory() as temporary:
+            out = Path(temporary) / 'step.json'
+            with patch('product_ecosystems_acceptance.subprocess.run', return_value=
+                       SimpleNamespace(returncode=7, stdout=b'private output', stderr=b'private error')):
+                with self.assertRaises(AssertionError):
+                    wheel_step(['fixture'], out, {})
+            result = load(out)
+            self.assertFalse(result['passed'])
+            self.assertEqual(result['exit_code'], 7)
+            self.assertEqual(result['stderr_sha256'], hashlib.sha256(b'private error').hexdigest())
+            self.assertNotIn('private error', out.read_text())
+            self.assertEqual(out.with_suffix('.stderr').read_bytes(), b'private error')
+            timeout = Path(temporary) / 'timeout.json'
+            with patch('product_ecosystems_acceptance.subprocess.run',
+                       side_effect=subprocess.TimeoutExpired('fixture', 1)):
+                with self.assertRaises(subprocess.TimeoutExpired):
+                    wheel_step(['fixture'], timeout, {}, timeout=1)
+            self.assertFalse(load(timeout)['passed'])
+            self.assertEqual(load(timeout)['error_type'], 'TimeoutExpired')
+
+    def test_installed_identity_rejects_source_editable_and_changed_bytes(self):
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
+        from product_ecosystems_acceptance import verify_wheel_identity
+        with tempfile.TemporaryDirectory() as temporary:
+            installation = Path(temporary) / 'installation'
+            hashes = {'__init__.py': 'current-source-digest'}
+            identity = {'path': str(installation / 'lib/python3.12/site-packages/ptw'),
+                'prefix': str(installation), 'hashes': hashes, 'pythonpath_present': False,
+                'direct_url': {'archive_info': {'hashes': {'sha256': 'wheel-digest'}}}}
+            verify_wheel_identity(identity, installation, hashes)
+            # uv's real local-wheel receipt has no optional archive hashes.
+            # Both legal metadata forms must retain every identity rejection.
+            self.check_identity_rejections(verify_wheel_identity, identity, installation, hashes, temporary)
+            identity['direct_url'] = {'url': (Path(temporary) / 'fixture.whl').as_uri(),
+                                      'archive_info': {}}
+            verify_wheel_identity(identity, installation, hashes)
+            self.check_identity_rejections(verify_wheel_identity, identity, installation, hashes, temporary)
+
+    def check_identity_rejections(self, verify_wheel_identity, identity, installation, hashes, temporary):
+        for change in ({'path': str(Path(temporary) / 'checkout/ptw')},
+                       {'prefix': temporary}, {'hashes': {}},
+                       {'hashes': {'__init__.py': 'stale'}}, {'pythonpath_present': True},
+                       {'direct_url': {'dir_info': {'editable': True}}},
+                       {'direct_url': {'archive_info': {}, 'dir_info': {'editable': True}}},
+                       {'direct_url': {'archive_info': None}},
+                       {'direct_url': {'archive_info': []}},
+                       {'direct_url': {'archive_info': ['not-an-object']}},
+                       {'direct_url': {'archive_info': 'not-an-object'}},
+                       {'direct_url': {}}):
+            with self.subTest(archive=identity['direct_url'], change=change), self.assertRaises(AssertionError):
+                verify_wheel_identity({**identity, **change}, installation, hashes)
+
+
+@unittest.skipUnless(os.environ.get('PTW_LINUX_TESTS') == '1',
+                     'native revision sockets, namespaces and systemd required')
+class NativeRevisionCompositionTests(unittest.TestCase):
+    def setUp(self):
+        self.evidence = native_evidence(self._testMethodName)
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
+        import product_ecosystems_acceptance
+        self.driver = product_ecosystems_acceptance
+
+    def test_mixed_revisions_preserve_other_ecosystem_and_useful_work(self):
+        from ptw.policy import save
+        try:
+            result = self.driver.journey(self.evidence / 'mixed', 'existing-mixed-python-node',
+                                         terminal=True, revisions=True)
+            self.assertTrue(result['passed'])
+            self.assertEqual(len(result['revisions']), 2)
+            for revision in result['revisions']:
+                outputs = '\n'.join(c['result']['output'] for c in revision['commands'])
+                self.assertIn('Ran 2 tests', outputs)
+                self.assertIn('TYPESCRIPT_BUILD_OK 42', outputs)
+        except Exception as exc:
+            save(self.evidence / 'failure.json', {'type': type(exc).__name__, 'error': str(exc)})
+            raise
+
+    def test_local_editable_add_update_remove_rebuilds_and_preserves_history(self):
+        from test_product_python_local import LocalSetupTests
+        from ptw.monitor import remove
+        from ptw.supervisor import Supervisor
+        from ptw.policy import save
+        from ptw.workspace import request
+        from ptw.workflow import dispatch
+        fixture = LocalSetupTests('runTest')
+        fixture.setUp()
+        self.addCleanup(fixture.doCleanups)
+        (fixture.repo / 'requirements.in').write_text('-e .\nsix==1.17.0\n')
+        operator = fixture.root / 'operator-root'
+        store = None
+        unrelated = subprocess.Popen(['/usr/bin/sleep', '600'])
+        try:
+            with patch.dict(os.environ, {'PTW_USER_STATE': str(operator)}), \
+                    patch('ptw.codex.require_login'), patch('sys.stdin.isatty', return_value=True), \
+                    patch('builtins.input', return_value='yes'):
+                fixture.state = onboarding.private_directory(fixture.repo)
+                record = fixture.setup()
+            store = Store(record['state'])
+            actor = store.register(record['project'], 'work')
+            denied = dispatch(store, actor, 'retained-denial', request('read', 'unrelated.txt'))
+            self.assertFalse(denied['allowed'])
+            results = []
+            for operation, spec in [('remove', 'six'), ('add', 'six==1.17.0'), ('update', 'six>=1.16,<2')]:
+                result = self.driver.revision(self.evidence / operation, record, fixture.repo, operator,
+                    ecosystem='pypi', root='', source='requirements.in', operation=operation, spec=spec,
+                    refusals=('reject', 'cancel', 'eof') if operation == 'add' else ())
+                self.assertTrue(result['local_prepared'])
+                self.assertEqual(result['violations'], 1)
+                self.assertIn('EDITABLE_VALUE 42', '\n'.join(c['result']['output'] for c in result['commands']))
+                self.assertTrue((fixture.repo / 'requirements.in').read_text().startswith('-e .\n'))
+                with store.locked() as db:
+                    _, bundle = store.project(db, record['project'])
+                descriptor = bundle['policy']['project']['python_dependencies']
+                self.assertEqual(descriptor['sources'][0]['mode'], 'editable')
+                self.assertEqual(bool(descriptor['pins']), operation != 'remove')
+                self.assertFalse(any(a['name'] == 'local-demo' for a in descriptor['artifacts']))
+                results.append(result)
+            self.assertEqual(fixture.private.read_text(), 'UNRELATED_LOCAL_SOURCE')
+            self.assertEqual(fixture.external.read_text(), 'EXTERNAL_CONTROL')
+            save(self.evidence / 'revisions.json', results)
+        except Exception as exc:
+            save(self.evidence / 'failure.json', {'type': type(exc).__name__, 'error': str(exc)})
+            raise
+        finally:
+            if store:
+                store.stop(record['project'])
+                Supervisor(store).reconcile()
+                remove(store)
+            alive = unrelated.poll() is None
+            unrelated.terminate()
+            unrelated.wait(timeout=5)
+            save(self.evidence / 'controls.json', {'unrelated_alive_after_stop': alive,
+                'project_hashes': {str(p.relative_to(fixture.repo)): hashlib.sha256(p.read_bytes()).hexdigest()
+                                  for p in fixture.repo.rglob('*') if p.is_file()}})
+            self.assertTrue(alive)
+
+
+@unittest.skipUnless(os.environ.get('PTW_LINUX_TESTS') == '1',
+                     'native npm metadata sockets and namespace required')
+class NativeNpmResolutionTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.evidence = native_evidence('npm-resolution')
+
+    def setUp(self):
+        from test_ecosystems import NpmFixture
+        from test_product_pnpm import PnpmRegistryFixture
+        self.root = self.evidence / self._testMethodName
+        self.repo = self.root / 'repo'
+        self.repo.mkdir(parents=True)
+        self.provider = PnpmRegistryFixture([
+            NpmFixture('parent', '1.0.0', fields={'dependencies': {'demo': '>=1 <4'}}),
+            *(NpmFixture('demo', v) for v in ('1.0.0', '2.0.0', '3.0.0'))])
+        self.provider.overrides['demo', '2.0.0'] = {'vulnerabilities': [CRITICAL]}
+        self.provider.overrides['demo', '3.0.0'] = {
+            'published_at': datetime.now(timezone.utc).isoformat()}
+        self.attempt = 0
+
+    def resolve(self, **options):
+        from ptw.npm_resolution import resolve_npm
+        self.attempt += 1
+        # No replacement runner/view: npm solves through the actual broker
+        # metadata socket in the native namespace. Evidence alone is synthetic.
+        return resolve_npm(self.repo, self.root / ('attempt-' + str(self.attempt)), RULES,
+                           provider=self.provider, **options)
+
+    def manifest(self, dependencies):
+        (self.repo / 'package.json').write_text(json.dumps({
+            'name': 'native-candidates', 'version': '1.0.0', 'dependencies': dependencies}))
+        return (self.repo / 'package.json').read_bytes()
+
+    def test_native_direct_and_transitive_age_cvss_fallback(self):
+        for dependencies in ({'demo': '>=1 <4'}, {'parent': '1.0.0'}):
+            with self.subTest(dependencies=dependencies):
+                original = self.manifest(dependencies)
+                result = self.resolve()
+                self.assertEqual(result['lock']['packages']['node_modules/demo']['version'], '1.0.0')
+                self.assertEqual(len(result['attempts']), 2)
+                self.assertEqual(result['attempts'][0]['rejected'], [['demo', '2.0.0']])
+                self.assertEqual(result['attempts'][1]['excluded'], [['demo', '2.0.0']])
+                self.assertNotIn(('demo', '3.0.0'), self.provider.assessments)
+                self.assertEqual((self.repo / 'package.json').read_bytes(), original)
+                self.assertFalse((self.repo / 'package-lock.json').exists())
+                if 'parent' in dependencies:
+                    self.assertEqual(result['lock']['packages']['node_modules/parent']['dependencies'],
+                                     {'demo': '>=1 <4'})
+
+    def test_native_frozen_lock_rejects_and_reviewed_update_falls_back(self):
+        from ptw.policy import save
+        self.manifest({'demo': '>=1 <4'})
+        self.provider.overrides.clear()
+        result = self.resolve()
+        self.assertEqual(result['lock']['packages']['node_modules/demo']['version'], '3.0.0')
+        save(self.repo / 'package-lock.json', result['lock'])
+        original = (self.repo / 'package-lock.json').read_bytes()
+        self.provider.overrides['demo', '3.0.0'] = {'vulnerabilities': [CRITICAL]}
+        self.provider.overrides['demo', '2.0.0'] = {'vulnerabilities': [CRITICAL]}
+        with self.assertRaisesRegex(ResolutionError, 'Frozen npm lock') as raised:
+            self.resolve()
+        self.assertEqual(raised.exception.outcome, 'unsatisfiable')
+        updated = self.resolve(update=True)
+        self.assertEqual(updated['lock']['packages']['node_modules/demo']['version'], '1.0.0')
+        self.assertEqual((self.repo / 'package-lock.json').read_bytes(), original)
+
+    def test_native_exact_pin_evidence_outage_and_budget_remain_failures(self):
+        original = self.manifest({'demo': '2.0.0'})
+        with self.assertRaises(ResolutionError) as raised:
+            self.resolve()
+        self.assertEqual(raised.exception.outcome, 'unsatisfiable')
+        self.assertEqual((self.repo / 'package.json').read_bytes(), original)
+        self.manifest({'demo': '>=1 <4'})
+        with self.assertRaises(ResolutionError) as raised:
+            self.resolve(max_rounds=1)
+        self.assertEqual(raised.exception.outcome, 'budget_exhausted')
+        self.provider.overrides['demo', '2.0.0'] = {'vulnerabilities': None}
+        with self.assertRaises(EvidenceError):
+            self.resolve()
+        self.assertEqual(load(self.root / ('attempt-' + str(self.attempt)) / 'resolution.json')['outcome'],
+                         'unavailable_evidence')
+        self.assertFalse((self.repo / 'package-lock.json').exists())
 
 
 if __name__ == '__main__':

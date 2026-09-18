@@ -29,7 +29,7 @@ def recover(directory):
     store = Store(directory / 'controller')
     with store.locked() as db:
         row, bundle = store.project(db, journal['project'])
-        committed = bundle['approval']['sha256'] == journal['new_sha256']
+        committed = bundle['approval']['sha256'] == journal['new_sha256'] and not row['setup_pending']
     if committed:
         try:
             for operation in journal['operations']:
@@ -39,10 +39,23 @@ def recover(directory):
         except BaseException:
             store.stop(journal['project'], 'Committed dependency revision changed during recovery')
             raise
+        with store.locked() as db:
+            db.execute('UPDATE projects SET dependency_revision=NULL WHERE id=? AND dependency_revision=?',
+                       (journal['project'], journal['new_sha256']))
         journal['phase'] = 'committed'
         atomic(journal_path, journal)
         return
     try:
+        # A revised bundle may be active only for preparation. Revoke and stop
+        # those workers before restoring its metadata or authority after a crash.
+        with store.locked() as db:
+            row, bundle = store.project(db, journal['project'])
+            if row['dependency_revision'] == journal['new_sha256']:
+                db.execute('UPDATE sessions SET closed=1 WHERE project=?', (journal['project'],))
+        from .supervisor import Supervisor
+        Supervisor(store).reconcile()
+        if any(not w['stopped'] for w in store.status(journal['project'])['workloads']):
+            raise Invalid('Dependency recovery awaits confirmed workload termination')
         for operation in reversed(journal['operations']):
             destination, source, backup = (Path(operation[k]) for k in ('destination', 'source', 'backup'))
             current = fingerprint(destination)
@@ -57,12 +70,35 @@ def recover(directory):
                 move(backup, destination)
         with store.locked() as db:
             row, bundle = store.project(db, journal['project'])
-            if bundle['approval']['sha256'] != journal['old_sha256']:
+            db.execute('BEGIN IMMEDIATE')
+            if (bundle['approval']['sha256'] == journal['new_sha256'] and row['setup_pending']
+                    and row['dependency_revision'] == journal['new_sha256']):
+                previous = load(directory / journal['previous_bundle'])
+                check_approval(previous)
+                if previous['approval']['sha256'] != journal['old_sha256']:
+                    raise Invalid('Dependency recovery prior approval mismatch')
+                replaced = {op['destination'] for op in journal['operations']}
+                for name in previous['inventory']['resources']:
+                    info = resource_info(previous['inventory'], name)
+                    path = Path(previous['inventory']['root']) / previous['inventory']['resources'][name]['path']
+                    if str(path) not in replaced:
+                        binding = db.execute('SELECT device,inode FROM bindings WHERE project=? AND resource=?',
+                            (journal['project'], name)).fetchone()
+                        if binding is None or tuple(binding) != (info.st_dev if info else 0, info.st_ino if info else 0):
+                            raise Invalid('Dependency recovery preserves a replaced unrelated resource')
+                    db.execute('INSERT OR REPLACE INTO bindings VALUES(?,?,?,?)',
+                        (journal['project'], name, info.st_dev if info else 0, info.st_ino if info else 0))
+                db.execute("DELETE FROM bindings WHERE project=? AND resource<>'' AND resource NOT IN (" +
+                    ','.join('?' for _ in previous['inventory']['resources']) + ')',
+                    (journal['project'], *previous['inventory']['resources']))
+                db.execute('UPDATE projects SET bundle=? WHERE id=?', (canonical(previous), journal['project']))
+            elif bundle['approval']['sha256'] != journal['old_sha256']:
                 raise Invalid('Concurrent policy revision cannot be overwritten')
             # A real stop and all counters survive rollback. Revoked sessions
             # remain revoked; recovery never restarts prior processes.
             if row['dependency_revision'] == journal['new_sha256']:
                 db.execute('UPDATE projects SET setup_pending=0,dependency_revision=NULL WHERE id=?', (journal['project'],))
+            db.commit()
         journal['phase'] = 'rolled-back'
         atomic(journal_path, journal)
     except BaseException:
@@ -85,7 +121,14 @@ def publish(directory, stage, old, new, changes, expected, record):
     if stage.stat().st_dev != repo.stat().st_dev:
         raise Invalid('Dependency staging must be on the project filesystem for atomic publication')
     journal = {'phase': 'approved', 'project': project, 'old_sha256': old['approval']['sha256'],
-        'new_sha256': new['approval']['sha256'], 'operations': []}
+        'new_sha256': new['approval']['sha256'], 'operations': [],
+        'previous_bundle': str((stage / 'previous-bundle.json').relative_to(directory))}
+    previous_path = stage / 'previous-bundle.json'
+    if previous_path.exists():
+        if load(previous_path) != old:
+            raise Invalid('Dependency prior bundle changed before publication')
+    else:
+        save(previous_path, old)
     # Staged replacements are durable before suspending work or touching files.
     replacements = [(repo / name, content) for name, content in sorted(changes.items())]
     replacements += [(repo / '.ptw/policy.json', json.dumps(new['policy'], indent=2) + '\n'),
@@ -150,8 +193,18 @@ def publish(directory, stage, old, new, changes, expected, record):
                         raise Invalid('Unrelated resource identity changed during dependency revision')
                 db.execute('INSERT OR REPLACE INTO bindings VALUES(?,?,?,?)',
                     (project, name, info.st_dev if info else 0, info.st_ino if info else 0))
-            db.execute('UPDATE projects SET bundle=?,setup_pending=0,dependency_revision=NULL WHERE id=?', (canonical(new), project))
+            # Keep ordinary sessions closed until every reviewed local build
+            # and its final source/artifact validation has succeeded.
+            db.execute('UPDATE projects SET bundle=? WHERE id=?', (canonical(new), project))
             db.commit()
+        from .python_local import prepare_setup, validate_prepared_setup
+        receipts = prepare_setup(store, new, record['task'], stage)
+        def validate_commit():
+            verify_inputs(new)
+            validate_prepared_setup(store, new, receipts)
+        store.commit_setup(project, new['approval']['sha256'], validate_commit)
+        with store.locked() as db:
+            db.execute('UPDATE projects SET dependency_revision=NULL WHERE id=?', (project,))
         journal['phase'] = 'committed'
         atomic(path, journal)
     except BaseException:
@@ -161,6 +214,7 @@ def publish(directory, stage, old, new, changes, expected, record):
 
 def edit_requirements(text, operation, specs):
     from .dependency_resolution import checked_requirement, requirement_lines
+    from .python_projects import local_requirement
     wanted = {}
     for spec in specs:
         value = checked_requirement(spec)
@@ -174,6 +228,9 @@ def edit_requirements(text, operation, specs):
     for line in lines:
         stripped = line.strip()
         if not stripped or stripped.startswith('#'):
+            result.append(line)
+            continue
+        if local_requirement(stripped) is not None:
             result.append(line)
             continue
         if stripped.startswith('-') or stripped.endswith('\\'):
@@ -238,6 +295,12 @@ def start(args):
             path = shadow / name
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(data(repo / name, 8 * 1024 * 1024))
+        local_sources = old['policy']['project'].get('python_dependencies', {}).get('sources', [])
+        if local_sources:
+            from .workspace import materialize, scan
+            # Copy only the already approved source closure, never the repo.
+            resources = sorted({r for s in local_sources for r in s['resources']})
+            materialize(scan(old['inventory'], resources), shadow)
         rules = old['policy']['project']['packages']
         if args.ecosystem == 'pypi':
             from .dependency_resolution import resolve_python
@@ -250,7 +313,11 @@ def start(args):
                 'requirements.txt' if (shadow / root / 'requirements.txt').exists() else 'pyproject.toml')
             relative(source)
             declaration = shadow / root / source
+            if str(declaration.relative_to(shadow)) not in descriptor['inputs']:
+                raise Invalid('Select a previously reviewed Python declaration')
             python = old['policy']['project']['python_runtime']['executable']
+            from .python_runtime import verify
+            verify(old['policy']['project']['python_runtime'])
             groups = tuple(descriptor.get('groups', ('dev', 'test')))
             extras = tuple(descriptor.get('extras', ()))
             poetry = descriptor.get('authority') == 'poetry.lock' or (shadow / root / 'poetry.lock').exists()
@@ -269,7 +336,31 @@ def start(args):
                 declaration.write_text(edit_requirements(data(declaration), args.operation, args.specs))
             else:
                 raise Invalid('Select a requirements file or pyproject.toml declaration')
-            if poetry or (shadow / root / 'uv.lock').exists():
+            if local_sources:
+                from .python_projects import discover_projects, resolve_projects
+                if any(s.get('dynamic_metadata') for s in local_sources):
+                    raise Invalid('Dynamic source revisions require explicit setup discovery with --revise')
+                projects = discover_projects(shadow / root, source=source, groups=groups)
+                if projects is not None:
+                    result = resolve_projects(shadow / root, stage / 'resolution', rules, source=source,
+                        executable=python, groups=groups, provider=provider)
+                    plans = {str(Path(root) / p['path']).removeprefix('./'): p for p in result['local_projects']}
+                    plans = {('' if k == '.' else k): v for k, v in plans.items()}
+                    if set(plans) != {s['path'] for s in local_sources}:
+                        raise Invalid('Dependency edit changes local source scope; review setup explicitly')
+                    local_sources = copy.deepcopy(local_sources)
+                    for s in local_sources:
+                        plan = plans[s['path']]
+                        if any(s[k] != plan[k] for k in ('name', 'version', 'mode')):
+                            raise Invalid('Dependency edit changes local source identity')
+                        s['build_dependencies'] = plan['build_dependencies']
+                else:
+                    if len(local_sources) != 1 or local_sources[0]['path'] != root:
+                        raise Invalid('Dependency edit must retain its reviewed local project')
+                    result = resolve_python(shadow / root, stage / 'resolution', rules, source=source,
+                        executable=python, groups=groups, extras=extras, provider=provider,
+                        local_build=True, local_mode=local_sources[0]['mode'])
+            elif poetry or (shadow / root / 'uv.lock').exists():
                 resolver = update_poetry_lock if poetry else update_uv_lock
                 result = resolver(shadow / root, stage / 'resolution', rules, executable=python,
                     groups=groups, extras=extras, provider=provider, upgrade=[canonicalize_name(Requirement(p).name) for p in args.specs]
@@ -288,6 +379,8 @@ def start(args):
             updated = {**descriptor, **{k: result[k] for k in ('inputs', 'pins', 'artifacts')}}
             updated['inputs'] = {str(Path(root) / n): h for n, h in result['inputs'].items()}
             updated['inputs'][str(lock.relative_to(shadow))] = hashlib.sha256(lock.read_bytes()).hexdigest()
+            if result['runtime'] != old['policy']['project']['python_runtime']:
+                raise Invalid('Dependency revision changed the reviewed Python runtime')
         else:
             from .npm_resolution import declarations, resolve_npm
             from .registry import provider_for
@@ -341,7 +434,25 @@ def start(args):
         updated['inputs'][str(declaration.relative_to(shadow))] = hashlib.sha256(declaration.read_bytes()).hexdigest()
         policy, inv = copy.deepcopy(old['policy']), copy.deepcopy(old['inventory'])
         policy['project'][kind] = updated
+        if local_sources:
+            from .python_local import describe_source
+            source_inv = {**inv, 'root': str(shadow)}
+            refreshed = []
+            for s in local_sources:
+                current = describe_source(source_inv, s['resources'], identity=s['id'], path=s['path'],
+                    allow_build=s['allow_build'], editable_resources=s.get('editable_resources', ()),
+                    dynamic_metadata=s.get('dynamic_metadata'), extras=s.get('extras', ()),
+                    full_build=s.get('native_build_view') == 'full')
+                if any(current[k] != s[k] for k in ('name', 'version', 'mode')):
+                    raise Invalid('Dependency revision changed local source identity')
+                refreshed.append({**s, **current})
+            policy['project']['python_dependencies']['sources'] = refreshed
         prior_names = {args.ecosystem + ':' + e['name'] for e in descriptor['artifacts']}
+        if args.ecosystem == 'pypi':
+            prior_names |= {'pypi:' + e['name'] for s in descriptor.get('sources', [])
+                            for e in s.get('build_dependencies', {}).get('artifacts', [])}
+            selected |= {'pypi:' + e['name'] for s in local_sources
+                         for e in s.get('build_dependencies', {}).get('artifacts', [])}
         policy['project']['packages']['allowed_names'] = sorted((set(rules['allowed_names']) - prior_names) | selected)
         policy['project']['packages']['build_packages'] = [n for n in rules['build_packages'] if n not in prior_names - selected]
         for item in policy['tasks']:
@@ -362,6 +473,9 @@ def start(args):
         print(safe_text('DEPENDENCY REVIEW\nAdd: ' + ', '.join(sorted(selected - prior_names)) +
             '\nRemove: ' + ', '.join(sorted(prior_names - selected)) + '\nFiles: ' + ', '.join(changes) +
             '\nResolved: ' + ', '.join(versions[:20]) + ('; use details for all versions' if len(versions) > 20 else '') +
+            '\nLocal preparation on approval: ' + (', '.join(s['id'] + ' (' + s['mode'] +
+                ', offline backend execution, snapshot ' + s['snapshot_sha256'] + ')'
+                for s in policy['project'].get('python_dependencies', {}).get('sources', [])) or 'none') +
             '\nPolicy hash: ' + digest(compiled) + '\nScope, thresholds, project/task identities and violation history are preserved.'), flush=True)
         answer = ask('Approve dependency revision? Type yes, details, reject or cancel', 'no').lower()
         if answer == 'details':

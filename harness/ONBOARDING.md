@@ -344,11 +344,11 @@ and same-project dependency revisions are implemented. PEP 621 edits use uv's
 TOML editor; uv lock updates retain declarations and use additive exclusions.
 Selected groups/extras remain bound to the policy across revisions. See
 [current dependency status](DEPENDENCY_STATUS.md) for the format matrix and
-remaining native validation. Local Python preparation and private Python routing
-have passed focused manager checks. The full native manager check passed all 32
-[Poetry tests](POETRY.md), including approval terminals and compatible age/CVSS
-selection. The [pnpm](PNPM.md) and [Yarn](YARN.md) adapter milestones also passed
-manager acceptance. Combined Node and full ecosystem integration remain separate gates.
+validation status. Local Python, private Python, [Poetry](POETRY.md),
+[pnpm](PNPM.md), [Yarn](YARN.md) and combined Node import milestones passed manager
+acceptance. Focused checks passed mixed terminal journeys and local/mixed
+dependency revisions. Fresh-wheel journey checks and full ecosystem integration
+acceptance remain pending; adapter results alone do not establish product readiness.
 
 ## Publication and recovery
 

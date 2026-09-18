@@ -4,34 +4,19 @@ A small working extension of the [paper](../paper/submission.pdf). Describe a pr
 
 The usable prototype handles [repository editing and reviewed build/test commands](PRACTICAL.md) and [controlled Python and npm package installation](ECOSYSTEMS.md), including native Python libraries and JavaScript/TypeScript. It supports multiple independent agents, narrower tasks and delegates, shared escalation, automatic monitoring, and review of existing Codex logs. Project differences are JSON configuration, not custom code.
 
-Current source extends typed setup with Python range resolution, reviewed system
-interpreters and mixed backend/frontend command roots. Full ordinary ecosystem
-support is not complete. `ptw deps add/remove/update` reviews dependency changes
-while preserving project identity and violation history. See
-[dependency status](DEPENDENCY_STATUS.md) for the implemented formats, command
-examples, missing adapters and native checks still needed.
-The [Poetry guide](POETRY.md) describes reproducible isolated tooling, locked
-import and reviewed add/remove/update. Native manager checks cover Python
-constraints, dependency-group preservation and compatible wheel selection.
-Focused native checks cover manifest-rooted reachability and inactive platform
-branches, including dependencies shared with active paths. The Poetry milestone
-has passed manager acceptance.
-Broader ecosystem and installed-user acceptance remain separate.
-The [Yarn Classic guide](YARN.md) describes isolated tool bootstrap, frozen
-terminal setup, explicit build approval and reviewed dependency changes. Focused
-native checks cover protected installs, source confinement, builds, terminal
-review, revisions, private registries, compatible resolution, default public
-Yarn origins and dependency-ordered builds. The Yarn milestone has passed manager acceptance.
-The [pnpm guide](PNPM.md) covers isolated tool bootstrap, frozen workspace import
-and reviewed dependency changes. Protected imports and approved dependency builds
-have native manager coverage. Focused checks cover terminal setup and dependency
-revision integration, installed-content and exact peer-context verification.
-Directory-source confinement, setup-build approval, private registries,
-transitive/optional dependencies and revision failures have native manager coverage.
-The pnpm milestone has passed manager acceptance. The combined
-[Node import gate](DEPENDENCY_STATUS.md#node-import-integration) retains both
-adapters' security regressions and checks npm workspaces and TypeScript.
-Combined acceptance remains pending; adapter results do not establish full product readiness.
+Typed setup preserves Python requirements, reviews a compatible installed
+interpreter and supports mixed backend/frontend command roots.
+`ptw deps add/remove/update` reviews dependency changes while preserving project
+identity, unrelated scope and violation history. Local-source revisions rebuild
+under explicit approval before work resumes. See the
+[bounded format matrix](DEPENDENCY_STATUS.md) and the [Poetry](POETRY.md),
+[pnpm](PNPM.md) and [Yarn Classic](YARN.md) tool guides.
+
+Adapter milestones and focused native source journeys have passed manager
+checks. Fresh-wheel journeys verify installed source hashes in foreground and
+detached processes; those new checks and final integration acceptance are pending.
+These deterministic tests do not establish complete product readiness, live
+Codex behavior or the first-setup timing target.
 
 For ordinary Python, JavaScript or TypeScript repositories, start with the
 [interactive quickstart](INTERACTIVE.md): install once, run `ptw codex`, review
@@ -179,6 +164,23 @@ installed native tools on PATH and use a normal systemd user login for native
 checks. Source tests with mocked integrations establish only their stated
 behavior. For installed-user acceptance, use fresh wheel installations with
 PYTHONPATH unset, prove installed hashes, and never reuse this editable environment.
+
+The dependency integration suite runs six new/existing Python, Node and TypeScript
+terminal journeys, the mixed project and an npm workspace control in both source
+and fresh-wheel environments:
+
+```sh
+PTW_LINUX_TESTS=1 python -B -m unittest discover -s harness/tests -p test_product_ecosystems.py -v
+```
+
+The suite builds a wheel using the release builder's hashed build prerequisite,
+installs hashed runtime dependencies in a fresh environment per case, and verifies
+installed module hashes before and after useful protected work. A detached user
+service checks the same installation without PYTHONPATH; the real project monitor
+must use its interpreter. Failures and inputs remain in fresh private
+`ECOSYSTEM_EVIDENCE` directories. This is dependency acceptance, not a cold
+installer timing measurement or a live model trajectory. See the
+[fixture guide](examples/product-ecosystems/README.md) for physical assertions.
 
 From the repository root in that source-test environment:
 

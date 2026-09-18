@@ -55,10 +55,22 @@ For an existing backend/frontend layout, the current source also accepts:
 
 Select only paths needed by your project; nested parents must already exist.
 Python's declared runtime requirement is preserved and the selected interpreter
-is shown before approval. Current mixed support uses static Python declarations
-and npm locks, including scoped workspace sources. See the precise format and
-validation boundaries in [dependency status](DEPENDENCY_STATUS.md)
-before treating this as complete ecosystem support.
+is shown before approval. Mixed Python/TypeScript journeys install real
+dependencies, run Python tests and execute emitted JavaScript. Commands retain
+their backend/frontend roots, including approved workspace sources. See the
+[bounded format and validation matrix](DEPENDENCY_STATUS.md).
+
+To revise dependencies, use the operator terminal, for example:
+
+    ptw deps update 'six>=1.16,<2' --ecosystem pypi --root backend --source pyproject.toml
+    ptw deps update 'typescript@>=5.8 <6' --ecosystem npm --root frontend --group devDependencies
+
+Read the compact review or enter `details`; only `yes` approves. `add` and
+`remove` use the same review. Approval revokes old sessions and preserves scope,
+thresholds and violation history, so restart protected work afterward. Approved
+local Python sources are rebuilt under confinement before work resumes. A
+failed build publishes no replacement installation; recovery retains stops and
+concurrent edits. Frozen locks are never silently repaired to evade policy.
 
 For pnpm v9 locks or Yarn Classic v1 locks, first provision the pinned isolated
 tool using the [pnpm](PNPM.md#bootstrap-the-tool) or [Yarn](YARN.md#bootstrap)

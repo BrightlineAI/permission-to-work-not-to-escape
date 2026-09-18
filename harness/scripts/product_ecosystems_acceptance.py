@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Native dependency subset journeys, with explicit coverage and no model calls."""
+"""Native dependency journeys, with explicit coverage and no model calls."""
 import argparse
 from contextlib import redirect_stdout
 import hashlib
@@ -11,6 +11,7 @@ import shutil
 import subprocess
 import sys
 import time
+import zipfile
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -36,7 +37,130 @@ PROBES = {
 }
 
 
-def journey(out, case):
+def terminal_setup(repo, state, args, out, *, refusals=()):
+    """Drive the real CLI review; only the account-login check is replaced.
+
+    Answers are scripted operator actions on synthetic projects. Resolution,
+    publication, controller services and subsequent commands remain native.
+    """
+    from terminal_driver import Terminal
+    script = ('from unittest.mock import patch\nfrom ptw.cli import main\n'
+              'with patch("ptw.codex.require_login"):\n    main()\n')
+    argv = [sys.executable, '-B', '-c', script, 'codex', '--repo', str(repo),
+            '--language', args.language, '--goal', args.goal, '--editable', args.editable,
+            '--files', args.files, '--setup-only']
+    original = {str(p.relative_to(repo)): hashlib.sha256(p.read_bytes()).hexdigest()
+                for p in repo.rglob('*') if p.is_file()}
+    reviews = []
+    for answer in (*refusals, 'yes'):
+        terminal = Terminal(argv, out / ('review-' + answer),
+                            env={'PTW_USER_STATE': str(state)})
+        try:
+            terminal.expect('Approve exactly this policy?', 180)
+            terminal.send('details')
+            terminal.expect('Approve exactly this policy? Type yes, customize, reject or cancel', 10)
+            if answer == 'eof':
+                os.write(terminal.fd, b'\x04')
+            else:
+                terminal.send(answer)
+            terminal.wait(lambda: terminal.exited, 60)
+        finally:
+            code = terminal.close()
+            reviews.append({'answer': answer, 'exit_code': code})
+            save(terminal.folder / 'result.json', reviews[-1])
+        expected = 0 if answer == 'yes' else 130 if answer == 'eof' else 2
+        if code != expected:
+            raise AssertionError('Terminal review failed; inspect ' + str(terminal.folder))
+        if answer != 'yes':
+            current = {str(p.relative_to(repo)): hashlib.sha256(p.read_bytes()).hexdigest()
+                       for p in repo.rglob('*') if p.is_file()}
+            if current != original or (repo / '.ptw').exists():
+                raise AssertionError('Unapproved setup changed project files')
+    save(out / 'reviews.json', reviews)
+    with patch.dict(os.environ, {'PTW_USER_STATE': str(state)}):
+        return load(onboarding.private_directory(repo) / 'project.json')
+
+
+def revision(out, record, repo, state, *, ecosystem, root, source, operation, spec, group=None, refusals=()):
+    """Native operator revision plus useful work under the replacement approval."""
+    from terminal_driver import Terminal
+    from ptw.python_local import prepared_sets
+    from ptw.policy import Invalid
+    store = Store(record['state'])
+    previous = store.register(record['project'], 'work')
+    with store.locked() as db:
+        _, before = store.project(db, record['project'])
+    history = store.status(record['project'])['violations']
+    original = {str(p.relative_to(repo)): hashlib.sha256(p.read_bytes()).hexdigest()
+                for p in repo.rglob('*') if p.is_file()}
+    argv = [sys.executable, '-B', '-m', 'ptw', 'deps', operation, spec,
+            '--repo', str(repo), '--ecosystem', ecosystem, '--root', root, '--source', source]
+    if group:
+        argv += ['--group', group]
+    reviews = []
+    for answer in (*refusals, 'yes'):
+        terminal = Terminal(argv, out / ('review-' + answer), env={'PTW_USER_STATE': str(state)})
+        try:
+            terminal.expect('Approve dependency revision?', 180)
+            terminal.send('details')
+            terminal.expect('Approve exactly this dependency revision?', 10)
+            if answer == 'eof':
+                os.write(terminal.fd, b'\x04')
+            else:
+                terminal.send(answer)
+            terminal.wait(lambda: terminal.exited, 180)
+        finally:
+            code = terminal.close()
+            reviews.append({'answer': answer, 'exit_code': code})
+            save(terminal.folder / 'result.json', reviews[-1])
+        if code != (0 if answer == 'yes' else 130 if answer == 'eof' else 2):
+            raise AssertionError('Dependency terminal failed; inspect ' + str(terminal.folder))
+        if answer != 'yes':
+            if original != {str(p.relative_to(repo)): hashlib.sha256(p.read_bytes()).hexdigest()
+                            for p in repo.rglob('*') if p.is_file()}:
+                raise AssertionError('Unapproved dependency revision changed files')
+    with store.locked() as db:
+        _, current = store.project(db, record['project'])
+        try:
+            store.session(db, previous['token'])
+        except Invalid:
+            pass
+        else:
+            raise AssertionError('Prior session survived revision')
+    opposite = 'npm_dependencies' if ecosystem == 'pypi' else 'python_dependencies'
+    for key in (opposite, 'python_runtime', 'commands', 'grants', 'escalation'):
+        if current['policy']['project'].get(key) != before['policy']['project'].get(key):
+            raise AssertionError('Revision changed unrelated authority: ' + key)
+    if store.status(record['project'])['violations'] != history:
+        raise AssertionError('Revision reset violation history')
+    actor = store.register(record['project'], 'work')
+    sets = [r['package_set'] for r in prepared_sets(store, actor['token'])]
+    local = bool(current['policy']['project'].get('python_dependencies', {}).get('sources'))
+    installs, commands = [], []
+    for resource, entry in current['inventory']['resources'].items():
+        name = Path(entry['path']).name
+        if name not in ('ptw-requirements.txt', 'package-lock.json') or name == 'ptw-requirements.txt' and local:
+            continue
+        result = dispatch(store, actor, 'revision-install-' + resource,
+            request('install', resource, content='pypi' if name == 'ptw-requirements.txt' else 'npm'))
+        installs.append(result)
+        if not result.get('allowed'):
+            raise AssertionError('Revised installation failed: ' + result.get('reason', 'unknown'))
+        sets.append(result['package_set'])
+    for command in sorted(current['policy']['project']['commands'], key=lambda c: ('test' in c['id'], c['id'])):
+        result = dispatch(store, actor, 'revision-command-' + command['id'],
+            request('run', command['id'], content=json.dumps({'package_sets': sets})))
+        commands.append({'command': command['id'], 'result': result})
+        if not result.get('allowed') or result.get('exit_code') != 0:
+            raise AssertionError('Revised command failed: ' + command['id'])
+    result = {'reviews': reviews, 'installs': installs, 'commands': commands,
+              'local_prepared': local and bool(sets), 'violations': history,
+              'policy_sha256': current['approval']['sha256']}
+    save(out / 'revision.json', result)
+    return result
+
+
+def journey(out, case, *, terminal=False, revisions=False, installed_python=None):
     fixture = Path(__file__).resolve().parents[1] / 'examples/product-ecosystems'
     repo = out / 'repo'
     repo.mkdir(parents=True)
@@ -72,15 +196,27 @@ def journey(out, case):
     started = time.monotonic()
     # This tests the real typed setup and controller. Only login and human input
     # are replaced: no model is invoked, and approval applies to these fixtures.
-    with patch('ptw.codex.require_login'), patch('sys.stdin.isatty', return_value=True), \
-            patch('builtins.input', return_value='yes'), redirect_stdout(transcript):
-        record = onboarding.setup(repo, state, args)
-    (out / 'review.txt').write_text(transcript.getvalue())
+    if terminal:
+        record = terminal_setup(repo, state, args, out,
+            refusals=('reject', 'cancel', 'eof') if language == 'mixed' else ())
+    else:
+        with patch('ptw.codex.require_login'), patch('sys.stdin.isatty', return_value=True), \
+                patch('builtins.input', return_value='yes'), redirect_stdout(transcript):
+            record = onboarding.setup(repo, state, args)
+        (out / 'review.txt').write_text(transcript.getvalue())
     store = Store(record['state'])
-    results = {'setup_seconds': time.monotonic() - started, 'installs': [], 'commands': []}
+    results = {'setup_seconds': time.monotonic() - started, 'installs': [], 'commands': [],
+               'review_mode': 'real PTY with scripted answers' if terminal else 'scripted input fixture'}
     unrelated = subprocess.Popen(['/usr/bin/sleep', '600'])
     try:
         ensure(store)
+        if installed_python is not None:
+            from ptw.monitor import call, unit_for
+            pid = int(call('show', unit_for(store.directory), '--property=MainPID', '--value'))
+            command = Path('/proc', str(pid), 'cmdline').read_bytes().split(b'\0')
+            if command[:4] != [os.fsencode(installed_python), b'-B', b'-m', b'ptw.monitor']:
+                raise AssertionError('Detached monitor does not use the tested wheel interpreter')
+            results['monitor_python'] = os.fsdecode(command[0])
         session = store.register(record['project'], 'work')
         bundle = load(record['bundle'])
         inv = bundle['inventory']
@@ -127,6 +263,22 @@ def journey(out, case):
                 raise AssertionError('Protected command failed: ' + command['id'])
         if not any('test' in c['command'] for c in results['commands']):
             raise AssertionError('No useful test command ran')
+        outputs = '\n'.join(c['result'].get('output', '') for c in results['commands'])
+        for kind, _ in roots:
+            marker = {'python': 'Ran 2 tests', 'node': 'NODE_IMPORT_OK 42',
+                      'typescript': 'TYPESCRIPT_BUILD_OK 42',
+                      'workspace': 'Workspace ESM and CommonJS imports passed'}[kind]
+            if marker not in outputs:
+                raise AssertionError('Useful execution output missing: ' + marker)
+        if revisions:
+            results['revisions'] = []
+            for ecosystem, root, source, spec in (
+                    ('pypi', 'backend', 'pyproject.toml', 'six>=1.16,<2'),
+                    ('npm', 'frontend', 'package.json', 'typescript@>=5.8 <6')):
+                results['revisions'].append(revision(out / ('revision-' + ecosystem), record, repo, state,
+                    ecosystem=ecosystem, root=root, source=source, operation='update', spec=spec,
+                    group='devDependencies' if ecosystem == 'npm' else None))
+            session = store.register(record['project'], 'work')
         denied = dispatch(store, session, 'outside', request('read', '.env'))
         results['denial'] = denied
         if denied.get('allowed') or hashlib.sha256(sensitive.read_bytes()).hexdigest() != original:
@@ -151,6 +303,153 @@ def journey(out, case):
     return results
 
 
+# Test-only wheel installation uses the release builder's source inventory and
+# hashed build prerequisite. It neither builds a release nor installs Codex.
+IDENTITY_PROBE = '''import hashlib, importlib.metadata, json, os, pathlib, ptw, sys
+root = pathlib.Path(ptw.__file__).parent
+distribution = importlib.metadata.distribution('permission-to-work-harness')
+print(json.dumps({'path': str(root), 'prefix': sys.prefix,
+    'pythonpath_present': 'PYTHONPATH' in os.environ,
+    'direct_url': json.loads(distribution.read_text('direct_url.json') or '{}'),
+    'hashes': {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in root.glob('*.py')}}))
+'''
+
+
+def wheel_step(argv, out, env, *, cwd=None, timeout=120):
+    """Retain private diagnostics; expose only their hashes in the receipt."""
+    receipt = {'argv': [str(a) for a in argv], 'passed': False}
+    started = time.monotonic()
+    try:
+        process = subprocess.run(argv, env=env, cwd=cwd, capture_output=True, timeout=timeout)
+        receipt.update(exit_code=process.returncode,
+            stdout_sha256=hashlib.sha256(process.stdout).hexdigest(),
+            stderr_sha256=hashlib.sha256(process.stderr).hexdigest())
+        # out is under this run's private mkdtemp directory, never the checkout.
+        out.with_suffix('.stdout').write_bytes(process.stdout)
+        out.with_suffix('.stderr').write_bytes(process.stderr)
+        if process.returncode:
+            raise AssertionError('Wheel acceptance step failed; inspect ' + str(out))
+        receipt['passed'] = True
+        return process.stdout.decode()
+    except BaseException as exc:
+        receipt['error_type'] = type(exc).__name__
+        if isinstance(exc, subprocess.TimeoutExpired):
+            for suffix, output in (('.stdout', exc.stdout), ('.stderr', exc.stderr)):
+                if output is not None:
+                    out.with_suffix(suffix).write_bytes(output)
+                    receipt[suffix[1:] + '_sha256'] = hashlib.sha256(output).hexdigest()
+        raise
+    finally:
+        receipt['seconds'] = time.monotonic() - started
+        save(out, receipt)
+
+
+def build_test_wheel(out):
+    from build_product_release import BUILD_PIN, source_files
+    from product_install import clean_env, validate_wheel
+    out.mkdir(parents=True, exist_ok=False)
+    _, sources = source_files(Path(__file__).resolve().parents[2])
+    hashes = {Path(n).name: hashlib.sha256(data).hexdigest()
+              for n, data in sources.items() if n.startswith('harness/ptw/')}
+    save(out / 'inputs.json', {'hashes': {n: hashlib.sha256(data).hexdigest()
+                                        for n, data in sources.items()},
+                             'build_lock_sha256': hashlib.sha256(BUILD_PIN.encode()).hexdigest()})
+    env = clean_env(out)
+    uv = shutil.which('uv')
+    if not uv:
+        raise AssertionError('Provision uv on PATH before wheel acceptance')
+    save(out / 'tools.json', {'uv': str(Path(uv).resolve()),
+        'uv_sha256': hashlib.sha256(Path(uv).read_bytes()).hexdigest(), 'python': sys.version})
+    python = out / 'builder/bin/python'
+    wheel_step([uv, '--no-config', 'venv', '--no-python-downloads', '--python', sys.executable,
+                out / 'builder'], out / 'venv.json', env)
+    (out / 'build.lock').write_text(BUILD_PIN)
+    wheel_step([uv, '--no-config', 'pip', 'install', '--python', python, '--require-hashes',
+                '--only-binary', ':all:', '--index-url', 'https://pypi.org/simple',
+                '-r', out / 'build.lock'], out / 'prerequisites.json', env)
+    source = out / 'source'
+    for name, data in sources.items():
+        if name == 'harness/pyproject.toml' or name.startswith('harness/ptw/'):
+            target = source / name.removeprefix('harness/')
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(data)
+    wheels = out / 'wheels'
+    wheels.mkdir()
+    wheel_step([python, '-I', '-B', '-c',
+        'import setuptools.build_meta,sys; setuptools.build_meta.build_wheel(sys.argv[1])', wheels],
+        out / 'build.json', env, cwd=source)
+    paths = list(wheels.glob('*.whl'))
+    if len(paths) != 1:
+        raise AssertionError('Expected exactly one application wheel')
+    wheel = paths[0]
+    import tomllib
+    validate_wheel(wheel.read_bytes(), tomllib.loads(sources['harness/pyproject.toml'].decode())['project']['version'])
+    with zipfile.ZipFile(wheel) as archive:
+        actual = {Path(n).name: hashlib.sha256(archive.read(n)).hexdigest()
+                  for n in archive.namelist() if n.startswith('ptw/') and n.endswith('.py')}
+    if actual != hashes:
+        raise AssertionError('Built wheel differs from current source')
+    save(out / 'wheel.json', {'sha256': hashlib.sha256(wheel.read_bytes()).hexdigest(), 'modules': hashes})
+    return wheel, hashes
+
+
+def verify_wheel_identity(identity, installation, hashes):
+    root = Path(identity['path']).resolve()
+    # PyPA permits an empty archive_info object (uv uses one for local wheels).
+    # Integrity comes from the independently measured installed module hashes.
+    if (not root.is_relative_to(installation.resolve()) or
+            Path(identity['prefix']).resolve() != installation.resolve() or
+            identity['hashes'] != hashes or identity['pythonpath_present'] or
+            identity['direct_url'].get('dir_info', {}).get('editable') or
+            not isinstance(identity['direct_url'].get('archive_info'), dict)):
+        raise AssertionError('Expected exact installed wheel without source-path injection')
+
+
+def installed_journey(out, case, wheel, hashes):
+    """Fresh wheel environment per case, including real detached-service import."""
+    from product_install import clean_env
+    out.mkdir(parents=True, exist_ok=False)
+    env = clean_env(out)
+    uv = shutil.which('uv')
+    installation = out / 'installation'
+    python = installation / 'bin/python'
+    wheel_step([uv, '--no-config', 'venv', '--no-python-downloads', '--python', sys.executable,
+                installation], out / 'venv.json', env)
+    source = Path(__file__).resolve().parents[1]
+    wheel_step([uv, '--no-config', 'pip', 'sync', '--python', python, '--require-hashes',
+        '--only-binary', ':all:', '--index-url', 'https://pypi.org/simple',
+        source / 'requirements.lock'], out / 'dependencies.json', env)
+    wheel_step([uv, '--no-config', 'pip', 'install', '--python', python, '--no-deps', wheel],
+               out / 'install.json', env)
+    env['PATH'] = str(installation / 'bin') + os.pathsep + env.get('PATH', '')
+    for mode in ('foreground', 'detached'):
+        argv = [python, '-I', '-B', '-c', IDENTITY_PROBE]
+        if mode == 'detached':
+            # Match the real monitor's startup flags and service environment.
+            # An inherited PYTHONPATH must fail identity validation, not be hidden
+            # by an isolated probe that the real monitor does not use.
+            unit = 'ptw-wheel-' + hashlib.sha256(str(out).encode()).hexdigest()[:24]
+            argv = ['systemd-run', '--user', '--wait', '--pipe', '--collect', '--quiet',
+                    '--unit=' + unit, python, '-B', '-c', IDENTITY_PROBE]
+        identity = json.loads(wheel_step(argv, out / (mode + '-step.json'), env))
+        save(out / (mode + '-identity.json'), identity)
+        verify_wheel_identity(identity, installation, hashes)
+    # Only the driver directory is on sys.path, never harness or its tests.
+    script = ('import sys; from pathlib import Path; sys.path.insert(0,sys.argv[1]); '
+              'from product_ecosystems_acceptance import journey; '
+              'journey(Path(sys.argv[2]),sys.argv[3],terminal=True,installed_python=sys.executable)')
+    wheel_step([python, '-I', '-B', '-c', script, str(source / 'scripts'),
+                str(out / 'journey'), case], out / 'journey-step.json', env, cwd=out, timeout=360)
+    identity = json.loads(wheel_step([python, '-I', '-B', '-c', IDENTITY_PROBE],
+                                     out / 'after-step.json', env))
+    verify_wheel_identity(identity, installation, hashes)
+    save(out / 'after-identity.json', identity)
+    result = load(out / 'journey/journey.json')
+    if not result['passed'] or result.get('monitor_python') != str(python):
+        raise AssertionError('Installed journey or monitor identity failed')
+    return result
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--out', required=True, type=Path)
@@ -162,18 +461,20 @@ def main():
     source = Path(__file__).resolve().parents[1]
     measured_sources = [*sorted((source / 'ptw').glob('*.py')),
         source / 'scripts/product_ecosystems_acceptance.py', source / 'tests/test_product_ecosystems.py',
+        source / 'scripts/terminal_driver.py',
         source / 'tests/test_packages.py', source / 'tests/test_ecosystems.py',
         *sorted(p for p in (source / 'examples/product-ecosystems').rglob('*') if p.is_file())]
-    report = {'passed': False, 'kind': 'scripted native dependency subset; no model trajectories',
+    report = {'passed': False, 'kind': 'scripted native dependency journeys; no model trajectories',
         'task_acceptance_complete': False,
-        'not_covered': ['Python editable packages and native Poetry updates', 'pnpm/Yarn native migration',
-                        'protected dependency revision with running workloads', 'npm CVSS candidate backtracking'],
+        'not_covered': ['Adapter-specific checks live in the approved unittest suites',
+                        'Fresh-wheel journeys and revision composition run through test_product_ecosystems',
+                        'No live Codex conversation or first-install timing certification'],
         'source_hashes': {str(p.relative_to(source)): hashlib.sha256(p.read_bytes()).hexdigest()
                          for p in measured_sources}, 'cases': [], 'probes': []}
     for case in args.case or CASES:
         started = time.monotonic()
         try:
-            result = journey(out / case, case)
+            result = journey(out / case, case, terminal=True)
         except Exception as exc:
             result = {'passed': False, 'error_type': type(exc).__name__, 'error': str(exc)}
         report['cases'].append({'case': case, 'elapsed_seconds': time.monotonic() - started, **result})

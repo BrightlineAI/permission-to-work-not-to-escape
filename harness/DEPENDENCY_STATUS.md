@@ -1,9 +1,11 @@
 # Dependency implementation status
 
-Reviewed local Python wheel/editable preparation and the private-Python milestone
-have passed their focused manager checks. Full ecosystem and product acceptance
-remain incomplete. The immutable [product contract](PRODUCT_ACCEPTANCE.json)
-is unchanged; broader Poetry integration, Node and product requirements still apply.
+The bounded adapters below are implemented. Private/local Python, Poetry, pnpm,
+Yarn and combined Node milestones passed manager acceptance. Focused native
+checks also passed the source journey matrix, npm policy-aware fallback and
+mixed/local dependency revisions. Fresh-wheel journeys are implemented;
+successful manager validation and final integration acceptance remain pending. These
+results do not establish the full [product contract](PRODUCT_ACCEPTANCE.json).
 
 ## Current formats and approvals
 
@@ -14,10 +16,10 @@ is unchanged; broader Poetry integration, Node and product requirements still ap
 | Local wheel/editable projects | Explicit source resources, isolated builds, validated imports and reviewed rebuilding | No repository-wide grant or automatic missing-dependency approval |
 | Multiple local projects | Separate build graphs, local version/extra checks, one shared runtime installation | Local packages in build requirements fail closed |
 | uv.lock | Static native locked export; dynamic candidate export followed by approved offline freshness validation | Private-origin locks and unavailable offline metadata fail closed |
-| Poetry lock | Native locked export, manifest-rooted wheel graph checks, protected import and reviewed revisions with compatible age/CVSS/wheel selection; milestone passed manager acceptance | Public wheel-only sources; local/private integration and installed-user acceptance remain separate; see [Poetry setup](POETRY.md) |
-| npm v2/v3 lock | Root, workspaces and in-tree file sources; reviewed native revisions | Full Node/TypeScript integration acceptance remains queued |
-| Yarn Classic v1 | Native frozen authority, protected imports/builds, source confinement, terminal review, revisions, private registries and compatible resolution; milestone passed manager acceptance | Combined Node and installed-user acceptance remain separate; see [Yarn guide](YARN.md) |
-| pnpm v9 lock | Native protected workspace/peer/directory imports, approved builds, frozen terminal setup, reviewed revisions and exact artifact/edge verification; milestone passed manager acceptance | Combined Node and installed-user acceptance remain separate; see [pnpm guide](PNPM.md) |
+| Poetry lock | Native locked export, manifest-rooted wheel checks and reviewed revisions with compatible age/CVSS/wheel selection | Public wheels only; Poetry-local/private combinations are unimplemented; see [Poetry setup](POETRY.md) |
+| npm v2/v3 lock | Root, workspaces and in-tree file sources; reviewed native revisions | Source closure must be approved for each command/session; no external source trees |
+| Yarn Classic v1 | Native frozen authority, protected imports/builds, workspace/directory sources, private registries and reviewed revisions | Yarn Berry/PnP is unsupported; see [Yarn guide](YARN.md) |
+| pnpm v9 lock | Native workspace/peer/directory imports, approved builds, private registries and reviewed revisions with exact artifact/edge checks | Pinned native tooling required; see [pnpm guide](PNPM.md) |
 
 Python uses an explicitly reviewed installed interpreter under `/usr` satisfying
 the original runtime requirements. uv resolves compatible candidates with the
@@ -26,6 +28,10 @@ Independent advisory, identity and artifact checks still apply. Original exact
 pins, hashes and runtime constraints cannot be overridden to obtain a pass.
 Resolver work is bounded; unavailable evidence and exhausted budgets are
 operational failures, not misconduct. No new general resolver was introduced.
+npm similarly uses its native age cutoff and a broker-filtered metadata view
+for confirmed CVSS exclusions. A safe older compatible version may be selected;
+exact pins remain exact. Frozen lock import rejects forbidden versions; changing
+the lock requires a reviewed revision. TypeScript uses npm security throughout.
 
 Use the [local preparation guide](ONBOARDING.md#local-python-preparation) for
 single/multiple sources, dynamic metadata, hook reviews, native code and lockfiles.
@@ -39,8 +45,8 @@ The pnpm and Yarn milestones passed their separate manager acceptance checks.
 The combined `test_product_node_import.py` gate adds protected use of both tools,
 narrower delegates, foreign authority/package-set denial, changed-input and
 unapproved-hook rejection, explicitly approved builds and an unrelated-project
-control. The completed gate,
-including npm workspace and TypeScript compatibility, awaits full manager acceptance.
+control. This gate, including npm workspace and TypeScript compatibility,
+passed its manager acceptance; final ecosystem acceptance remains separate.
 
 The gate explicitly selects existing regressions for stale/malformed locks,
 missing/corrupt artifacts, source escapes and directory copies, registry identity,
@@ -77,46 +83,15 @@ sources documented in the [pnpm](PNPM.md#interface-sources) and
 
 ## Local Python evidence
 
-The manager's `check-probe-1-20-1.log` in run
-`task-9-1789633139555642351` passed **300 tests in 903.195 seconds**, with no
-failures or skips. The associated guard and diff checks passed. Test source:
-`harness/tests/test_product_python_local.py`, SHA-256
-`9d036b02ea9e46577b1563b6ab9e8b9166aa92cdd787e72fed4724777ab1996b`.
-This result covers the runtime implementation preceding this documentation-only
-consolidation. Final documentation and manifest verification are separate checks.
-
-The suite combines offline validation tests with real native, deterministic
-fixtures and operator-terminal flows. Native checks assert:
-
-- Explicit static/dynamic wheel and editable builds, real protected imports,
-  selected extras, requirement-hook approvals and import after permitted edits.
-- Compiled editable projected inputs unavailable to the backend/compiler;
-  wrapper edits remain live, while visible build-input changes deny stale reuse.
-  Full-input builds require reviewed rebuilding after any source change.
-- Original static and dynamic uv locks, nonempty runtime/build graphs, native
-  offline freshness validation, stale-lock rejection and unchanged lock bytes.
-- Multiple sources with separate build-tool versions and one runtime graph,
-  combined protected imports, per-source dynamic/hook reviews and both static
-  and dynamic combined locks.
-- Denied/unapproved builds, malformed outputs, traversal, mutation, environment
-  injection, missing artifacts, narrower grants, rollback and shared stop.
-  Private-file hashes and unrelated-process controls test physical effects.
-
-The combined dynamic-lock fixture drives details/reject/cancel/approval, validates
-two original locks in separate assessed build environments, imports both sources,
-and denies reuse after a lock change. It uses synthetic advisory/age evidence,
-synthetic build tools and a real public idna wheel. Registry-only resolution
-populates a fresh uv metadata cache; no ambient cache is copied. These are
-deterministic controller/native tests, not model trajectories or a claim about
-real advisory completeness. They do not establish fresh-wheel installed-user
-journeys, first-setup timing or complete product acceptance.
-
-Earlier failures, corrections, source hashes and checkpoint results are retained
-in the [implementation records](DEPENDENCY_IMPLEMENTATION_LOG.md). Original raw
-manager receipts remain outside the checkout. In particular, the latest increment
-recorded a missing-cvss system-Python attempt and corrected a test that mistakenly
-used package-set listing as a freshness validator; the mount boundary now supplies
-that oracle. No mandatory positive or negative assertion was waived.
+The accepted local-Python suite covers static/dynamic wheel and editable builds,
+compiled imports, extras, multiple source/build environments, uv lock freshness,
+hook reviews, narrowing, rollback and stop. Local identity comes from reviewed
+source resources and digests, not fabricated registry release/advisory evidence.
+All registry build/runtime dependencies still use the common package policy.
+See [preparation and rebuilding](ONBOARDING.md#local-python-preparation) for
+the precise live-edit boundary. Historical hashes and failed attempts remain in
+the [implementation records](DEPENDENCY_IMPLEMENTATION_LOG.md) and private manager
+receipts. These deterministic fixtures are not model trajectories.
 
 ## Private npm setup
 
@@ -139,8 +114,11 @@ Redirects, credential-bearing URLs and credential echoes fail closed. HTTPS is
 required in production; loopback HTTP is a synthetic test seam. The advisory
 endpoint `/v1/query` must return `origin`, `name`, `version`, `coverage: "complete"`
 and an OSV `vulns` array. An empty public lookup is insufficient for a private
-package. No real private npm account or complete native npm credential journey
-is claimed here; the Node milestone retains that verification requirement.
+package. Authenticated local fixtures with synthetic credentials exercise real
+Python/npm resolution, installation, imports and approved builds, plus wrong
+credentials, missing coverage, origin confusion and echo rejection. They check
+that credentials stay out of resolver, build, application and model-visible
+outputs. No external private account is claimed tested.
 
 ## Private Python setup and verification
 
@@ -167,17 +145,7 @@ installation without misconduct counts; confirmed age/CVSS violations follow
 the approved escalation policy. Correct the operator configuration or evidence
 service and retry without disabling checks.
 
-The manager's `check-baseline-1.log` in run `task-8-1789614885942527504`
-passed all 17 private-Python tests without skips in 7.515 seconds, with matching
-runtime/test hashes and a passing guard. Test-source SHA-256:
-`ace0e6eba8b52aebab77b6f58f389ace0ecc8946a989f9202d20554bc2acd1cb`.
-The synthetic authenticated fixture resolves, installs and imports an actual wheel.
-It verifies 13 denied installs publish no set, retained violation counts,
-resolver/build/application credential isolation, mount-path exclusions and
-unrelated-process survival. This is retained private-milestone evidence, not a new
-private-suite run for the local-Python changes or an external account test.
-
-## Dependency revisions and remaining requirements
+## Dependency revisions
 
 In the operator terminal, dependency revisions use explicit review:
 
@@ -195,13 +163,25 @@ scope and violation history, revokes old sessions and stops registered work.
 Successful publication requires restarting protected work. Reject/cancel/EOF
 does not authorize publication; recovery never revives stopped sessions.
 
-Poetry local/private integration, combined Node acceptance and end-to-end
-ecosystem journeys remain separate requirements. Trusted isolated Poetry/pnpm/Yarn
-payloads must be provisioned explicitly; an ambient
+For an approved static local Python source, registry edits preserve local entries
+such as `-e .` and their confined source resources. The revision review explicitly
+lists offline backend execution, installation mode and source snapshots. Approval
+rebuilds the local installation with the revised assessed dependencies before
+ordinary sessions may resume. A failed build restores metadata and prior authority;
+sessions remain revoked and violation history remains intact. A concurrent source
+replacement is preserved as a stopped recovery conflict, never silently rebound.
+Dynamic metadata changes need the existing explicit discovery flow through
+`ptw codex --revise`. A local native lock remains frozen during this revision path;
+stale or incompatible locks fail rather than silently changing their authority.
+
+Trusted isolated Poetry/pnpm/Yarn payloads must be provisioned explicitly; an ambient
 shim or automatic Corepack download is not a verified tool installation.
 External/VCS sources, repository-selected plugins, arbitrary extra-marker boolean
 forms, symlink-based editable trees and uncontrolled build downloads are outside
-the bounded adapters. Known limitations do not waive queued ordinary formats.
+the bounded adapters. Private uv/Poetry locks and Poetry-local combinations are
+unimplemented combinations of ordinary inputs, not unusual formats. Use the
+supported requirements/PEP 621 private and local paths instead of silently
+changing lock authority. These limits do not imply every imaginable package works.
 
 ## Validation and reproduction
 
@@ -221,10 +201,53 @@ systemd operations belong to manager validation. For offline methods, explicitly
 disable `PTW_LINUX_TESTS` and select only non-native cases; skipped native tests
 cannot count as acceptance. Each run needs fresh temporary/evidence directories.
 
-The broader existing driver, `harness/scripts/product_ecosystems_acceptance.py`,
-exercises a subset of Python/Node/TypeScript journeys. Its historical evidence
-does not replace final-source full product acceptance. First-setup timing,
-fresh-install journeys and real Codex behavior remain separate product gates.
+The approved `test_product_ecosystems.py` suite now includes
+`NativeJourneyTests`: all six new/existing Python/Node/TypeScript cases, the mixed
+backend/frontend case and an npm workspace control. It invokes the existing
+driver with real CLI/PTY reviews, useful protected installs/tests/builds,
+private-file denial and unrelated-process survival. Mixed setup checks details,
+reject, cancel and EOF before approval. The first focused manager run passed this
+matrix; final-source acceptance remains separate. See the [fixture guide](examples/product-ecosystems/README.md).
+
+`NativeNpmResolutionTests` uses native npm and the real broker metadata view
+with synthetic age/advisory evidence. It checks direct/transitive fallback past
+a young newest release and a critical older release, frozen-lock rejection,
+reviewed lock resolution, exact pins, unavailable evidence and exhausted limits.
+Original declarations/lock bytes must remain unchanged until reviewed publication.
+The first focused manager run passed these tests. They retain the existing finite
+resolver budgets; neither a transport error nor budget exhaustion proves
+unsatisfiability. Native semantics follow the
+[pinned npm before definition](https://github.com/npm/cli/blob/v10.9.8/workspaces/config/lib/definitions/definitions.js).
+
+`NativeRevisionCompositionTests` adds real terminal dependency revisions to the
+mixed project and a local editable project. It requires useful imports/tests/builds
+after each revision, preserved unrelated authority and history, and reject/cancel/EOF
+without publication. Focused manager checks passed these composition tests.
+
+`InstalledWheelJourneyTests` runs the same finite journey matrix in a fresh wheel
+environment per case. It reuses the release builder's hashed build prerequisite
+and runtime lock, verifies exact installed module hashes in foreground and
+detached services, checks the actual monitor interpreter and repeats identity
+verification after useful work. The driver records source/input/wheel hashes,
+failed steps, terminal reviews and physical outputs in new private directories.
+These native checks await successful manager validation. Follow the
+[source-test installation instructions](README.md#run-the-tests) before running
+the approved suite; PYTHONPATH alone cannot establish detached-service identity.
+
+The frozen integration checklist maps to existing suites as follows:
+
+| Requirement | Behavioral checks |
+|---|---|
+| Common formats, six language cases, mixed repo and workspaces | `NativeJourneyTests`, `InstalledWheelJourneyTests`, native lock and accepted Poetry/Node import suites |
+| Preserve reviewed compatible Python runtime | `ProductEcosystemTests`, private/local Python and Poetry runtime regressions |
+| Bounded compatible age/CVSS resolution without pin override | `ProductEcosystemTests`, `NativeNpmResolutionTests`, native Poetry/pnpm/Yarn solver tests |
+| Confined local/private sources and broker-only credentials | `WorkspaceSourceTests`, `PrivateRegistryTests`, `PrivatePythonTests`, accepted local/Node import suites |
+| Explicit dependency and build approval, scope/history and recovery | `DependencyRevisionTests`, `NativeRevisionCompositionTests`, accepted build/terminal regressions |
+| Useful physical outputs, rejection, source identity and guides | Both journey matrices, fixture receipts, hash manifest and full regression |
+
+All original guard, ecosystem and regression checks remain mandatory. Focused
+passes are development evidence. First-setup timing, resumed Codex, reassessment
+and complete product acceptance retain their separate gates.
 
 ## Sources and assumptions
 
@@ -241,9 +264,16 @@ and [pinned uv wheel client](https://github.com/astral-sh/uv/blob/0.12.15/crates
 inform the credential-free view. npm uses its documented
 [before cutoff](https://docs.npmjs.com/cli/v10/commands/npm-install/) plus independent checks.
 
-These previously researched interfaces explain the design, not native success.
-This documentation consolidation introduces no tooling API or dependency; further
-web research would add nothing to the retained manager results or stable internal
-interfaces. Tool hashes are recorded per attempt. Host runtimes, operator state,
+The installed identity probe uses upstream systemd documentation for
+[detached service execution and waiting](https://github.com/systemd/systemd/blob/v255/man/systemd-run.xml)
+and [service environment inheritance](https://github.com/systemd/systemd/blob/v255/man/systemd.exec.xml).
+It uses the monitor's normal startup environment and rejects inherited PYTHONPATH
+or imports outside the fresh installation, without changing the shared manager.
+The [PyPA direct URL specification](https://packaging.python.org/en/latest/specifications/direct-url-data-structure/)
+permits an empty `archive_info` object for a wheel. The probe requires that object
+and independently compares every installed module digest with the source hashes;
+optional archive metadata hashes are not its integrity check.
+These interfaces explain the design, not native success. No dependency or general
+resolver was added. Tool hashes are recorded per attempt. Host runtimes, operator state,
 native clients and the kernel remain trusted. This experimental library does not
 claim complete mediation, unknown-vulnerability detection or production assurance.

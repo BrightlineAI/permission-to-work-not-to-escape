@@ -4,11 +4,11 @@ This prototype checks package scope, known vulnerabilities and release age befor
 
 ## What works
 
-The table below describes the existing package installer. Current source adds
-bounded Python declaration resolution, reviewed system-runtime selection and
-mixed-project command roots through [typed setup](ONBOARDING.md). Task 3 is
-incomplete; its [status and evidence](DEPENDENCY_STATUS.md) separate tested units
-from pending native journeys and missing ordinary adapters.
+The table below describes package installation. [Typed setup](ONBOARDING.md)
+also supports bounded Python declaration resolution, reviewed runtime selection
+and mixed-project command roots. The [format matrix and evidence](DEPENDENCY_STATUS.md)
+separate accepted adapters and focused native results from pending final
+integration checks, including the new fresh-wheel journeys.
 
 | Input | Installation and execution |
 |---|---|
@@ -23,8 +23,8 @@ This does not mean every library works. A source package needing unavailable sys
 
 For typed project setup and `ptw deps` revisions, use the current
 [format matrix, examples and private-registry contract](DEPENDENCY_STATUS.md).
-That matrix also identifies unfinished ordinary adapters and native tests that
-have not passed. The examples below retain the legacy exact-pin workflow.
+That matrix identifies supported inputs, unimplemented combinations and native
+checks still pending. The examples below retain the legacy exact-pin workflow.
 
 ## Install
 
@@ -144,7 +144,7 @@ Reports are saved even after a failed assertion. Registry evidence can change; a
 | Boundary | Safe next step |
 |---|---|
 | Private Python registries need exact routes and complete origin-bound evidence | Use the [operator configuration contract](DEPENDENCY_STATUS.md#private-python-setup-and-verification). Requirements and static PEP 621 are supported; private native locks still fail closed. |
-| Git sources and Python local editable packages need source adapters | Do not reinterpret local paths as public packages. npm workspaces already use reviewed source descriptors; see the [current format matrix](DEPENDENCY_STATUS.md). |
+| Git sources and external source trees are unsupported | In-tree Python wheel/editable projects and npm workspaces use explicit reviewed source closures; see [local preparation](ONBOARDING.md#local-python-preparation). Never reinterpret them as public packages. |
 | A build needs absent headers or offline toolchains | Have an operator provision a reviewed runtime image, or supply checked build wheels. Do not let package code install system packages or access the host. |
 | Large packages or builds exceed limits | Review resource budgets and use a dedicated build runner before raising them. Current limits: 64 Python pins, 1024 distinct npm versions, 128 MiB per v3 download, 512 MiB per set/export, 768 MiB build memory, 180-second build timeout. |
 | Cargo, Maven, NuGet or other package managers | Add an ecosystem evidence/lock/installer adapter using their existing tooling and the same policy/controller/build supervisor. No adapter or vulnerability coverage is claimed yet. |
