@@ -148,7 +148,7 @@ Reports are saved even after a failed assertion. Registry evidence can change; a
 | A build needs absent headers or offline toolchains | Have an operator provision a reviewed runtime image, or supply checked build wheels. Do not let package code install system packages or access the host. |
 | Large packages or builds exceed limits | Review resource budgets and use a dedicated build runner before raising them. Current limits: 64 Python pins, 1024 distinct npm versions, 128 MiB per v3 download, 512 MiB per set/export, 768 MiB build memory, 180-second build timeout. |
 | Cargo, Maven, NuGet or other package managers | Add an ecosystem evidence/lock/installer adapter using their existing tooling and the same policy/controller/build supervisor. No adapter or vulnerability coverage is claimed yet. |
-| Installed environments later become vulnerable | Add scheduled reassessment and policy-driven quarantine. The current receipt describes evidence checked at installation, not continuous certification. |
+| Installed environments later become vulnerable | Reuse refreshes expired advisory evidence under the shared policy. Confirmed forbidden dependencies quarantine matching project sets and stop their registered work. See [caching, offline behavior and recovery](REASSESSMENT.md). No continuous certification is claimed. |
 
 This is a broker for registered confined workloads, not a machine-wide pip/npm firewall. Unknown vulnerabilities and malicious code without advisories remain possible. System runtime files, the host, operator and evidence services are trusted. Arbitrary external workers are not stopped by this local controller. The original paper and benchmark results are unchanged.
 

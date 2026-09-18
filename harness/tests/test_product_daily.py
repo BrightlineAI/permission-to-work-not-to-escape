@@ -362,6 +362,7 @@ class PreviewTests(WorkspaceFixture):
         directory = self.root / 'staging'
         directory.mkdir()
         with patch('ptw.execution.shutil.which', side_effect=lambda n: '/usr/bin/' + n), \
+                patch('ptw.reassessment.refresh'), \
                 patch('ptw.execution.mounted_set', return_value=package) as assessed:
             command = preview_command(self.store, self.actor['token'], self.definition,
                                       scan(self.inv, ['src']), '{"package_sets":["fixture"]}', directory)

@@ -165,6 +165,12 @@ class RoutedNpmEvidence(NpmEvidence):
             return super().packument(name)
         return self._json(route, self._request(route, route['registry'] + '/' + quote(name, safe='')))
 
+    def assess(self, name, version):
+        record = super().assess(name, version)
+        if name in self.routes:
+            record['origin'] = self.routes[name]['registry']
+        return record
+
     @staticmethod
     def _json(route, raw):
         try:

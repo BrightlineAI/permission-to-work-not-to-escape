@@ -1082,11 +1082,14 @@ class YarnNativeTests(unittest.TestCase):
                     fresh['token'], 'rollback-install', initial['lock'], ecosystem='npm')
                 self.assertTrue(restored['allowed'], restored)
             return
+        from regression_timing import active_directory
         script = ('import sys\nfrom unittest.mock import patch\n'
             'sys.path.insert(0,' + repr(str(Path(__file__).resolve().parent)) + ')\n'
             'from test_product_yarn import YarnRegistryFixture\nfrom ptw.cli import main\n'
-            'with patch("ptw.registry.provider_for", return_value=YarnRegistryFixture.read(' + repr(str(registry)) + ')):\n'
-            '    main()\n')
+            'from regression_timing import child_phases\n'
+            'with child_phases(' + repr(active_directory()) + ', ' + repr(self.id()) + '):\n'
+            '    with patch("ptw.registry.provider_for", return_value=YarnRegistryFixture.read(' + repr(str(registry)) + ')):\n'
+            '        main()\n')
         for answer in ('reject', 'cancel', 'eof', 'yes'):
             terminal = Terminal([sys.executable, '-B', '-c', script, 'deps', 'update', 'ptw-value@^1.0.0',
                 '--repo', str(self.stage), '--ecosystem', 'npm'], self.root / ('revision-' + answer))

@@ -11,7 +11,7 @@ One approved project policy controls:
 | allowed_names | Only these PyPI packages, including dependencies |
 | deny_cvss_at_or_above: 9.0 | Reject known critical vulnerabilities with CVSS base score 9.0 or higher |
 | min_release_age_days: 3 | Reject an artifact uploaded less than three days ago; zero disables this rule |
-| evidence_max_age_seconds: 900 | Recheck freshness before publishing the installed set |
+| evidence_max_age_seconds: 900 | Bound freshness at installation and every installed-set reuse |
 | Existing escalation thresholds | File and package violations share the same project and ancestor task counters |
 
 Each task lists a subset of the project package names. A delegate may only narrow its parent's subset. There are no separate pip or uv policy settings to keep synchronized.
@@ -75,6 +75,12 @@ Django==3.2.0 should be denied before download, with critical advisory IDs and a
 The requirements file is deliberately small: one exact name==version per line, including every active dependency. Blank lines and whole-line comments are allowed. Approve every dependency name in both project and task scope.
 
 The broker checks each pinned version, verifies downloaded SHA256 values, inspects wheel metadata and validates dependency closure. uv installs those exact local wheels offline, without dependency resolution or source builds, inside bubblewrap. Publication rechecks session scope, evidence freshness and project stop state. Package code runs only later in a confined workload, not during installation in the controller.
+
+Installed sets retain evidence for [reassessment before reuse](REASSESSMENT.md).
+Expired caches require fresh complete advisory evidence. Outages block reuse
+without misconduct counts; confirmed newly forbidden dependencies quarantine
+matching sets and trigger termination of their registered work. Recovery uses a
+freshly assessed installation, never revival of the old quarantined ID.
 
 Version 2 accepts universal py3-none-any wheels, including py2.py3 tags. It rejects source distributions, native platform wheels, extras, URL dependencies, editable installs, startup hooks and wheel relocation data. Dependency markers are evaluated for /usr/bin/python3 on the execution host, not the installer's private Python. Incomplete dependency pins block rather than fetching anything else.
 

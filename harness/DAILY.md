@@ -1,5 +1,11 @@
 # Protected daily development
 
+Package-backed commands and previews apply [installed dependency reassessment](REASSESSMENT.md)
+before reuse. Fresh caches work offline; uncertain expired evidence blocks new
+work without misconduct counts. Confirmed forbidden dependencies quarantine the
+affected sets and terminate their registered commands/previews. Recovery needs a
+fresh assessed replacement and never resets violation or stop history.
+
 Protected resume, bounded preview and scoped Git are implemented. Focused native
 checks verified resume on Codex 0.154.0, preview lifecycle behavior and Git's
 native effects, operator approval and physical termination. The complete

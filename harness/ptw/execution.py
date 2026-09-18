@@ -33,7 +33,7 @@ with open('/target/.ptw-command-result.json','w') as handle:
 """
 
 
-def prepare_command(store, token, definition, before, settings, temporary):
+def prepare_command(store, token, definition, before, settings, temporary, *, binding=None):
     try:
         options = parse_json(settings) if settings else {}
     except ValueError as exc:
@@ -48,11 +48,21 @@ def prepare_command(store, token, definition, before, settings, temporary):
     mounts = {}
     local_descriptor = {}
     editable_artifacts = {}
+    from .reassessment import refresh
+    for identity in options.get('package_sets', []):
+        refresh(store, token, identity, definition=definition, snapshot=before)
     with store.locked() as db:
         actor = store.session(db, token)
         project, bundle = store.project(db, actor["project"])
         if project["stopped"]:
             raise Invalid("Project stopped")
+        if binding is not None:
+            if binding and binding['approval'] != bundle['approval']['sha256']:
+                raise Invalid('Command policy changed during preparation')
+            binding.update(approval=bundle['approval']['sha256'], definition=definition,
+                           snapshot=before, package_sets=options.get('package_sets', []))
+            from .reassessment import validate_binding
+            validate_binding(store, db, actor, binding)
         from .dependency_binding import verify_inputs
         verify_inputs(bundle)
         runtime = bundle['policy']['project'].get('python_runtime')
@@ -130,11 +140,12 @@ def prepare_command(store, token, definition, before, settings, temporary):
     return target, command, editable_artifacts
 
 
-def execute(store, token, definition, before, settings):
+def execute(store, token, definition, before, settings, *, binding=None):
+    binding = {} if binding is None else binding
     with tempfile.TemporaryDirectory(prefix="workspace-", dir=store.directory) as temporary:
-        target, command, editable_artifacts = prepare_command(store, token, definition, before, settings, temporary)
+        target, command, editable_artifacts = prepare_command(store, token, definition, before, settings, temporary, binding=binding)
         try:
-            run_build(store, token, command, target)
+            run_build(store, token, command, target, binding=binding)
         except UnsafeExport as exc:
             raise OutsideScope("Command attempted unsafe output: " + str(exc)) from exc
         except EvidenceError as exc:

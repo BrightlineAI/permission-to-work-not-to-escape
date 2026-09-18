@@ -1,5 +1,9 @@
 # Start once, then work in Codex
 
+Installed package reuse follows the approved [freshness and quarantine policy](REASSESSMENT.md).
+If evidence is unavailable, restore the approved service and retry; this does not
+count as misconduct. Quarantined sets require a freshly assessed replacement.
+
 Use the [recoverable Linux installer](INSTALL.md), which runs doctor automatically,
 then open a fresh terminal. If `ptw` is absent, follow the installer's printed
 instructions for your shell. Authenticate with `ptw-codex login` using your own

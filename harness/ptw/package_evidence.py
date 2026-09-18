@@ -81,7 +81,7 @@ def severity(vulnerability):
 def evaluate(evidence, rules, now=None):
     now = time.time() if now is None else now
     checked = evidence.get("checked_at")
-    if (not isinstance(checked, (int, float)) or not 0 <= now - checked <= rules["evidence_max_age_seconds"]):
+    if (type(checked) not in (int, float) or not 0 <= now - checked <= rules["evidence_max_age_seconds"]):
         raise EvidenceError("Evidence is stale or has an invalid collection time")
     published = timestamp(evidence.get("published_at"))
     if published > now:

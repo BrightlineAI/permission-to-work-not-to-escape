@@ -210,7 +210,7 @@ class WorkspaceTests(WorkspaceFixture):
         before = scan(self.inv, ["src", "tests"])
         after = copy.deepcopy(before)
         after["src/calculator.py"]["data"] = b"stale"
-        def execute(*args):
+        def execute(*args, **kwargs):
             path = Path(self.inv["root"]) / "src/calculator.py"
             path.write_text("concurrent operator edit")
             return after, {"exit_code": 0, "output": "", "output_truncated": False}
@@ -223,7 +223,7 @@ class WorkspaceTests(WorkspaceFixture):
         from ptw.workspace import scan
         after = scan(self.inv, ["src", "tests"])
         after["src/calculator.py"]["data"] = b"never publish"
-        def execute(*args):
+        def execute(*args, **kwargs):
             self.store.stop("python-demo")
             return after, {"exit_code": 0, "output": "", "output_truncated": False}
         with patch("ptw.execution.execute", side_effect=execute):

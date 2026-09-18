@@ -400,8 +400,10 @@ class Workspace:
                 before = scan(bundle["inventory"], definition["resources"])
             except (Invalid, OSError) as exc:
                 return self.record(db, actor, event, req, "blocked", "Cannot snapshot command inputs: " + str(exc))
+        binding = {'approval': bundle['approval']['sha256'], 'definition': definition,
+                   'snapshot': before, 'package_sets': []}
         try:
-            after, outcome = execute(self.store, token, definition, before, req["content"])
+            after, outcome = execute(self.store, token, definition, before, req["content"], binding=binding)
         except OutsideScope as exc:
             with self.store.locked() as db:
                 actor, project, bundle, prior = self.inspect(db, token, event, req)
@@ -414,6 +416,13 @@ class Workspace:
             actor, project, bundle, prior = self.inspect(db, token, event, req)
             if prior is not None:
                 return prior
+            try:
+                from .reassessment import validate_binding
+                validate_binding(self.store, db, actor, binding)
+            except OutsideScope as exc:
+                return self.deny(db, actor, project, bundle, event, req, str(exc))
+            except (Invalid, OSError) as exc:
+                return self.record(db, actor, event, req, 'blocked', str(exc), violation_counted=False)
             reason = authorize_diff(bundle["inventory"], scope(json.loads(actor["grants"])), before, after)
             if reason:
                 return self.deny(db, actor, project, bundle, event, req, "Command output rejected: " + reason)

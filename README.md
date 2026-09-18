@@ -56,6 +56,10 @@ shared controls underneath. [Python and npm package checks](harness/ECOSYSTEMS.m
 cover known vulnerabilities and release age. This prototype is separate from
 the paper's frozen experiments.
 
+Installed dependencies also undergo [bounded reassessment before reuse](harness/REASSESSMENT.md).
+Outages block unsafe reuse without misconduct counts; confirmed forbidden
+dependencies quarantine affected project sets and stop their registered work.
+
 Dependency setup supports reviewed Python runtimes, mixed-project setup,
 explicit source scopes and `ptw deps add/remove/update` reviews. For a local
 Python project, run:

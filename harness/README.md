@@ -1,5 +1,9 @@
 # Project safety harness
 
+[Installed dependency reassessment](REASSESSMENT.md) checks freshness before reuse,
+blocks uncertain evidence without misconduct counts, and quarantines confirmed
+forbidden dependencies. Read its caching, running-work and recovery semantics.
+
 A small working extension of the [paper](../paper/submission.pdf). Describe a project, review its proposed policy, and run agents through shared controls.
 
 The usable prototype handles [repository editing and reviewed build/test commands](PRACTICAL.md) and [controlled Python and npm package installation](ECOSYSTEMS.md), including native Python libraries and JavaScript/TypeScript. It supports multiple independent agents, narrower tasks and delegates, shared escalation, automatic monitoring, and review of existing Codex logs. Project differences are JSON configuration, not custom code.
@@ -171,6 +175,22 @@ installed native tools on PATH and use a normal systemd user login for native
 checks. Source tests with mocked integrations establish only their stated
 behavior. For installed-user acceptance, use fresh wheel installations with
 PYTHONPATH unset, prove installed hashes, and never reuse this editable environment.
+
+Native discovery that includes `test_product_reassessment.py` also retains a fresh
+private `REGRESSION_TIMING_EVIDENCE` directory. It records source hashes and flushed
+start/end records for each test, class setup, teardown and cleanup. The two Yarn
+paths under timeout investigation additionally record controller, parser, tool
+verification and native-install phases, including synthetic terminal children.
+The existing runner, order, assertions, confinement and deadlines remain in force.
+No arguments, payloads, output or exception messages enter these timing records.
+
+Timings are inclusive and nested, so do not add phase durations to test durations.
+CPU counters are cumulative user/system totals for the process and its waited-for
+children; subtract corresponding start/end counters. Detached systemd services and
+still-running children are not included. An unmatched start indicates incomplete
+evidence, not success. A deadline traceback identifies where interruption occurred,
+not the cause of accumulated time. Retain failed attempts before diagnosing a
+slow phase; timing evidence does not authorize skipping integrity verification.
 
 The dependency integration suite runs six new/existing Python, Node and TypeScript
 terminal journeys, the mixed project and an npm workspace control in both source

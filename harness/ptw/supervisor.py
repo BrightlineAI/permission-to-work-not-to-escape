@@ -98,6 +98,9 @@ class Supervisor:
 
     def launch(self, token, argv, package_set=None):
         """Operator API for local workloads, not an unrestricted model tool."""
+        if package_set:
+            from .reassessment import refresh
+            refresh(self.store, token, package_set)
         with self.store.locked() as db:
             actor = self.store.session(db, token)
             project, bundle = self.store.project(db, actor["project"])
@@ -125,6 +128,8 @@ class Supervisor:
             # Keep installed source/receipt immutable when this service imports it.
             command = [sys.executable, "-B", "-m", "ptw.worker", json.dumps(config), *argv]
             db.execute("INSERT INTO workloads(unit,project,session) VALUES(?,?,?)", (unit, actor["project"], actor["id"]))
+            if package_set:
+                db.execute('INSERT INTO workload_packages VALUES(?,?)', (unit, package_set))
             result = run(manager("systemd-run") + ["--quiet", "--collect", "--unit=" + unit, *service_identity(),
                           "--property=KillMode=control-group", "--property=NoNewPrivileges=yes",
                           "--property=ProtectControlGroups=yes",
@@ -135,7 +140,7 @@ class Supervisor:
                 raise Invalid("Sandbox launch failed: " + result.stderr[:500])
             return unit
 
-    def engine(self, token, command, *, stderr=None, terminal=False, service_seconds=200, preparation=False):
+    def engine(self, token, command, *, stderr=None, terminal=False, service_seconds=200, preparation=False, binding=None):
         """Trusted adapter only: start a fixed model runtime or confined build.
 
         Native tool permissions are fixed by codex.generate. The model cannot call
@@ -150,8 +155,11 @@ class Supervisor:
             project, _ = self.store.project(db, actor["project"])
             if project["stopped"]:
                 raise Invalid("Project stopped")
+            from .reassessment import validate_binding, bind_workload
+            validate_binding(self.store, db, actor, binding)
             unit = "ptw-" + secrets.token_hex(12) + ".service"
             db.execute("INSERT INTO workloads(unit,project,session) VALUES(?,?,?)", (unit, actor["project"], actor["id"]))
+            bind_workload(db, unit, binding)
             process = subprocess.Popen(manager("systemd-run") + ["--quiet", "--collect", "--pty" if terminal else "--pipe", "--wait", "--unit=" + unit,
                 *service_identity(), "--property=KillMode=control-group",
                 "--property=MemoryMax=768M", "--property=CPUQuota=100%", "--property=TasksMax=128",
@@ -172,7 +180,7 @@ class Supervisor:
             process.communicate(timeout=5)
             raise Invalid("Codex supervised launch did not become ready")
 
-    def background(self, token, command, *, service_seconds):
+    def background(self, token, command, *, service_seconds, binding=None):
         """Trusted bounded preview worker; all descendants share its cgroup."""
         if type(service_seconds) is not int or not 1 <= service_seconds <= 3620:
             raise Invalid('Preview service lifetime outside bounds')
@@ -181,9 +189,12 @@ class Supervisor:
             project, _ = self.store.project(db, actor['project'])
             if project['stopped']:
                 raise Invalid('Project stopped')
+            from .reassessment import validate_binding, bind_workload
+            validate_binding(self.store, db, actor, binding)
             unit = 'ptw-' + secrets.token_hex(12) + '.service'
             db.execute('INSERT INTO workloads(unit,project,session) VALUES(?,?,?)',
                        (unit, actor['project'], actor['id']))
+            bind_workload(db, unit, binding)
             try:
                 result = run(manager('systemd-run') + ['--quiet', '--collect', '--unit=' + unit,
                     *service_identity(), '--property=KillMode=control-group',
@@ -226,9 +237,16 @@ class Supervisor:
         with self.store.locked() as db:
             rows = db.execute("""SELECT w.unit FROM workloads w
                 JOIN projects p ON p.id=w.project JOIN sessions s ON s.id=w.session
-                WHERE (p.stopped=1 OR s.closed=1) AND w.stopped=0""").fetchall()
+                WHERE (p.stopped=1 OR s.closed=1 OR EXISTS (
+                    SELECT 1 FROM workload_packages wp JOIN package_sets ps ON ps.id=wp.package_set
+                    WHERE wp.unit=w.unit AND ps.assessment_state='quarantined')) AND w.stopped=0""").fetchall()
             for row in rows:
                 state = self.terminate(row["unit"])
+                if db.execute("SELECT 1 FROM workload_packages wp JOIN package_sets ps ON ps.id=wp.package_set "
+                              "WHERE wp.unit=? AND ps.assessment_state='quarantined'", (row['unit'],)).fetchone():
+                    from .policy import canonical
+                    db.execute('INSERT INTO package_terminations VALUES(?,?,?)',
+                               (row['unit'], time.time(), canonical(state)))
                 if state["confirmed_stopped"]:
                     db.execute("UPDATE workloads SET stopped=1 WHERE unit=?", (row["unit"],))
                 outcomes.append({"unit": row["unit"], **state})

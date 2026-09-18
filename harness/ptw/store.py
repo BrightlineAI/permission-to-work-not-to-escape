@@ -58,7 +58,19 @@ class Store:
                 CREATE TABLE IF NOT EXISTS previews(
                   session TEXT, command TEXT, unit TEXT NOT NULL, directory TEXT NOT NULL,
                   PRIMARY KEY(session,command));
+                CREATE TABLE IF NOT EXISTS package_assessments(
+                  attempt TEXT PRIMARY KEY, package_set TEXT NOT NULL, at REAL NOT NULL,
+                  outcome TEXT NOT NULL, detail TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS workload_packages(
+                  unit TEXT, package_set TEXT, PRIMARY KEY(unit,package_set));
+                CREATE TABLE IF NOT EXISTS package_terminations(
+                  unit TEXT, at REAL, outcome TEXT NOT NULL);
             """)
+            columns = {r[1] for r in db.execute('PRAGMA table_info(package_sets)')}
+            for name, declaration in [('evidence', 'TEXT'), ('assessment_state', "TEXT NOT NULL DEFAULT 'blocked'"),
+                                      ('assessment_reason', 'TEXT'), ('assessment_generation', 'INTEGER NOT NULL DEFAULT 0')]:
+                if name not in columns:
+                    db.execute('ALTER TABLE package_sets ADD COLUMN ' + name + ' ' + declaration)
             if "packages" not in {r[1] for r in db.execute("PRAGMA table_info(sessions)")}:
                 db.execute("ALTER TABLE sessions ADD COLUMN packages TEXT NOT NULL DEFAULT '[]'")
             if "ecosystem" not in {r[1] for r in db.execute("PRAGMA table_info(package_sets)")}:
@@ -478,6 +490,10 @@ class Store:
             result["sessions"] = [dict(r) for r in db.execute("SELECT id,task,parent,depth,closed FROM sessions WHERE project=?", (project,))]
             result["workloads"] = [dict(r) for r in db.execute("SELECT unit,stopped FROM workloads WHERE project=?", (project,))]
             result["tasks"] = [dict(r) for r in db.execute("SELECT task,violations FROM task_counts WHERE project=?", (project,))]
+            result['package_sets'] = [dict(r) for r in db.execute(
+                'SELECT id,ecosystem,assessment_state,assessment_reason,assessment_generation FROM package_sets WHERE project=?', (project,))]
+            result['package_terminations'] = [dict(r) for r in db.execute(
+                'SELECT t.* FROM package_terminations t JOIN workloads w ON w.unit=t.unit WHERE w.project=?', (project,))]
             return result
 
     def audit_events(self, project):

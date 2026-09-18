@@ -53,6 +53,7 @@ and preserves its history. No runtime authorization step calls an LLM.
 | package_install.py + uv | Validate complete wheel dependencies; install hash checked local artifacts offline inside bubblewrap |
 | npm.py + npm | Validate lock and archive identities, dependencies and integrity; reuse npm semver/cache/ci |
 | package_build.py + python_build.py | Registered offline builds on bounded tmpfs; validate exported data and generated wheels |
+| reassessment.py + Store | Refresh installed evidence through existing clients, quarantine matching project sets and bind affected workloads |
 | workspace_policy.py + workspace.py | Version 4 tree/file capabilities, edit preconditions, lifecycle operations, validated publication |
 | execution.py | Reviewed commands in disposable workspaces; check complete diff before publishing |
 | workflow.py | One model action route for repository edits, installs, commands and registered delegation |
@@ -77,6 +78,14 @@ Version 4 commands operate on disposable copies of only their granted readable r
 A request intent is committed before its effect. If a process dies before recording completion, the next controller instance marks the result uncertain and stops that project. It does not silently replay an append. Completed event IDs are idempotent; reusing an ID with a different body is rejected.
 
 Denied actions increment project and relevant task counters once. A stopped project cannot admit another request, parent, delegate or workload. Admission and launch registration use the same lock. The stop decision is committed before systemd termination, and confirmation is reported separately. Version 4 CLI activation installs a persistent user monitor; no manual watch terminal is needed. Model runs require a fresh monitor heartbeat. Older policies may still use ptw watch.
+
+Installed dependency reassessment reuses the approved package evaluator. Requests
+run outside that lock, then current bindings and assessment generations are
+validated before recording a result. Commands/previews carry trusted package-set
+bindings through admission and command output publication. Quarantine invalidates
+matching project sets transactionally, and workload bindings target termination.
+Operational uncertainty and advisory changes do not increment misconduct. See
+the [freshness and running-work policy](REASSESSMENT.md).
 
 Normal completion does not imply task success. The walkthrough verifies the actual UI content and unchanged private resources. Linux tests require working positive controls before interpreting negative results.
 

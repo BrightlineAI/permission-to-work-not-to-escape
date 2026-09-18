@@ -4283,7 +4283,13 @@ shutil.copyfile(root / 'uv.lock', '/target/fixture.lock')
             receipt = install_editable(store, actor['token'], 'local')
         snapshot = scan(self.inv, self.resources)
         for mutate in (False, True):
-            def run(store, token, argv, target):
+            def run(store, token, argv, target, *, binding):
+                self.assertEqual(binding['package_sets'], [receipt['package_set']])
+                self.assertEqual(binding['definition'], command)
+                self.assertEqual(binding['snapshot'], snapshot)
+                with store.locked() as db:
+                    _, bundle = store.project(db, 'local-python')
+                    self.assertEqual(binding['approval'], bundle['approval']['sha256'])
                 self.assertEqual((target / 'src/local_demo/value.so').read_bytes(), b'\x7fELFformat-fixture-only')
                 if mutate:
                     (target / 'src/local_demo/value.so').write_bytes(b'changed')

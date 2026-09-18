@@ -201,7 +201,8 @@ def prepare_combined_setup(store, bundle, task, stage):
                    [*records, *(r for p in payloads for r in p['build_records'])]):
                 raise EvidenceError('Combined dependency evidence no longer permits publication')
             result = publish_set(store, db, project_id, approval, site,
-                                 {'pypi:' + n for n in selected}, manifest, receipt)
+                                 {'pypi:' + n for n in selected}, manifest, receipt,
+                                 [*records, *(r for p in payloads for r in p['build_records'])])
         return [result]
 
 
@@ -230,7 +231,8 @@ def prepared_sets(store, token):
             return []
         grants, result = scope(json.loads(actor['grants'])), []
         for row in db.execute('SELECT * FROM package_sets WHERE project=? AND policy_sha256=? '
-                              'AND local_source IS NOT NULL', (actor['project'], bundle['approval']['sha256'])):
+                              "AND local_source IS NOT NULL AND assessment_state!='quarantined'",
+                              (actor['project'], bundle['approval']['sha256'])):
             receipt = json.loads(row['local_source'])
             parts = receipt_sources(receipt)
             approved = {s['id']: s for s in bundle['policy']['project']['python_dependencies'].get('sources', [])}
@@ -1328,7 +1330,8 @@ def install_source(store, token, identity, *, mode, provider=None, payload=None)
                         manifest=manifest, receipt=receipt)
         if any(evaluate(r, bundle['policy']['project']['packages']) for r in build_records):
             raise EvidenceError('Build dependency evidence no longer permits publication')
-        return publish_install(store, token, identity, source, approval, site, selected, records, manifest, receipt)
+        return publish_install(store, token, identity, source, approval, site, selected,
+                               [*records, *build_records], manifest, receipt)
 
 
 def prepare_editable(store, token, identity, source, entries, python, approval, uv, output, artifacts, selected):
@@ -1397,11 +1400,13 @@ def publish_install(store, token, identity, source, approval, site, selected, re
             raise OutsideScope('Local build dependencies exceed session package grants')
         if any(evaluate(r, bundle['policy']['project']['packages']) for r in records):
             raise EvidenceError('Local dependency evidence no longer permits publication')
-        return publish_set(store, db, actor['project'], approval, site, names, manifest, receipt)
+        return publish_set(store, db, actor['project'], approval, site, names, manifest, receipt, records)
 
 
-def publish_set(store, db, project, approval, site, names, manifest, receipt):
+def publish_set(store, db, project, approval, site, names, manifest, receipt, records):
     """Caller holds the controller lock and has revalidated all constituent inputs."""
+    from .reassessment import validate_publication
+    validate_publication(db, project, 'pypi', records)
     sets = store.directory / 'package-sets'
     sets.mkdir(mode=0o700, exist_ok=True)
     package_id = 'pkg_' + secrets.token_hex(12)
@@ -1412,6 +1417,8 @@ def publish_set(store, db, project, approval, site, names, manifest, receipt):
         db.execute('INSERT INTO package_sets(id,project,names,manifest,created,ecosystem,policy_sha256,local_source) '
                    'VALUES(?,?,?,?,?,?,?,?)', (package_id, project, canonical(sorted(names)),
                    canonical(manifest), time.time(), 'pypi', approval, canonical(receipt)))
+        from .reassessment import seed
+        seed(db, package_id, records)
         db.commit()
     except BaseException:
         db.rollback()

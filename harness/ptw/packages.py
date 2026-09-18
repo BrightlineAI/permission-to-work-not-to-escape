@@ -14,8 +14,8 @@ from .package_install import file_manifest, install_wheels, target_environment, 
 from .policy import Invalid, OutsideScope, canonical, digest
 
 
-def mounted_set(store, db, actor, identity, *, definition=None, snapshot=None):
-    if not re.fullmatch(r"pkg_[0-9a-f]{24}", identity):
+def mounted_set(store, db, actor, identity, *, definition=None, snapshot=None, assessment=True):
+    if not isinstance(identity, str) or not re.fullmatch(r"pkg_[0-9a-f]{24}", identity):
         raise OutsideScope("Invalid package set identity")
     row = db.execute("SELECT * FROM package_sets WHERE id=? AND project=?", (identity, actor["project"])).fetchone()
     if row is None or not set(json.loads(row["names"])) <= set(json.loads(actor["packages"])):
@@ -53,6 +53,9 @@ def mounted_set(store, db, actor, identity, *, definition=None, snapshot=None):
     directory = store.directory / "package-sets" / identity
     if file_manifest(directory) != json.loads(row["manifest"]):
         raise Invalid("Package set integrity check failed")
+    if assessment:
+        from .reassessment import cached
+        cached(row, bundle['policy']['project']['packages'])
     return directory
 
 
@@ -98,6 +101,12 @@ class PackageControl:
                 raise Invalid("Event ID reused with different request")
             response = (json.loads(prior["response"]) if prior["state"] == "complete" else
                         {"allowed": False, "effect": "unknown", "level": "stop", "reason": "Interrupted package publication"})
+            if response.get('allowed') and response.get('package_set'):
+                try:
+                    mounted_set(self.store, db, actor, response['package_set'])
+                except Invalid as exc:
+                    response = {'allowed': False, 'effect': 'none', 'level': 'blocked',
+                                'reason': str(exc), 'violation_counted': False}
             return actor, project, bundle, {**response, "replayed": True}
         if project["stopped"]:
             response = {"allowed": False, "effect": "none", "level": "stop", "reason": "project stopped"}
@@ -232,6 +241,9 @@ class PackageControl:
                 try:
                     reasons = [e["name"] + "==" + e["version"] + ": " + r
                                for e in evidence for r in evaluate(e, current["policy"]["project"]["packages"])]
+                    from .reassessment import validate_publication
+                    if not reasons:
+                        validate_publication(db, actor['project'], ecosystem, evidence)
                 except EvidenceError as exc:
                     error = str(exc)
                 if error:
@@ -269,6 +281,8 @@ class PackageControl:
                                (identity, actor["project"],
                                 canonical(sorted(self.scope_names(selected, ecosystem, current["policy"]["version"]))),
                                 canonical(manifest), time.time(), ecosystem, current['approval']['sha256']))
+                    from .reassessment import seed
+                    seed(db, identity, evidence)
                     db.execute("UPDATE events SET response=?,state='complete' WHERE session=? AND event=?",
                                (canonical(response), actor["id"], event))
                     db.commit()

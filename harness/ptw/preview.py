@@ -42,8 +42,8 @@ def candidates(scope, metadata, python, args):
     return result
 
 
-def preview_command(store, token, definition, before, settings, directory):
-    target, command, _ = prepare_command(store, token, definition, before, settings, directory)
+def preview_command(store, token, definition, before, settings, directory, *, binding=None):
+    target, command, _ = prepare_command(store, token, definition, before, settings, directory, binding=binding)
     boundary = command.index('--')
     namespace, payload = command[:boundary], command[boundary + 1:]
     mount = namespace.index('--bind')
@@ -141,14 +141,15 @@ def _service_request(broker, supervisor, token, event, req):
     try:
         if not health(store)['healthy']:
             raise Invalid('Controller monitoring is unavailable')
-        command = preview_command(store, token, definition, before, req['content'], directory)
+        binding = {'approval': approval, 'definition': definition, 'snapshot': before, 'package_sets': []}
+        command = preview_command(store, token, definition, before, req['content'], directory, binding=binding)
         config = {'argv': command, 'port': definition['preview']['port'], 'directory': str(directory),
                   'lifetime_seconds': definition['preview']['lifetime_seconds']}
         save(directory / 'config.json', config)
         save(directory / 'inputs.json', {p: stamp(v) for p, v in before.items()})
         worker = Path(__file__).with_name('preview_transport.py')
         unit = supervisor.background(token, [sys.executable, '-I', '-B', str(worker), 'outer', str(directory / 'config.json')],
-                                     service_seconds=definition['preview']['lifetime_seconds'] + 15)
+                                     service_seconds=definition['preview']['lifetime_seconds'] + 15, binding=binding)
         save(directory / 'unit.json', {'unit': unit})
         deadline = time.monotonic() + 15
         while not (directory / 'ready.json').is_file():
@@ -161,6 +162,8 @@ def _service_request(broker, supervisor, token, event, req):
             actor, project, bundle, prior = broker.inspect(db, token, event, req)
             if prior is not None or bundle['approval']['sha256'] != approval:
                 raise Invalid('Preview session or approval changed during launch')
+            from .reassessment import validate_binding
+            validate_binding(store, db, actor, binding)
             state = supervisor.state(unit)
             if state.get('ActiveState') != 'active' or not monitored:
                 raise Invalid('Preview or controller exited during startup')
