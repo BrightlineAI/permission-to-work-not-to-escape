@@ -17,6 +17,12 @@ Focused native checks cover manifest-rooted reachability and inactive platform
 branches, including dependencies shared with active paths. Full acceptance of
 the current Poetry changes remains pending.
 Broader ecosystem and installed-user acceptance remain separate.
+The [Yarn Classic guide](YARN.md) describes isolated tool bootstrap, frozen
+terminal setup, explicit build approval and reviewed dependency changes. Focused
+native checks cover protected installs, source confinement, builds, terminal
+review, revisions, private registries and compatible resolution. Regressions for
+default public Yarn origins and dependency-ordered builds await native checks;
+full Yarn acceptance is not yet established.
 The [pnpm guide](PNPM.md) covers isolated tool bootstrap, frozen workspace import
 and reviewed dependency changes. Protected imports and approved dependency builds
 have native manager coverage. Focused checks cover terminal setup and dependency

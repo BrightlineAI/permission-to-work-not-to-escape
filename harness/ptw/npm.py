@@ -56,6 +56,11 @@ console.log(JSON.stringify(pairs.map(([v,r]) =>
 
 def installation_plan(lock):
     """Dispatch explicit native authority without converting lock formats."""
+    if isinstance(lock, dict) and lock.get('manager') == 'yarn':
+        if set(lock) != {'manager', 'files'}:
+            raise Invalid('Malformed Yarn installation request')
+        from .yarn import YarnPlan
+        return YarnPlan(lock['files'])
     if isinstance(lock, dict) and lock.get('manager') == 'pnpm':
         if set(lock) != {'manager', 'files'}:
             raise Invalid('Malformed pnpm installation request')

@@ -228,11 +228,8 @@ def resolve_npm(root, stage, rules, *, provider=None, runner=None, view_factory=
             manifest['workspaces'] = original['workspaces']
         if (root / 'pnpm-lock.yaml').exists():
             raise Invalid('pnpm authoritative lock requires the native pnpm adapter')
-        yarn = None
-        if (root / 'yarn.lock').exists() and not (root / 'package-lock.json').exists():
-            yarn = read('yarn.lock')
-            if '# yarn lockfile v1' not in yarn[:200] or '__metadata:' in yarn:
-                raise Invalid('Only Yarn Classic v1 can be imported by npm; Berry/PnP needs its own adapter')
+        if (root / 'yarn.lock').exists():
+            raise Invalid('Yarn authoritative lock requires the native Yarn adapter')
         resolved = parse_json(read('package-lock.json')) if (root / 'package-lock.json').exists() else None
         if resolved is not None:
             if (not isinstance(resolved, dict) or resolved.get('lockfileVersion') not in (2, 3) or
@@ -275,8 +272,6 @@ def resolve_npm(root, stage, rules, *, provider=None, runner=None, view_factory=
                     save(folder / path / 'package.json', declarations(manifests[path], local_paths=local_paths, parent=path))
                 if resolved is not None and not excluded:
                     save(folder / 'package-lock.json', resolved)
-                if yarn is not None and not excluded:
-                    (folder / 'yarn.lock').write_text(yarn)
                 view = view_factory(provider, excluded, started + seconds)
                 with view as endpoint:
                     argv = [npm, 'install', '--package-lock-only', '--ignore-scripts', '--no-audit', '--no-fund',
@@ -334,7 +329,7 @@ def resolve_npm(root, stage, rules, *, provider=None, runner=None, view_factory=
                 return {'lock': resolved, 'inputs': inputs, 'artifacts': [
                     {k: e[k] for k in ('name', 'version', 'url', 'integrity')} for e in records],
                     'attempts': attempts, 'authority': 'npm', 'sources': sorted(local_paths),
-                    'migration': 'yarn-v1' if yarn else None}
+                    'migration': None}
             attempt['outcome'] = 'policy_exclusion'
             if frozen:
                 raise ResolutionError('unsatisfiable', 'Frozen npm lock violates policy; explicitly review a native lock update')

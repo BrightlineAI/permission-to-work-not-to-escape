@@ -16,7 +16,7 @@ is unchanged; broader Poetry integration, Node and product requirements still ap
 | uv.lock | Static native locked export; dynamic candidate export followed by approved offline freshness validation | Private-origin locks and unavailable offline metadata fail closed |
 | Poetry lock | Native locked export, manifest-rooted wheel graph checks, protected import and reviewed revisions with compatible age/CVSS/wheel selection; focused native checks cover inactive-platform preservation | Full acceptance of the current changes remains pending. Public wheel-only sources; local/private integration and installed-user acceptance remain separate; see [Poetry setup](POETRY.md) |
 | npm v2/v3 lock | Root, workspaces and in-tree file sources; reviewed native revisions | Full Node/TypeScript integration acceptance remains queued |
-| Yarn Classic v1 | Explicit migration to npm authority, retaining yarn.lock | Broader native import/workspace acceptance remains queued |
+| Yarn Classic v1 | Native frozen authority, protected imports/builds, source confinement, terminal review, revisions, private registries and compatible resolution have manager coverage | Default public-origin and dependency-build-order regressions await native verification; final acceptance pending; see [Yarn guide](YARN.md) |
 | pnpm v9 lock | Native protected workspace/peer/directory imports, approved builds, frozen terminal setup, reviewed revisions and exact artifact/edge verification | Final acceptance of setup-build, private-registry, transitive/optional and revision-failure coverage pending; see [pnpm guide](PNPM.md) |
 
 Python uses an explicitly reviewed installed interpreter under `/usr` satisfying

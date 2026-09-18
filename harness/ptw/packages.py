@@ -77,7 +77,7 @@ class PackageControl:
                 _, bundle = self.store.project(db, actor['project'])
                 verify_npm(bundle, specs)
             selected = plan.selected
-            request_lock = plan.original_lock if specs.get('manager') == 'pnpm' else plan.lock
+            request_lock = plan.original_lock if specs.get('manager') in ('pnpm', 'yarn') else plan.lock
         else:
             selected = pins(specs, extras=extras)
         request = {"action": "package_install", "resource": ecosystem,
@@ -146,6 +146,9 @@ class PackageControl:
         if ecosystem == "npm":
             from .registry import provider_for
             provider = self.provider or provider_for(self.store, bundle)
+            from .yarn import YarnEvidence, YarnPlan
+            if isinstance(plan, YarnPlan):
+                provider = YarnEvidence(provider, plan)
         else:
             from .registry import provider_for
             provider = self.provider or provider_for(self.store, bundle, 'pypi')

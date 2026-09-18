@@ -36,6 +36,7 @@ def main(argv=None):
     interactive.add_argument('--node-root', help='Relative Node project root (default root or detected frontend)')
     interactive.add_argument('--npm-registry-config', help='Private operator registry configuration outside the repository; credentials are broker-only references')
     interactive.add_argument('--pnpm-build', action='append', metavar='NAME', help='Request an exact pnpm registry dependency lifecycle build in the policy review; repeat for each package')
+    interactive.add_argument('--yarn-build', action='append', metavar='NAME', help='Request an exact Yarn registry dependency lifecycle build in the policy review; repeat for each package')
     interactive.add_argument('--python-registry-config', help='Private operator PyPI-compatible registry routes outside the repository; credentials remain in the broker')
     interactive.add_argument("--warn-at", type=int)
     interactive.add_argument("--stop-at", type=int)
@@ -132,6 +133,7 @@ def main(argv=None):
     inputs.add_argument("--requirements", help="Exact Python pins, including runtime and build dependencies")
     inputs.add_argument("--npm-lock", help="npm package-lock.json version 2 or 3")
     inputs.add_argument("--pnpm-lock", help="Reviewed pnpm-lock.yaml with its original project metadata")
+    inputs.add_argument("--yarn-lock", help="Reviewed yarn.lock with its original project metadata")
     package.add_argument("--out", help="Optional new receipt file")
     package_draft = commands.add_parser("package-draft", help="Add package controls to a version 1 draft; never approve or activate")
     package_draft.add_argument("--policy", required=True)
@@ -355,7 +357,13 @@ def execute(args):
         from .packages import PackageControl
         if args.out and Path(args.out).exists():
             raise Invalid("Receipt output already exists")
-        if args.pnpm_lock:
+        if args.yarn_lock:
+            from .yarn import read_inputs
+            lock = Path(args.yarn_lock).absolute()
+            if lock.name != 'yarn.lock':
+                raise Invalid('Select the authoritative yarn.lock')
+            specs, ecosystem = {'manager': 'yarn', 'files': read_inputs(lock.parent)[0]}, 'npm'
+        elif args.pnpm_lock:
             from .pnpm import read_inputs
             lock = Path(args.pnpm_lock).absolute()
             if lock.name != 'pnpm-lock.yaml':

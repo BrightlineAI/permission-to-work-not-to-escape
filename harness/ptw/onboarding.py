@@ -86,6 +86,8 @@ def resolve_npm(repo, stage):
     from .setup_templates import RULES
     if (repo / 'pnpm-lock.yaml').exists():
         from .pnpm_resolution import resolve_pnpm as resolve
+    elif (repo / 'yarn.lock').exists():
+        from .yarn_resolution import resolve_yarn as resolve
     provider = None
     if (stage / 'npm-registry.json').exists():
         from .registry import RoutedNpmEvidence, private_json
@@ -96,6 +98,8 @@ def resolve_npm(repo, stage):
         return None
     if result.get('authority') == 'pnpm':
         return repo / 'pnpm-lock.yaml'
+    if result.get('authority') == 'yarn':
+        return repo / 'yarn.lock'
     lock = repo / 'package-lock.json'
     if not lock.exists():
         save(lock, result['lock'])
@@ -265,6 +269,9 @@ def setup(repo, directory, args, previous=None):
         if (repo / node_root / 'pnpm-lock.yaml').exists():
             from .pnpm import read_inputs
             node_metadata, _ = read_inputs(repo / node_root)
+        elif (repo / node_root / 'yarn.lock').exists():
+            from .yarn import read_inputs
+            node_metadata, _ = read_inputs(repo / node_root)
         else:
             from .npm_resolution import node_inputs
             _, node_metadata = node_inputs(repo / node_root)
@@ -433,22 +440,23 @@ def setup(repo, directory, args, previous=None):
         requirements = resolve_python(shadow / python_root, stage, **({'native_wheels': True} if native_wheels else {})) if language in ('python', 'mixed') else None
         npm_lock = resolve_npm(shadow / node_root, stage) if language != "python" else None
         metadata = [name for name in metadata_names if (shadow / name).exists()]
-        names = package_names(requirements, npm_lock if npm_lock is None or npm_lock.name != 'pnpm-lock.yaml' else None)
+        names = package_names(requirements, npm_lock if npm_lock is None or npm_lock.name not in ('pnpm-lock.yaml', 'yarn.lock') else None)
         generated = {name: data(shadow / name, 8 * 1024 * 1024) for name in metadata if inputs[name] is None}
         python_plan = load(stage / 'python-plan.json') if (stage / 'python-plan.json').exists() else None
         if python_plan and python_plan.get('local_projects'):
             names = sorted(set(names) | {'pypi:' + r['name'] for p in python_plan['local_projects']
                                         for r in p['build_dependencies']['artifacts']})
         npm_plan = load(stage / 'npm-plan.json') if (stage / 'npm-plan.json').exists() else None
-        if npm_plan and npm_plan.get('authority') == 'pnpm':
+        if npm_plan and npm_plan.get('authority') in ('pnpm', 'yarn'):
             names = sorted(set(names) | {'npm:' + r['name'] for r in npm_plan['artifacts']})
         pnpm_builds = getattr(args, 'pnpm_build', None) or []
         if pnpm_builds and (not npm_plan or npm_plan.get('authority') != 'pnpm' or
                 any('npm:' + name not in names for name in pnpm_builds)):
             raise Invalid('--pnpm-build requires exact registry package names in the reviewed pnpm lock')
-        if npm_plan and npm_plan.get('migration'):
-            print('Yarn Classic migration: review the generated npm graph. package-lock.json becomes '
-                  'the installation authority; the original yarn.lock remains in project history.', flush=True)
+        yarn_builds = getattr(args, 'yarn_build', None) or []
+        if yarn_builds and (not npm_plan or npm_plan.get('authority') != 'yarn' or
+                any('npm:' + name not in names for name in yarn_builds)):
+            raise Invalid('--yarn-build requires exact registry package names in the reviewed Yarn lock')
         python = python_plan['runtime']['executable'] if python_plan else '/usr/bin/python3'
         catalog = command_catalog(scope, metadata, shadow, python)
         revision = 0
@@ -465,7 +473,7 @@ def setup(repo, directory, args, previous=None):
             trees = [name for name, kind in scope.items() if kind == "tree" and not (repo / name).exists()]
             proposal, inv = template(repo, identity, goal, scope, metadata, catalog, names, warn, stop)
             proposal['project']['packages']['allow_native_wheels'] = native_wheels
-            proposal['project']['packages']['build_packages'] = sorted({'npm:' + name for name in pnpm_builds})
+            proposal['project']['packages']['build_packages'] = sorted({'npm:' + name for name in pnpm_builds + yarn_builds})
             if python_plan:
                 proposal['project']['python_runtime'] = python_plan['runtime']
                 dependency_inputs = {str(Path(python_root) / name): value for name, value in python_plan['inputs'].items()}
@@ -707,6 +715,7 @@ def start(args):
               or getattr(args, 'python_build_requirements', False)
               or getattr(args, 'python_full_build', False)
               or getattr(args, 'pnpm_build', None)
+              or getattr(args, 'yarn_build', None)
               or getattr(args, "model_proposal", False)):
             raise Invalid("This project already has an approved policy. Use ptw codex --revise to change it.")
     finally:

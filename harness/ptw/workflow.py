@@ -32,35 +32,36 @@ def dispatch(store, session, event, req):
             try:
                 from .packages import PackageControl
                 from .policy import parse_json
-                if req['content'] == 'pnpm':
+                if req['content'] in ('pnpm', 'yarn'):
+                    manager = req['content']
                     descriptor = bundle['policy']['project'].get('npm_dependencies', {})
                     root = descriptor.get('root', '')
-                    lock_name = str(Path(root) / 'pnpm-lock.yaml')
+                    lock_name = str(Path(root) / ('yarn.lock' if manager == 'yarn' else 'pnpm-lock.yaml'))
                     entry = bundle['inventory']['resources'][req['resource']]
                     if str(Path(entry['path']) / req['path']) != lock_name or lock_name not in descriptor.get('inputs', {}):
-                        raise Invalid('Select the reviewed pnpm lock resource')
+                        raise Invalid('Select the reviewed ' + manager + ' lock resource')
                     files = {}
                     for name in descriptor['inputs']:
                         resource = next((r for r, v in bundle['inventory']['resources'].items()
                                          if v['path'] == name and v['kind'] == 'file'), None)
                         if resource is None:
-                            raise Invalid('pnpm metadata requires explicit file resources')
-                        item = broker.request(session['token'], 'pnpm-input-' + digest([event, req, name])[:48],
+                            raise Invalid('Native Node metadata requires explicit file resources')
+                        item = broker.request(session['token'], manager + '-input-' + digest([event, req, name])[:48],
                                               request('read', resource))
                         if not item['allowed']:
                             result = item
                             break
                         files[str(Path(name).relative_to(root or '.'))] = item['content']
-                    specs = {'manager': 'pnpm', 'files': files}
+                    specs = {'manager': manager, 'files': files}
                 elif req["content"] == "npm":
                     specs = parse_json(read["content"])
                 elif req["content"] in ("", "pypi"):
                     specs = [s.strip() for s in read["content"].splitlines() if s.strip() and not s.lstrip().startswith("#")]
                 else:
-                    raise Invalid("Install content must be pypi, npm or pnpm")
+                    raise Invalid("Install content must be pypi, npm, pnpm or yarn")
                 if result is None:
                     result = PackageControl(store).install(session["token"], "install-" + digest([event, req])[:48],
-                        specs, ecosystem='npm' if req['content'] == 'pnpm' else req["content"] or "pypi")
+                        specs, ecosystem='npm' if req['content'] in ('pnpm', 'yarn') else req["content"] or "pypi")
             except (Invalid, ValueError) as exc:
                 result = {"allowed": False, "effect": "none", "level": "blocked", "reason": str(exc),
                           "violation_counted": False}
@@ -130,7 +131,7 @@ def drive(store, session, assignment, *, model="gpt-5.6-sol", effort="low", max_
             "create creates a missing file; mkdir creates a missing directory; rmdir requires expected='directory'. "
             "Paths are relative to the named resource. For a file resource use path=''. "
             "rename uses destination='resource:relative/path' and expected=source hash (or 'directory'); destination must be absent. "
-            "install reads the dependency resource/path; content is 'pypi', 'npm' or 'pnpm'. Its receipt returns a package_set. "
+            "install reads the dependency resource/path; content is 'pypi', 'npm', 'pnpm' or 'yarn'. Its receipt returns a package_set. "
             "run uses resource=reviewed command ID and content JSON {'package_sets':[installed IDs]}; no arbitrary args. "
             "Use run exit_code and actual test output, not allowed alone, to judge success. "
             "delegate uses resource=an equal or narrower task ID and content=its assignment; "

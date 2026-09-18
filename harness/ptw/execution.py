@@ -95,6 +95,8 @@ def execute(store, token, definition, before, settings):
                 copies = {}
                 if any(Path(p).name == 'pnpm-lock.yaml' for p in local_descriptor.get('inputs', {})):
                     copies = parse_json((mount / '.ptw-pnpm-sources.json').read_text())
+                elif any(Path(p).name == 'yarn.lock' for p in local_descriptor.get('inputs', {})):
+                    copies = parse_json((mount / '.ptw-yarn-sources.json').read_text())
                 # Mask metadata placeholders as well as their nested modules.
                 # A workspace link into an excluded member must expose no bytes.
                 for local in local_descriptor.get('excluded_sources', []):

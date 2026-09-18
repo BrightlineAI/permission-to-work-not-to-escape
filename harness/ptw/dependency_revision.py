@@ -316,15 +316,18 @@ def start(args):
                     entries[name] = value
             declaration.write_text(json.dumps(manifest, indent=2) + '\n')
             pnpm = str(Path(root) / 'pnpm-lock.yaml') in descriptor['inputs']
+            yarn = str(Path(root) / 'yarn.lock') in descriptor['inputs']
             if pnpm:
                 from .pnpm_resolution import resolve_pnpm as resolve_npm
+            elif yarn:
+                from .yarn_resolution import resolve_yarn as resolve_npm
             result = resolve_npm(shadow / root, stage / 'resolution', rules, update=True,
                 provider=provider_for(store, old))
             if set(result.get('sources', [])) != {s['path'] for s in descriptor.get('sources', [])}:
                 raise Invalid('Dependency edit changes local source scope; review that source scope explicitly')
-            lock = shadow / root / ('pnpm-lock.yaml' if pnpm else 'package-lock.json')
-            if pnpm:
-                lock.write_text(result['files']['pnpm-lock.yaml'])
+            lock = shadow / root / ('pnpm-lock.yaml' if pnpm else 'yarn.lock' if yarn else 'package-lock.json')
+            if pnpm or yarn:
+                lock.write_text(result['files'][lock.name])
             else:
                 if result['lock'] is None:
                     result['lock'] = {'lockfileVersion': 3, 'packages': {'': manifest}}
