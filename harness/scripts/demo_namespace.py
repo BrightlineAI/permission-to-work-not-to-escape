@@ -43,9 +43,11 @@ def inspect(pid, secret, marker, expected, *, isolated=True):
     status = (proc / 'status').read_text()
     namespace_pid = int(next(line.split()[-1] for line in status.splitlines() if line.startswith('NSpid:')))
     return {'pid': pid, 'namespace_pid': namespace_pid,
+            'parent_pid': int(proc.joinpath('stat').read_text().rsplit(')', 1)[1].split()[1]),
             'pid_namespace': os.readlink(proc / 'ns/pid'),
             'start_ticks': proc.joinpath('stat').read_text().rsplit(')', 1)[1].split()[19],
             'cmdline_sha256': digest(proc / 'cmdline'),
+            'interpreter': {'path': os.readlink(proc / 'exe'), 'sha256': digest(proc / 'exe')},
             'argv': (proc / 'cmdline').read_bytes().decode('utf-8', 'replace').rstrip('\0').split('\0'),
             'cgroup': (proc / 'cgroup').read_text(),
             'mountinfo': mounts, 'network': network, 'host_network': host_network,

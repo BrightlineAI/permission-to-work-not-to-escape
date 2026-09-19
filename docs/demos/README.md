@@ -10,10 +10,10 @@ not performance measurements.
 |---|---|---|
 | [Executing dependency](01-poisoned-dependency.md) | Three arms; executing offline wheel, secret/send probes, invoice oracle, safe incompletion and reviewed replacement | Native comparison, child/resume, replacement and shared envelope checks passed; final acceptance pending |
 | [Task scope](02-task-scope.md) | Three arms; physical B denial, A-local fix, child/resume and separate authority controls | Native scope, shared envelope and legacy publication checks passed; final acceptance pending |
-| [Three-worker report](03-swarm-collaboration.md) | Separate followup; existing [two-worker report](../../harness/DEMO.md) retained | Two-worker evidence does not prove three-worker coverage |
+| [Three-worker report](03-swarm-collaboration.md) | Three arms; analyst, chart worker, writer, registered helper, child processes and protected writer continuation | Implemented; native measurement and final acceptance pending. Historical two-worker receipts are separate |
 
 No live sessions have run for this extension. Live evidence, playback timing and
-human comprehension are unavailable. Final-source acceptance of the two new demos,
+human comprehension are unavailable. Final-source acceptance of all three demos,
 including the added installed CLI failure/interruption checks, remains pending.
 
 ## Run and verify
@@ -28,6 +28,7 @@ absolute path without `..` or symlink components; choose a new name on every run
 ```sh
 python -B harness/scripts/product_demo.py run --demo dependency --out /tmp/dependency-run-01
 python -B harness/scripts/product_demo.py run --demo task-scope --out /tmp/task-scope-run-01
+python -B harness/scripts/product_demo.py run --demo swarm --out /tmp/swarm-run-01
 ```
 
 Each command executes deterministic workers, scripted fixture approvals, all
@@ -36,11 +37,12 @@ outcomes and a final verified JSON summary. No model or semantic review decides
 an operation. Inspect the retained original terminal output and physical records.
 The original report command, without `--demo`, keeps its existing behavior.
 
-Verify either completed run without starting workloads or model calls:
+Verify a completed run without starting workloads or model calls:
 
 ```sh
 python -B harness/scripts/product_demo.py verify --out /tmp/dependency-run-01
 python -B harness/scripts/product_demo.py verify --out /tmp/task-scope-run-01
+python -B harness/scripts/product_demo.py verify --out /tmp/swarm-run-01
 ```
 
 An optional `--demo` on verification must match the recorded scenario. Unsupported
@@ -64,7 +66,7 @@ execution, including fixture preparation, builds, all controls and cleanup. The
 The installed driver Python and system payload/export Python are separate
 identities: `versions.interpreter` and `versions.system_python`. The latter records
 the resolved `/usr/bin/python3` executable, SHA-256, exact version, implementation,
-ABI, prefix and original version-process receipt. Task-scope approvals bind this
+ABI, prefix and original version-process receipt. Task-scope and swarm approvals bind this
 runtime through the existing `python_runtime` policy field. Independent `/proc`
 observations hash the executable of each observed payload, child and trusted
 wrapper and link it to the reviewed command and session. Verification rejects
@@ -120,7 +122,10 @@ private acceptance evidence. Nothing is published by running or verifying a demo
 6. Shared strict schema/CLI, original physical receipts and negative verifier tests.
 7. Actual terminal invocations, cold/warm measurements, failure/interruption behavior,
    approvals and limits; no fabricated live evidence.
-8. Native tests remain mandatory and discovered once; previous gates, maintained
+8. Three registered swarm roles produce independently checked aggregates, an SVG
+   chart and a report; stale handoff, helper child and resumed writer retain the
+   ceiling. Collector controls bracket real attempts in every arm.
+9. Native tests remain mandatory and discovered once; previous gates, maintained
    guides and manifest remain intact.
 
 Native checks require sockets, namespaces, systemd and cgroups in the manager's

@@ -576,7 +576,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('command', choices=['run', 'verify'])
     parser.add_argument('--out', required=True, type=Path, help='new external run directory, or existing evidence for verify')
-    parser.add_argument('--demo', choices=['report', 'dependency', 'task-scope'], default=None,
+    parser.add_argument('--demo', choices=['report', 'dependency', 'task-scope', 'swarm'], default=None,
                         help='run scenario (default: report); verify otherwise detects the recorded scenario')
     args = parser.parse_args()
     try:

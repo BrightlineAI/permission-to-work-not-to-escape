@@ -6,7 +6,9 @@ dependency/task-scope behavior from implemented and measured coverage. The
 and reviewed clean replacement passed native development checks, as did both
 three-arm comparisons and shared evidence envelopes. Final-source acceptance,
 including CLI interruption checks, remains pending.
-The original report runner below keeps its existing
+The [three-worker private-report scenario](../docs/demos/03-swarm-collaboration.md)
+uses the same run/verify interface with `--demo swarm`; independent native
+measurement remains pending. The original report runner below keeps its existing
 invocation and evidence contract.
 
 The [incident-inspired report demo](DEMO.md) has an installed run/verify workflow

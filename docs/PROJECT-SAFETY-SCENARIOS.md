@@ -528,3 +528,11 @@ demo acceptance. The local wrong-grant control does not measure remote publicati
 under mistaken network authority; human comprehension, unregistered tools and
 remote-job cancellation remain unmeasured. No historical
 incident prevention or spontaneous-model result is claimed by this reconstruction.
+
+The [three-worker extension](demos/03-swarm-collaboration.md) adds analyst, chart
+and writer processes, a delegated helper and supported writer continuation. Its
+mandatory native test compares broad outer-isolated delivery with both protected
+arms, and checks the actual aggregate, SVG geometry and report. Native measurement
+is pending. Registered command OS denials stay at count zero; two separate denied
+controller requests retain warning history while the useful report finishes.
+Shared-threshold stopping remains in the separate task17/report clip.

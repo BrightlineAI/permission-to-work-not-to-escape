@@ -42,8 +42,10 @@ Run fresh benchmark workloads on an isolated Linux VPS using the [reproduction i
 
 The [three-demo specifications and implementation status](docs/demos/README.md)
 cover executing dependencies, task-scoped fixes and private collaboration.
-Both demos have a shared run/verify CLI. Native development checks established
-three-arm effects, useful recovery, child/resume continuity and evidence verification.
+All three demos have a shared run/verify CLI. The three-worker private-report
+scenario is implemented; full native validation remains pending. For the dependency
+and task-scope demos, native development checks established three-arm effects,
+useful recovery, child/resume continuity and evidence verification.
 Final-source acceptance, including CLI interruption checks, remains pending.
 
 The [incident-inspired demo](harness/DEMO.md) documents the paired synthetic report

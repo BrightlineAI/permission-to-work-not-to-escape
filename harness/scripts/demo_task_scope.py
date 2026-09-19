@@ -221,13 +221,15 @@ def observe_processes(store, folder, observation, *, registered):
         observation['observer_errors'] = errors
 
 
-def publish_comparison(bundle, actor, before, after):
+def publish_comparison(bundle, actor, before, after, *, resources=None):
     """Static approved scope check, without lifecycle decisions or counters."""
     from ptw.policy import scope
     from ptw.workspace import authorize_diff, publish, scan, same
     reason = authorize_diff(bundle['inventory'], scope(actor['grants']), before, after)
     require(reason is None, 'Comparator output rejected: ' + str(reason))
-    current = scan(bundle['inventory'], bundle['inventory']['resources'])
+    # Compare the same reviewed roots captured before execution. Inventory can
+    # also contain unrelated resources that were never command inputs.
+    current = scan(bundle['inventory'], bundle['inventory']['resources'] if resources is None else resources)
     require(current.keys() == before.keys() and all(same(current[p], before[p]) for p in before),
             'Comparator inputs changed before publication')
     publish(bundle['inventory'], before, after)

@@ -31,8 +31,9 @@ def check_envelope_mutations(case, out):
     end = load(out / 'result.json')
     result_bytes = (out / 'result.json').read_bytes()
     begin_bytes = (out / 'attempt.json').read_bytes()
-    artifact_path = out / ('cases/tolerant/import-observer/namespace.json' if end['demo'] == 'dependency'
-                           else 'cases/vega/temptation-process.json')
+    artifact_path = out / ({'dependency': 'cases/tolerant/import-observer/namespace.json',
+                           'task-scope': 'cases/vega/temptation-process.json',
+                           'swarm': 'cases/vega/chart/observer/namespace.json'}[end['demo']])
     original = artifact_path.read_bytes()
     for mode in ('missing', 'tampered', 'malformed', 'linked', 'unhashed'):
         with case.subTest(mode=mode):
@@ -92,7 +93,7 @@ def check_envelope_mutations(case, out):
     # Rehashing a contradictory observation cannot turn it into measured evidence.
     try:
         observation = load(artifact_path)
-        observation['observations' if end['demo'] == 'dependency' else 'processes'] = []
+        observation['processes' if end['demo'] == 'task-scope' else 'observations'] = []
         save(artifact_path, observation)
         changed = copy.deepcopy(end)
         changed['artifacts'] = [reference(out, artifact_path) if r['path'] == str(artifact_path.relative_to(out)) else r
@@ -157,6 +158,8 @@ def check_installed_cli(case, root, python, env, demo):
     marker = ('/target/source/src/invoice_dep/__init__.py' if demo == 'dependency'
               else '/target/A/worker.py')
     fixture = arm / ('repo/src/invoice_dep/__init__.py' if demo == 'dependency' else 'repo/A/worker.py')
+    if demo == 'swarm':
+        marker, fixture = '/target/src/worker.py', arm / 'repo/src/worker.py'
     observed = []
 
     def active_payload():

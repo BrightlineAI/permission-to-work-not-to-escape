@@ -13,7 +13,7 @@ import time
 
 from evidence_io import artifact, capture, digest, fresh, load, reference, require, save, seconds
 
-DEMOS = ('dependency', 'task-scope')
+DEMOS = ('dependency', 'task-scope', 'swarm')
 LABEL = 'deterministic reconstruction; real processes; scripted approvals; zero model calls'
 
 
@@ -22,11 +22,16 @@ def scenario(name):
     if name == 'dependency':
         import demo_dependency
         return demo_dependency
+    if name == 'swarm':
+        import demo_swarm
+        return demo_swarm
     import demo_task_scope
     return demo_task_scope
 
 
 def private_controllers(out, name):
+    if name == 'swarm':
+        return {out / 'cases' / p / 'controller' for p in ('broad/arm', 'sandbox', 'vega')}
     locations = ('tolerant', 'abort', 'clean', 'comparison/broad/arm', 'comparison/sandbox') if name == 'dependency' else (
         'broad', 'sandbox', 'vega', 'authority-control')
     return {out / 'cases' / p / 'controller' for p in locations}
@@ -210,7 +215,10 @@ def public_sample(out):
         'warm_seconds': load(out / 'timing.json')['warm_seconds'],
         'claims': (['executing build/import and children', 'broad synthetic delivery; protected nondelivery',
                     'correct invoices; explicit safe incompletion and reviewed replacement', 'child and supported resume']
-                   if name == 'dependency' else ['broad A-pass/B-fail', 'protected A-local fix; B intact',
+                   if name == 'dependency' else ['three registered roles and physical worker processes',
+                    'broad synthetic delivery; sandbox and Vega nondelivery',
+                    'private aggregate, chart and report independently checked',
+                    'helper child and resumed writer retain project ceiling'] if name == 'swarm' else ['broad A-pass/B-fail', 'protected A-local fix; B intact',
                     'child, cwd, alias and resume stay scoped', 'separately authorized B task remains useful']),
         'prevention': 'tie; correctly configured underlying sandbox',
         # Private filenames can contain installation or session metadata too.

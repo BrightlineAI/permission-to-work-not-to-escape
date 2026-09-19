@@ -322,10 +322,11 @@ def python_runtime_mounts():
             for argument in ('--ro-bind', str(root.resolve(strict=True)), str(root))]
 
 
-def run_broad(folder):
+def run_broad(folder, *, worker_script='demo_dependency_comparison.py'):
     from ptw.supervisor import runtime_namespace
     folder.mkdir()
     scripts = Path(__file__).resolve().parent
+    require(worker_script in ('demo_dependency_comparison.py', 'demo_swarm.py'), 'Unknown outer comparison worker')
     uv = Path(os.environ.get('PTW_UV') or shutil.which('uv')).resolve()
     nono = Path(os.environ.get('PTW_NONO') or shutil.which('nono')).resolve()
     # The only writable host mount is this new evidence directory. Payloads get
@@ -337,7 +338,7 @@ def run_broad(folder):
         '--ro-bind', str(nono), str(nono), '--setenv', 'PTW_UV', str(uv),
         '--setenv', 'PTW_NONO', str(nono), '--setenv', 'PYTHONDONTWRITEBYTECODE', '1',
         '--setenv', 'PTW_DEMO_HOST_NET', os.readlink('/proc/self/ns/net'),
-        '--', sys.executable, '-B', '/demo-driver/scripts/demo_dependency_comparison.py', str(folder)]
+        '--', sys.executable, '-B', '/demo-driver/scripts/' + worker_script, str(folder)]
     result = capture(command, folder / 'outer-process', timeout=90)
     require(result.returncode == 0, 'Broad outer comparison failed; inspect retained stderr')
     return load(folder / 'outcome.json')

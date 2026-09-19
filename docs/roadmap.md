@@ -33,3 +33,8 @@ The first release is a research prototype and an inspectable experiment archive.
 The eventual workflow is: **write policy → review → apply controls → probe → repair → audit → verify closure**.
 
 Broader coverage needs evidence, not just more integrations. Installation now checks known vulnerabilities and release age. Continuous rescanning, malware detection, external credential/service adapters, distributed stopping, protected audit export and assurance remain separate extensions.
+
+The [three-worker collaboration demo](demos/03-swarm-collaboration.md) now has a
+bounded deterministic implementation on the shared runner. Fresh installed
+physical-effect and continuation checks remain pending. Presentation work must
+use verified receipts, not infer three-worker coverage from the earlier report.
