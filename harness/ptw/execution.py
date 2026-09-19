@@ -8,11 +8,34 @@ import tempfile
 from .package_build import UnsafeExport, run_build
 from .package_evidence import EvidenceError
 from .packages import mounted_set
-from .policy import Invalid, OutsideScope, parse_json
+from .policy import Invalid, OutsideScope, parse_json, scope
 from .supervisor import runtime_namespace
 from .workspace import MAX_ENTRIES, MAX_FILE, MAX_TREE, materialize, scan
 
 RECEIPT = ".ptw-command-result.json"
+
+
+def task_permissions(inv, grants, definition, before):
+    """Coarse payload write boundary; exact actions still need diff authorization.
+
+    Never authorize an ancestor just to make an absent exact file creatable.
+    Such layouts cannot be represented safely by this Landlock path adapter.
+    """
+    allowed = scope(grants)
+    permissions = ['--read', '/target']
+    for resource in definition['resources']:
+        actions = allowed.get(resource, set())
+        if 'read' not in actions:
+            raise OutsideScope('Task command input outside actor read scope')
+        item = inv['resources'][resource]
+        path = item['path']
+        if actions & {'write', 'append', 'create', 'delete'}:
+            entry = before.get(path)
+            kind = 'dir' if item.get('kind', 'file') == 'tree' else 'file'
+            if entry is None or entry['kind'] != kind:
+                raise Invalid('Task confinement requires existing mutable resource roots')
+            permissions += ['--allow' if kind == 'dir' else '--allow-file', '/target/' + path]
+    return permissions
 
 
 def prepare_command(store, token, definition, before, settings, temporary, *, binding=None):
@@ -38,6 +61,20 @@ def prepare_command(store, token, definition, before, settings, temporary, *, bi
         project, bundle = store.project(db, actor["project"])
         if project["stopped"]:
             raise Invalid("Project stopped")
+        approved = next((c for c in bundle['policy']['project']['commands']
+                         if c['id'] == definition['id']), None)
+        if approved and 'confinement' in approved and definition != approved:
+            raise OutsideScope('Reviewed task confinement cannot be overridden')
+        target_permissions = ['--allow', '/target']
+        if 'confinement' in definition:
+            if definition['confinement'] != 'task':
+                raise Invalid('Unknown command confinement')
+            # Also bind controller-free preparation to the approved definition.
+            if (definition not in bundle['policy']['project']['commands'] or
+                    definition['id'] not in json.loads(actor['commands'])):
+                raise OutsideScope('Task confinement requires a reviewed actor command')
+            target_permissions = task_permissions(bundle['inventory'], json.loads(actor['grants']),
+                                                  definition, before)
         if binding is not None:
             if binding and binding['approval'] != bundle['approval']['sha256']:
                 raise Invalid('Command policy changed during preparation')
@@ -74,7 +111,7 @@ def prepare_command(store, token, definition, before, settings, temporary, *, bi
     command = runtime_namespace() + ["--bind", str(target), "/target",
                                     "--ro-bind", str(Path(nono).resolve()), "/nono"]
     permissions = ["/nono", "run", "--silent", "--sandbox-policy", "landlock", "--block-net",
-                   "--allow", "/target", "--allow", "/tmp", "--no-rollback", "--no-audit", "--no-diagnostics"]
+                   *target_permissions, "--allow", "/tmp", "--no-rollback", "--no-audit", "--no-diagnostics"]
     environment = ["PYTHONDONTWRITEBYTECODE=1", "PYTHONNOUSERSITE=1"]
     for ecosystem, mount in mounts.items():
         path = "/python-packages" if ecosystem == "pypi" else "/node-packages"
@@ -129,30 +166,36 @@ def execute(store, token, definition, before, settings, *, binding=None):
             raise OutsideScope("Command attempted unsafe output: " + str(exc)) from exc
         except EvidenceError as exc:
             raise Invalid(str(exc)) from exc
-        receipt = target / RECEIPT
-        if receipt.is_symlink() or not receipt.is_file() or receipt.stat().st_size > MAX_FILE:
-            raise Invalid("Invalid command receipt")
-        outcome = parse_json(receipt.read_text())
-        receipt.unlink()
-        if (set(outcome) != {"exit_code", "output", "output_truncated"} or
-                type(outcome["exit_code"]) is not int or not isinstance(outcome["output"], str) or
-                type(outcome["output_truncated"]) is not bool):
-            raise Invalid("Invalid command result")
-        # Scan all outputs, not only the approved roots: unknown outputs must fail.
-        inv = {"root": str(target), "resources": {
-            "r" + str(i): {"path": p.name} for i, p in enumerate(sorted(target.iterdir()))}}
-        try:
-            after = scan(inv, inv["resources"])
-        except OutsideScope as exc:
-            raise OutsideScope("Command output links/special files are not authorized") from exc
-        scaffold = {str(parent) for path in before for parent in PurePosixPath(path).parents
-                    if str(parent) != "." and str(parent) not in before}
-        # materialize creates structural parents for exact nested resources.
-        # They are not new agent outputs, but new siblings under them still are.
-        after = {p: e for p, e in after.items() if not (p in scaffold and e["kind"] == "dir")}
-        from .workspace import same
-        for path, entry in editable_artifacts.items():
-            if not same(after.get(path), entry):
-                raise OutsideScope('Command changed a prepared editable build artifact')
-            del after[path]
-        return after, outcome
+        return command_output(target, before, editable_artifacts)
+
+
+def command_output(target, before, editable_artifacts=None):
+    """Validate trusted wrapper output for supervised and static execution."""
+    editable_artifacts = editable_artifacts or {}
+    receipt = target / RECEIPT
+    if receipt.is_symlink() or not receipt.is_file() or receipt.stat().st_size > MAX_FILE:
+        raise Invalid("Invalid command receipt")
+    outcome = parse_json(receipt.read_text())
+    receipt.unlink()
+    if (not isinstance(outcome, dict) or set(outcome) != {"exit_code", "output", "output_truncated"} or
+            type(outcome["exit_code"]) is not int or not isinstance(outcome["output"], str) or
+            type(outcome["output_truncated"]) is not bool):
+        raise Invalid("Invalid command result")
+    # Scan all outputs, not only the approved roots: unknown outputs must fail.
+    inv = {"root": str(target), "resources": {
+        "r" + str(i): {"path": p.name} for i, p in enumerate(sorted(target.iterdir()))}}
+    try:
+        after = scan(inv, inv["resources"])
+    except OutsideScope as exc:
+        raise OutsideScope("Command output links/special files are not authorized") from exc
+    scaffold = {str(parent) for path in before for parent in PurePosixPath(path).parents
+                if str(parent) != "." and str(parent) not in before}
+    # materialize creates structural parents for exact nested resources.
+    # They are not new agent outputs, but new siblings under them still are.
+    after = {p: e for p, e in after.items() if not (p in scaffold and e["kind"] == "dir")}
+    from .workspace import same
+    for path, entry in editable_artifacts.items():
+        if not same(after.get(path), entry):
+            raise OutsideScope('Command changed a prepared editable build artifact')
+        del after[path]
+    return after, outcome

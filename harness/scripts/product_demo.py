@@ -388,7 +388,10 @@ def timing_summary(out):
             'limit': 'three deterministic pairs; p95 is the maximum, not live-agent performance'}
 
 
-def run(out):
+def run(out, *, demo='report'):
+    if demo != 'report':
+        from demo_evidence import run as run_scenario
+        return run_scenario(out, demo)
     started = time.monotonic()
     out = Path(out).absolute()
     require(out.resolve() == out and not out.is_relative_to(SOURCE), 'Use a new canonical directory outside the checkout')
@@ -431,6 +434,14 @@ def run(out):
 
 def verify(out):
     try:
+        out = Path(out).absolute()
+        require(out.resolve() == out, 'Linked or noncanonical evidence directory')
+        require(all(not (out / name).is_symlink() for name in
+                    ('attempt.json', 'result.json', 'failed.json', 'public-sample.json')),
+                'Linked top-level demo receipt')
+        if load(out / 'attempt.json').get('schema') == 2:
+            from demo_evidence import verify as verify_scenario
+            return verify_scenario(out)
         return _verify(out)
     except (KeyError, TypeError, IndexError, AttributeError, AssertionError) as exc:
         raise ValueError('Malformed or contradictory demo evidence: ' + str(exc)) from exc
@@ -565,9 +576,14 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('command', choices=['run', 'verify'])
     parser.add_argument('--out', required=True, type=Path, help='new external run directory, or existing evidence for verify')
+    parser.add_argument('--demo', choices=['report', 'dependency', 'task-scope'], default=None,
+                        help='run scenario (default: report); verify otherwise detects the recorded scenario')
     args = parser.parse_args()
     try:
-        print(json.dumps(run(args.out) if args.command == 'run' else verify(args.out), sort_keys=True))
+        if args.command == 'verify' and args.demo is not None:
+            record = load(args.out / 'attempt.json')
+            require(record.get('demo', 'report') == args.demo, 'Evidence belongs to another demo')
+        print(json.dumps(run(args.out, demo=args.demo or 'report') if args.command == 'run' else verify(args.out), sort_keys=True))
         return 0
     except KeyboardInterrupt:
         print('Interrupted; retain the failed attempt.', file=sys.stderr)

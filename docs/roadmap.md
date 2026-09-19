@@ -2,9 +2,10 @@
 
 The bounded [dependency and task-scope demos](demos/README.md) add executing-code
 containment and useful local recovery to the existing report demo. Their finite
-checklist and actual missing coverage are maintained there. The dependency native
-prerequisite passed; the three-arm task-scope milestone awaits physical validation.
-No complete new demo acceptance is claimed.
+checklist and actual missing coverage are maintained there. Native development
+checks established both comparisons, reviewed replacement, task-authority controls,
+child/resume continuity and shared evidence verification. Final-source acceptance
+remains pending; deterministic results do not establish live-model behavior.
 
 The owner-authorized [demo MVP plan](../harness/DEMO.md) adds a same-task sandbox
 comparison and useful local report workflow, followed by separately scripted

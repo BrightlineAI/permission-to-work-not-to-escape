@@ -22,6 +22,7 @@ COMMAND = obj({
     "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 120},
 })
 COMMAND['properties']['cwd'] = {'type': 'string', 'maxLength': 1024}
+COMMAND['properties']['confinement'] = {'enum': ['task']}
 COMMAND['properties']['preview'] = obj({
     'port': {'type': 'integer', 'minimum': 1024, 'maximum': 65535},
     'lifetime_seconds': {'type': 'integer', 'minimum': 1, 'maximum': 3600},
@@ -219,6 +220,8 @@ def validate_workspace(policy, inv):
     grants = scope(policy["project"]["grants"])
     commands = {}
     for command in policy["project"]["commands"]:
+        if 'confinement' in command and ('git' in command or 'preview' in command):
+            raise Invalid('Task confinement applies only to reviewed run commands')
         if 'git' in command:
             if ('preview' in command or command.get('cwd') or
                     command['argv'] != ['/usr/bin/git', command['git']['operation']]):

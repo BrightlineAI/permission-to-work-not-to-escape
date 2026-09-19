@@ -796,6 +796,18 @@ def discover_build_requirements(store, token, identity, *, provider=None):
                     dependencies=[{k: r[k] for k in ('name', 'version', 'sha256')} for r in records])
 
 
+def wheel_command(uv, artifacts, output, python, source_path):
+    """Pure boundary builder shared with the fixed local demo comparator."""
+    return runtime_namespace() + [
+        '--ro-bind', str(uv), '/uv', '--ro-bind', str(artifacts), '/artifacts',
+        '--bind', str(output), '/target', '--', '/uv', '--no-config',
+        '--offline', '--no-cache', '--no-python-downloads', 'build', '--wheel',
+        '--no-sources', '--no-index', '--find-links', '/artifacts',
+        '--build-constraints', '/artifacts/constraints.txt',
+        '--python', python, '--out-dir', '/target/out',
+        '/target/source' + ('/' + source_path if source_path else '')]
+
+
 def build_wheel(store, token, identity, *, provider=None):
     """Build exact approved bytes, then recheck authority before returning data.
 
@@ -826,14 +838,7 @@ def build_wheel(store, token, identity, *, provider=None):
             runtime_selected = reviewed_runtime(bundle['policy']['project']['python_dependencies'])
         # Only the explicitly bound snapshot is mounted. The original repository,
         # ambient home, network and registry configuration are unavailable.
-        command = runtime_namespace() + [
-            '--ro-bind', str(uv), '/uv', '--ro-bind', str(artifacts), '/artifacts',
-            '--bind', str(output), '/target', '--', '/uv', '--no-config',
-            '--offline', '--no-cache', '--no-python-downloads', 'build', '--wheel',
-            '--no-sources', '--no-index', '--find-links', '/artifacts',
-            '--build-constraints', '/artifacts/constraints.txt',
-            '--python', python, '--out-dir', '/target/out',
-            '/target/source' + ('/' + source['path'] if source['path'] else '')]
+        command = wheel_command(uv, artifacts, output, python, source['path'])
         current = authorized_snapshot(store, token, identity)
         if current[3] != approval or current[0] != source:
             raise Invalid('Local build approval changed; no backend executed')

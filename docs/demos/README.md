@@ -2,79 +2,132 @@
 
 ## Implementation status
 
-These are the five reviewed specifications, maintained with local links. They
-describe required behavior; their storyboards are not measured results.
+These maintained specifications describe required outcomes. A storyboard is not
+a measured result. [Alternatives](ALTERNATIVES.md) are documentation comparisons,
+not performance measurements.
 
-| Demo | Current implementation | Evidence status |
+| Demo | Deterministic implementation | Evidence status |
 |---|---|---|
-| [Executing dependency](01-poisoned-dependency.md) | Reviewed offline local-wheel fixture, installed import/child probes, invoice oracle and passive namespace observer | Native prerequisite passed; full comparison/recovery runner unfinished |
-| [Task scope](02-task-scope.md) | Three-arm native worker fixture, A/B oracles and protected continuation | Native physical validation pending; final controls/envelope unfinished |
-| [Three-worker report](03-swarm-collaboration.md) | Separate followup; existing [two-worker report](../../harness/DEMO.md) retained | Historical two-worker evidence does not prove three-worker coverage |
+| [Executing dependency](01-poisoned-dependency.md) | Three arms; executing offline wheel, secret/send probes, invoice oracle, safe incompletion and reviewed replacement | Native comparison, child/resume, replacement and shared envelope checks passed; final acceptance pending |
+| [Task scope](02-task-scope.md) | Three arms; physical B denial, A-local fix, child/resume and separate authority controls | Native scope, shared envelope and legacy publication checks passed; final acceptance pending |
+| [Three-worker report](03-swarm-collaboration.md) | Separate followup; existing [two-worker report](../../harness/DEMO.md) retained | Two-worker evidence does not prove three-worker coverage |
 
-[Alternatives](ALTERNATIVES.md) are documentation context, not measured performance.
-No live sessions have been run for this extension. Live evidence is unavailable.
-The 120-second warm target has not been measured. Cold installation and warm
-execution must be recorded separately in the completed runner.
+No live sessions have run for this extension. Live evidence, playback timing and
+human comprehension are unavailable. Final-source acceptance of the two new demos,
+including the added installed CLI failure/interruption checks, remains pending.
 
-### Finite checklist for demos 1 and 2
+## Run and verify
 
-1. Fresh installed product; broad outer-isolated, correctly scoped sandbox and
-   Vega arms, with matched legitimate grants and independent controls.
-2. Executing functional dependency: reviewed build hook, installed import and real
-   child; independent secret-visibility and available-canary transfer probes.
-3. Clean and denial-tolerant completion, explicit abort/safe-incompletion, then
-   reviewed clean replacement; sibling unchanged and invoice oracle correct.
-4. A failing/B passing initially; broad shared edit breaks B; protected A-local
-   fix passes both; independently authorized B task remains usable.
-5. Child, protected resume, changed cwd, alternate path/symlink and forged grant
-   cannot expand scope; ordinary test failures remain distinct from violations.
-6. Shared run/verify schema and CLI extending the report runner, exact source,
-   installed, policy, input, process/session and timing bindings; reject missing,
-   stale, linked, tampered and contradictory evidence. Raw receipts stay private.
-7. One documented invocation per demo; inspect actual CLI/error behavior; report
-   cold/warm timings, approvals and limits without claiming unmeasured targets.
-8. Mandatory native tests in normal discovery once, maintained guides and manifest;
-   all prior contract pins and regression gates preserved.
+Use an isolated Linux VPS with the [matching installed product](../../harness/INSTALL.md),
+nono, bubblewrap, uv and a working systemd user manager. Run from the checkout
+whose source matches that installation. `python` below means the installed wheel's
+Python, with `PYTHONPATH` and `PYTHONHOME` unset. Editable/source imports fail.
+Each output must be a **new canonical directory outside the checkout**. Use an
+absolute path without `..` or symlink components; choose a new name on every run.
 
-### Current native milestone
+```sh
+python -B harness/scripts/product_demo.py run --demo dependency --out /tmp/dependency-run-01
+python -B harness/scripts/product_demo.py run --demo task-scope --out /tmp/task-scope-run-01
+```
 
-The executing local-wheel prerequisite passed its manager native check. It covers
-build/import/child probes, independent namespace observations, collector controls,
-clean and tolerant completion, and an abort that publishes no package. The clean
-fixture is a separate control; reviewed replacement is still outstanding.
+Each command executes deterministic workers, scripted fixture approvals, all
+three comparison arms and the relevant recovery controls. It prints actual
+outcomes and a final verified JSON summary. No model or semantic review decides
+an operation. Inspect the retained original terminal output and physical records.
+The original report command, without `--demo`, keeps its existing behavior.
 
-The task-scope implementation now has a mandatory fresh-install native test in
-`test_product_demo_task_scope.py`. It runs three independently reset A/B fixtures.
-The broad and sandbox arms call the shipped `sandbox_command` directly; Vega
-calls `Supervisor.launch`, including resource inode validation and registration.
-Every process has only disposable A/B mounts inside the existing namespace and
-network boundary. Broad gets B write access; sandbox and Vega give B read access.
-The expected comparison is a tie on preventing B writes, with A-local completion.
+Verify either completed run without starting workloads or model calls:
 
-The native test must establish actual initial A failure, broad B breakage,
-protected child/cwd/symlink write denial, an A-local fix, protected continuation
-and independent process observations. Direct and resumed denied writes preserve
-the shipped warning history. Ordinary failing tests and OS errors must not count
-as controller violations. Continuation uses synthetic headers through the existing
-protected binding API; this is not a live model trajectory or Codex terminal run.
+```sh
+python -B harness/scripts/product_demo.py verify --out /tmp/dependency-run-01
+python -B harness/scripts/product_demo.py verify --out /tmp/task-scope-run-01
+```
 
-Six offline fixture/verifier tests pass. Task-scope physical outcomes are pending
-native validation. Missing work remains: dependency broad/sandbox comparison and
-reviewed replacement; task-scope authorized B and remaining authority controls;
-shared strict evidence/CLI integration, final user invocations and cold/warm
-measurements. No complete new demo invocation is advertised yet. No live sessions
-have been run. These prerequisites do not establish either demo's full acceptance.
+An optional `--demo` on verification must match the recorded scenario. Unsupported
+names, missing receipts, reused destinations and linked directories fail with
+exit 2. Interruption returns 130 and retains a failed attempt. Retain that directory
+and use a new one for a later run; never repair evidence into a pass. This applies
+to Ctrl-C after the attempt starts; a forced kill cannot promise cleanup or a
+failure receipt. Controller cleanup applies only to the invocation's own projects.
 
-Native checks require Linux namespaces/cgroups, a working systemd manager, local
-sockets, nono, bubblewrap and uv. They run in the isolated manager environment,
-not the restricted coding sandbox. Raw receipts stay outside this checkout.
-Approvals are scripted and labelled; no credentials or public services are used.
-No external API or dependency changed, so web research cannot validate these local
-effects. The supplied specifications and shipped boundary code define this work.
+## Evidence and timing
 
-19 September 2026. Specifications and queue intake, not completed demonstrations. The remote Algol queue is authoritative.
+Schema 2 extends the shared runner's private envelope; schema 1 remains the report
+contract. `attempt.json` binds demo/mode, start, source, recursive installed hashes,
+distribution versions and native tool version processes. `result.json` hashes the
+scenario artifacts and binds their verified comparison. `cases/` holds approvals,
+source inputs, package receipts, process/session observations, collector deliveries,
+application oracles and controller audits. `timing.json` measures startup and warm
+execution, including fixture preparation, builds, all controls and cleanup. The
+120-second target is reported as met or missed, not inferred from test-suite time.
 
-Vega is an AI project permission system: it manages permissions and safety responses across supported agents, subagents and subprocesses. The coding harness chooses work; the independent controller authorizes effects. Enforcement does not depend on a model noticing danger, following instructions or a semantic reviewer voting correctly. It still depends on correct controller, OS isolation and adapter implementation, complete mediation and a trusted operator. This does not establish compatibility with every harness.
+The installed driver Python and system payload/export Python are separate
+identities: `versions.interpreter` and `versions.system_python`. The latter records
+the resolved `/usr/bin/python3` executable, SHA-256, exact version, implementation,
+ABI, prefix and original version-process receipt. Task-scope approvals bind this
+runtime through the existing `python_runtime` policy field. Independent `/proc`
+observations hash the executable of each observed payload, child and trusted
+wrapper and link it to the reviewed command and session. Verification rejects
+missing or conflicting identities and a changed system runtime, even if the
+installed driver is unchanged. Verification identifies the fixed system Python;
+it never executes an interpreter selected by an evidence record. This additional
+runtime binding awaits native manager validation; earlier runs do not establish it.
+
+Cold installation is a prerequisite to the public runner and is explicitly null
+in its timing record. Fresh-install native checks separately retain
+`cold-setup.json` and original build/venv/install process receipts. Those costs
+exclude OS provisioning and previously installed native tools; caches are not
+flushed. One retained native development sample on 19 September measured:
+
+| Demo | Fresh wheel setup | Warm fixture execution |
+|---|---:|---:|
+| Dependency | 2.10 s | 26.04 s |
+| Task scope | 2.25 s | 22.05 s |
+
+These are single-run observations, not latency guarantees or final-source
+acceptance. Both met the 120-second warm target. Playback duration remains
+unavailable. Scripted approvals are disclosed in each arm; there is no claimed
+human review time.
+
+Verification checks artifact completeness/hashes, original receipts, independently
+observed effects, utility and identity. Missing, linked, stale (24 hours), future,
+malformed, changed-version and contradictory records fail. Source changes invalidate
+old evidence. Keep the original installation available for independent hashing.
+Controller databases remain private and are not the exported evidence interface.
+Receipts are consistency checks, not signatures against a dishonest operator.
+
+`public-sample.json` is a fixed-field sanitized projection with original artifact
+and result digests plus its own payload digest. Artifact names remain private:
+each entry contains `path_sha256` (SHA-256 of the original relative path's UTF-8
+bytes) and `original_sha256` (the file content digest). A reviewer with the private
+result can correlate every entry without copying filenames into public output.
+These hashes are provenance bindings, not encryption of guessable names.
+The projection contains no raw logs or session credentials and cannot replace
+private acceptance evidence. Nothing is published by running or verifying a demo.
+
+## Finite acceptance checklist
+
+1. Fresh installation; broad outer isolation, correctly scoped sandbox and Vega;
+   exact source/runtime/policy/input bindings and independent controls.
+2. Functional dependency build/import/child, forbidden secret read and independent
+   available-canary send; unchanged sibling and correct invoice.
+3. Clean/tolerant completion; abort with no usable package, explicit reviewed clean
+   replacement and rebuild under unchanged legitimate authority.
+4. A-fail/B-pass initially; broad change breaks B; protected A-local fix passes both;
+   separately approved B task works without widening A.
+5. Child/resume/cwd/alias/forged authority cannot widen scope. Ordinary failed tests
+   and caught OS denials remain separate from controller violations and thresholds.
+6. Shared strict schema/CLI, original physical receipts and negative verifier tests.
+7. Actual terminal invocations, cold/warm measurements, failure/interruption behavior,
+   approvals and limits; no fabricated live evidence.
+8. Native tests remain mandatory and discovered once; previous gates, maintained
+   guides and manifest remain intact.
+
+Native checks require sockets, namespaces, systemd and cgroups in the manager's
+isolated environment. They cannot run in the restricted coding sandbox. Local
+source and retained receipts establish the implementation interfaces; no new
+library or changing remote API was needed. Shared threshold stopping remains in
+the existing task17/report evidence, separately from these useful-work demos.
 
 ## Common conditions
 

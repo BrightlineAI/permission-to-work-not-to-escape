@@ -178,6 +178,8 @@ def review_text(bundle):
     for command in policy["project"]["commands"]:
         lines.append("  " + command["id"] + ": " + json.dumps(command["argv"]) +
                      "; inputs=" + ", ".join(inv["resources"][r]["path"] for r in command["resources"]))
+        if command.get('confinement') == 'task':
+            lines.append('    Task confinement: payload writes limited to actor mutable resource roots; exact output actions checked before publication')
         if 'preview' in command:
             lines.append('    Preview: ' + json.dumps(command['preview']) +
                          '; localhost HTTP GET only; 768 MiB RAM, 100% CPU, 128 tasks; snapshot, no publication')
@@ -676,6 +678,9 @@ def short_review(bundle, generated, trees):
         '; required private metadata/replay, optional content off by default; quota failure holds work',
         "Editable: " + ", ".join(writable), "Read only: " + (", ".join(readonly) or "none"),
         "Commands: " + (", ".join(c["id"] for c in project["commands"]) or "none"),
+        *(['Task confinement: ' + ', '.join(c['id'] for c in project['commands'] if c.get('confinement') == 'task') +
+           '; payload writes limited to actor mutable resource roots; output action checks retained']
+          if any(c.get('confinement') == 'task' for c in project['commands']) else []),
         'Local Git: ' + ('scoped status/diff; checkpoint refs after separate exact review; no branch/index changes'
                         if any('git' in c for c in project['commands']) else 'none'),
         'Local previews: ' + ('; '.join(c['id'] + ': ' + json.dumps(c['argv']) +

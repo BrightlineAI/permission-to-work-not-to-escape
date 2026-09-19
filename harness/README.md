@@ -1,9 +1,13 @@
 # Project safety harness
 
 The [maintained demo specifications](../docs/demos/README.md) distinguish expected
-dependency/task-scope behavior from implemented and measured coverage. The dependency
-prerequisite passed; task-scope native validation remains pending; the original report runner below keeps
-its existing invocation and evidence contract.
+dependency/task-scope behavior from implemented and measured coverage. The
+[reviewed task-scope command boundary](../docs/demos/02-task-scope.md#current-supported-boundary)
+and reviewed clean replacement passed native development checks, as did both
+three-arm comparisons and shared evidence envelopes. Final-source acceptance,
+including CLI interruption checks, remains pending.
+The original report runner below keeps its existing
+invocation and evidence contract.
 
 The [incident-inspired report demo](DEMO.md) has an installed run/verify workflow
 for paired confinement and scripted shared escalation, with a
