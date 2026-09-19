@@ -1,8 +1,10 @@
 # Project safety harness
 
 The [current safety contracts](SAFETY.md) distinguish original product acceptance
-from the versioned extension. Its [audit guide](AUDIT.md) documents the partial
-implementation and remaining native verification; it is not a completion claim.
+from the versioned extension. The [audit guide](AUDIT.md) and
+[daily review guide](DAILY.md#bounded-project-sequence-review) document implemented
+controls; the [acceptance guide](ACCEPTANCE.md) identifies pending final-source
+verification. These are not publication or project-completion claims.
 
 [Installed dependency reassessment](REASSESSMENT.md) checks freshness before reuse,
 blocks uncertain evidence without misconduct counts, and quarantines confirmed

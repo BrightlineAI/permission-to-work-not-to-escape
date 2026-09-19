@@ -59,6 +59,14 @@ def main(argv=None):
     checkpoint.add_argument('identity')
     checkpoint.add_argument('--repo', default=str(Path.cwd()))
     checkpoint.add_argument('--finding', action='append', help='Record an operator suspicion before exact candidate review; never waives missing evidence')
+    checkpoint.add_argument('--event-ref', action='append', help='Original operation ID supporting each supplied finding (at most 32)')
+    sequence = commands.add_parser('project-review', help='Inspect bounded linked project evidence offline; never approves a checkpoint')
+    sequence.add_argument('--state', required=True)
+    sequence.add_argument('--project', required=True)
+    sequence.add_argument('--checkpoint', help='Inspect the exact existing checkpoint request/result')
+    sequence.add_argument('--out', required=True, help='New private operator export; metadata plus scoped candidate only')
+    sequence.add_argument('--codex', action='store_true', help='Export the exact selected optional Codex request; no call without --approve-upload')
+    sequence.add_argument('--approve-upload', help='SHA256 of inspected Codex request; send only this bounded content using existing login')
     evidence = commands.add_parser('evidence', help='Export versioned metadata; no transcripts or tool output')
     evidence.add_argument('--state', required=True)
     evidence.add_argument('--project', required=True)
@@ -219,6 +227,26 @@ def main(argv=None):
 
 
 def execute(args):
+    if args.command == 'project-review':
+        from .sequence_review import project_review, reviewer_request, selected_review
+        from .evidence_storage import private_export
+        result = project_review(Store(args.state), args.project, checkpoint=args.checkpoint)
+        if args.approve_upload and not args.codex:
+            raise Invalid('--approve-upload requires --codex')
+        if args.codex:
+            if not args.checkpoint:
+                raise Invalid('Optional reviewer requires an exact checkpoint')
+            selected = reviewer_request(result)
+            if args.approve_upload:
+                result = selected_review(Store(args.state), args.project, args.checkpoint, args.approve_upload)
+                private_export(args.out, result)
+                return result
+            private_export(args.out, selected)
+            return {'upload_sha256': digest(selected), 'calls': 0,
+                    'disclosure': 'Only the exported request will be sent; inspect before --approve-upload'}
+        private_export(args.out, result)
+        return {'export_sha256': digest(result), 'review_sha256': result['review_sha256'],
+                'coverage': result['review_input']['coverage'], 'acceptance': result['acceptance']}
     if args.command == 'evidence-config':
         store = Store(args.state)
         profile = {'version': 1, 'project_bytes': args.project_bytes, 'content_resources': args.content_resource}

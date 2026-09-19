@@ -4,10 +4,12 @@ import concurrent.futures
 import hashlib
 import json
 import os
+import shutil
 import sqlite3
 import sys
 from pathlib import Path
 import threading
+import tempfile
 import time
 import unittest
 import uuid
@@ -995,6 +997,36 @@ class AuditLifecycleTests(workspace_fixtures.WorkspaceFixture):
 
 
 class AuditStorageTests(workspace_fixtures.WorkspaceFixture):
+    def lifecycle_record(self, name, value):
+        from ptw.policy import save
+        if not hasattr(self, 'evidence'):
+            self.evidence = Path(tempfile.mkdtemp(prefix='ptw-lifecycle-'))
+        save(self.evidence / (name + '.json'), {'test': self.id(), **value})
+
+    def lifecycle_snapshot(self, name, store=None):
+        store = store or self.store
+        with store.locked() as db:
+            version = db.execute('PRAGMA user_version').fetchone()[0]
+            row = (db.execute('SELECT profile FROM evidence_profiles WHERE project=?', ('python-demo',)).fetchone()
+                   if version else None)
+        self.lifecycle_record(name, {'schema_version': version, 'status': store.status('python-demo'),
+            'events': store.audit_events('python-demo', include_lifecycle=True),
+            'profile': json.loads(row[0]) if row else None})
+
+    def lifecycle_backups(self):
+        # Genuine private synthetic-controller snapshots, retained for hashing
+        # and read-only parsing by the installed gate after fixture cleanup.
+        for path in self.store.directory.glob('migration-*'):
+            if path.suffix in ('.json', '.sqlite3') and not (self.evidence / path.name).exists():
+                shutil.copyfile(path, self.evidence / path.name)
+
+    def lifecycle_useful(self, name='useful'):
+        result = self.ask('read')
+        observed = (Path(self.inv['root']) / 'src/calculator.py').read_text()
+        self.assertTrue(result['allowed'])
+        self.assertEqual(result['content'], observed)
+        self.lifecycle_record(name, {'result': result, 'physical_content': observed})
+
     def adopt(self, **changes):
         profile = {**DEFAULT, **changes}
         packet = self.store.evidence_review('python-demo', profile)
@@ -1156,24 +1188,31 @@ class AuditStorageTests(workspace_fixtures.WorkspaceFixture):
     def test_adoption_is_exact_stale_review_rejected_and_old_runtime_refused(self):
         packet = self.store.evidence_review('python-demo', DEFAULT)
         self.ask('read')
-        with self.assertRaisesRegex(Invalid, 'exact operator review'):
+        self.lifecycle_snapshot('before')
+        with self.assertRaisesRegex(Invalid, 'exact operator review') as stale:
             self.store.adopt_evidence('python-demo', DEFAULT, digest(packet), 'operator')
+        self.lifecycle_snapshot('rejected')
         self.adopt()
+        self.lifecycle_snapshot('adopted')
+        self.lifecycle_backups()
         with sqlite3.connect(self.store.db) as legacy:
             # This is the shipped old runtime's project query, without the new
             # connection capability. It cannot reach registration or effects.
-            with self.assertRaisesRegex(sqlite3.OperationalError, 'ptw_evidence_runtime'):
+            with self.assertRaisesRegex(sqlite3.OperationalError, 'ptw_evidence_runtime') as read:
                 legacy.execute('SELECT * FROM projects WHERE id=?', ('python-demo',)).fetchone()
-            with self.assertRaisesRegex(sqlite3.OperationalError, 'ptw_evidence_runtime'):
+            with self.assertRaisesRegex(sqlite3.OperationalError, 'ptw_evidence_runtime') as write:
                 legacy.execute('UPDATE projects SET stopped=0')
-        self.assertTrue(self.ask('read')['allowed'])
+        self.lifecycle_snapshot('downgrade-refused')
+        self.lifecycle_useful()
         with self.store.locked() as db:
             db.execute('PRAGMA user_version=99')
-        with self.assertRaisesRegex(Invalid, 'Unsupported controller evidence schema'):
+        with self.assertRaisesRegex(Invalid, 'Unsupported controller evidence schema') as unsupported:
             Store(self.store.directory)
+        self.lifecycle_record('outcomes', {'stale_error': str(stale.exception), 'legacy_read_error': str(read.exception),
+            'legacy_write_error': str(write.exception), 'unsupported_error': str(unsupported.exception)})
 
     def test_backed_up_migration_keeps_counts_stops_quarantine_and_legacy_unknown(self):
-        self.ask('read')
+        self.lifecycle_useful()
         with self.store.locked() as db:
             db.execute("UPDATE projects SET violations=2,stopped=1,reason='original stop'")
             db.execute('UPDATE task_counts SET violations=2')
@@ -1184,7 +1223,9 @@ class AuditStorageTests(workspace_fixtures.WorkspaceFixture):
             for table in ('evidence_profiles', 'evidence_payloads', 'evidence_pins'):
                 db.execute('DROP TABLE ' + table)
             db.execute('PRAGMA user_version=0')
+        self.lifecycle_snapshot('before')
         recovered = Store(self.store.directory)
+        self.lifecycle_snapshot('migrated', recovered)
         status = recovered.status('python-demo')
         self.assertEqual((status['violations'], status['stopped'], status['reason']), (2, 1, 'original stop'))
         self.assertTrue(all(s['closed'] for s in status['sessions']))
@@ -1198,6 +1239,11 @@ class AuditStorageTests(workspace_fixtures.WorkspaceFixture):
         self.store = recovered
         self.adopt()
         self.assertEqual(recovered.status('python-demo'), status)
+        self.lifecycle_snapshot('adopted')
+        self.lifecycle_backups()
+        with self.assertRaises(Invalid) as stopped:
+            recovered.register('python-demo', 'implementation')
+        self.lifecycle_record('outcomes', {'stopped_registration_error': str(stopped.exception)})
 
     def test_interrupted_adoption_rolls_back_without_reactivating_or_losing_history(self):
         self.ask('read')
@@ -1205,9 +1251,13 @@ class AuditStorageTests(workspace_fixtures.WorkspaceFixture):
         with self.store.locked() as db:
             db.execute("CREATE TRIGGER reject_adoption BEFORE INSERT ON evidence_profiles "
                        "BEGIN SELECT RAISE(FAIL,'injected adoption crash'); END")
-        with self.assertRaises(sqlite3.Error):
+        self.lifecycle_snapshot('before')
+        with self.assertRaises(sqlite3.Error) as failure:
             self.adopt()
         recovered = Store(self.store.directory)
+        self.lifecycle_snapshot('rolled-back', recovered)
+        self.lifecycle_backups()
+        self.lifecycle_record('outcomes', {'failure': str(failure.exception)})
         self.assertIsNone(recovered.audit_export('python-demo')['profile'])
         self.assertEqual(recovered.audit_export('python-demo')['events'], before)
         with recovered.locked() as db:
@@ -1215,7 +1265,9 @@ class AuditStorageTests(workspace_fixtures.WorkspaceFixture):
             db.execute('DROP TRIGGER reject_adoption')
         self.store = recovered
         self.adopt()
-        self.assertTrue(self.ask('read')['allowed'])
+        self.lifecycle_snapshot('adopted')
+        self.lifecycle_backups()
+        self.lifecycle_useful()
 
     def test_interrupted_schema_migration_retains_stopped_backup_and_rolls_back_columns(self):
         with self.store.locked() as db:
@@ -1297,8 +1349,14 @@ class AuditStorageTests(workspace_fixtures.WorkspaceFixture):
         fresh = Store(self.root / 'fresh-state')
         fresh.activate(bundle)
         actor = fresh.register('python-demo', 'implementation')
-        self.assertTrue(Workspace(fresh).request(actor['token'], 'useful', request('create', 'src', 'new.txt', content='new'))['allowed'])
+        self.lifecycle_snapshot('before', fresh)
+        result = Workspace(fresh).request(actor['token'], 'useful', request('create', 'src', 'new.txt', content='new'))
+        self.assertTrue(result['allowed'])
         self.assertEqual(fresh.audit_export('python-demo')['profile'], DEFAULT)
+        self.lifecycle_snapshot('after', fresh)
+        observed = (Path(self.inv['root']) / 'src/new.txt').read_text()
+        self.assertEqual(observed, 'new')
+        self.lifecycle_record('useful', {'result': result, 'physical_content': observed, 'display': shown})
 
 
 @unittest.skipUnless(os.environ.get('PTW_LINUX_TESTS') == '1', 'Requires native isolated package installer')

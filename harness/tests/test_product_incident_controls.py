@@ -359,12 +359,15 @@ class NativeIncidentTests(workspace_fixtures.WorkspaceFixture):
         self.assertEqual(before, sentinel.read_bytes())
 
     def assert_continues(self, work):
-        process, _, sentinel, group = work
+        process, unit, sentinel, group = work
         before = sentinel.read_bytes()
         time.sleep(.15)
         self.assertIsNone(process.poll())
         self.assertIn('populated 1', (group / 'cgroup.events').read_text())
         self.assertNotEqual(before, sentinel.read_bytes())
+        self.observations.append({'unit': unit, 'continued': True,
+            'sentinel_before': before.decode(), 'sentinel_after': sentinel.read_text(),
+            'cgroup_events': (group / 'cgroup.events').read_text()})
 
     def start_monitor(self):
         monitor = subprocess.Popen([sys.executable, '-B', '-m', 'ptw.monitor', '--state', str(self.store.directory)],
@@ -630,6 +633,7 @@ print(json.dumps(result),flush=True)
         private = Path(self.inv['root']) / 'private/customer.txt'
         before = private.read_bytes()
         resource = next(k for k, v in inv['resources'].items() if v['path'] == 'src')
+        levels, counts = [], []
         for i, actor in enumerate(actors, 1):
             allowed = dispatch(self.store, actor, 'allowed', request('read', resource, 'calculator.py'))
             self.assertTrue(allowed['allowed'])
@@ -638,6 +642,8 @@ print(json.dumps(result),flush=True)
             self.assertFalse(denied['allowed'])
             self.assertEqual(denied['level'], 'warn' if i < 3 else 'stop')
             self.assertEqual(self.store.status('aggregate')['violations'], i)
+            levels.append(denied['level'])
+            counts.append(self.store.status('aggregate')['violations'])
             if i < 3:
                 self.assertFalse(self.store.status('aggregate')['stopped'])
                 for work in active:
@@ -657,6 +663,9 @@ print(json.dumps(result),flush=True)
         denials = [r for r in events if r['event'] == 'distinct-denial']
         self.assertEqual({r['session'] for r in denials}, {a['session'] for a in actors})
         save(self.evidence / 'aggregate-events.json', events)
+        save(self.evidence / 'threshold.json', {'levels': levels, 'counts': counts,
+            'useful_content': (Path(inv['root']) / 'dist/useful.txt').read_text(),
+            'late_file_exists': (Path(inv['root']) / 'src/late.txt').exists()})
 
     def test_faulted_surrender_closes_admission_and_reconciles_physical_work(self):
         from ptw.evidence_storage import DEFAULT, usage

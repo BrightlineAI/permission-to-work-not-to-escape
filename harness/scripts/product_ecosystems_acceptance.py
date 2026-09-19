@@ -14,7 +14,7 @@ import time
 import zipfile
 from types import SimpleNamespace
 from unittest.mock import patch
-from evidence_io import capture, reference
+from evidence_io import capture, reference, verify_wheel_identity
 
 from ptw import onboarding
 from ptw.monitor import ensure, remove
@@ -397,18 +397,6 @@ def build_test_wheel(out):
         raise AssertionError('Built wheel differs from current source')
     save(out / 'wheel.json', {'sha256': hashlib.sha256(wheel.read_bytes()).hexdigest(), 'modules': hashes})
     return wheel, hashes
-
-
-def verify_wheel_identity(identity, installation, hashes):
-    root = Path(identity['path']).resolve()
-    # PyPA permits an empty archive_info object (uv uses one for local wheels).
-    # Integrity comes from the independently measured installed module hashes.
-    if (not root.is_relative_to(installation.resolve()) or
-            Path(identity['prefix']).resolve() != installation.resolve() or
-            identity['hashes'] != hashes or identity['pythonpath_present'] or
-            identity['direct_url'].get('dir_info', {}).get('editable') or
-            not isinstance(identity['direct_url'].get('archive_info'), dict)):
-        raise AssertionError('Expected exact installed wheel without source-path injection')
 
 
 def installed_journey(out, case, wheel, hashes):

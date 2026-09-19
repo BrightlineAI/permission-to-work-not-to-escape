@@ -325,7 +325,14 @@ def git_request(broker, token, event, req):
                 needed = {'A': 'create', 'D': 'delete', 'M': 'write'}[change['change']]
                 if needed not in allowed.get(owner(bundle['inventory'], change['path']), set()):
                     return broker.deny(db, actor, project, bundle, event, req, 'Checkpoint change exceeds file action scope')
-            inputs = packet(store, db, actor, bundle, definition, result, event)
+            try:
+                inputs = packet(store, db, actor, bundle, definition, result, event)
+            except Invalid as exc:
+                # A bounded review failure is a hold, not uncertain publication
+                # or a misconduct-based runtime stop. Keep the failed attempt.
+                save(folder / 'failure.json', {'error': str(exc), 'review': 'incomplete'})
+                return broker.record(db, actor, event, req, 'blocked',
+                                     'Checkpoint review incomplete: ' + str(exc))
             review = {'id': folder.name, 'project': actor['project'], 'session': actor['id'],
                       'policy_sha256': policy_hash, 'command': definition['id'], 'metadata': meta,
                       'snapshot_sha256': snapshot_hash(before), 'message': options['message'],
@@ -492,9 +499,12 @@ def review_checkpoint(args):
     if review['project'] != record['project']:
         raise Invalid('Foreign checkpoint review')
     from .artifact_review import record_findings, validate_result
+    if getattr(args, 'event_ref', None) and not getattr(args, 'finding', None):
+        raise Invalid('--event-ref requires --finding')
     if getattr(args, 'finding', None):
         record_findings(store, args.identity, digest(review),
-                        [{'id': 'operator-' + digest([digest(review), i, text])[:40], 'text': text}
+                        [{'id': 'operator-' + digest([digest(review), i, text])[:40], 'text': text,
+                          'events': getattr(args, 'event_ref', None) or []}
                          for i, text in enumerate(args.finding)])
         review = load(folder / 'review.json')
     inputs, result = validate_result(review)

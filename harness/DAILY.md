@@ -31,7 +31,8 @@ ordinary replies leave the conversation active. Treat a missing reply or
 Inspect `ptw status` and the existing monitor/reconciliation evidence before
 continuing. Only the operator starts a new protected attachment with the commands
 above; old surrendered credentials remain invalid. A stopped project cannot be
-revived by resume. Native qualification of the new surrender route is pending.
+revived by resume. Task 17's native acceptance passed; final-source installed
+qualification remains part of the product gate.
 
 The trusted pinned client stores each conversation's rollouts and SQLite state
 under private operator state. Authentication remains in its existing location
@@ -109,7 +110,7 @@ projects and closed sessions invalidate the review; request a fresh checkpoint.
 
 ### Assembled candidate review
 
-Checkpoints carry version-2 review inputs and a version-1 result through this same
+Checkpoints carry version-3 review inputs and a version-1 result through this same
 terminal approval. The packet includes the full candidate tree identity, every scoped
 candidate text file (including unchanged files), policy and command authority,
 declared assumptions, required test receipts, original event references and
@@ -180,8 +181,101 @@ existing conservative stop and recovery procedure described below.
 This is local checkpoint control, not merge/deployment control or universal
 backdoor detection. Fixture reviewers used by tests make deterministic findings;
 they provide no evidence about LLM detection, false-alert rates or spontaneous
-model behavior. Native verification of this extension remains pending manager
-checks; see the [current safety checklist](SAFETY.md).
+model behavior. Manager development checks passed the native artifact and
+sequence suites; final-source acceptance remains pending. See [current status](SAFETY.md).
+
+### Bounded project sequence review
+
+From the operator environment, inspect linked project metadata without a model:
+
+```sh
+ptw project-review --state "$PTW_STATE" --project PROJECT --out "$PRIVATE_REVIEW/project.json"
+ptw project-review --state "$PTW_STATE" --project PROJECT --checkpoint ID --out "$PRIVATE_REVIEW/checkpoint.json"
+```
+
+Use the private controller directory recorded for your project as `PTW_STATE`
+and a new path inside a private mode-0700 directory as `PRIVATE_REVIEW`. Exports
+are mode 0600 and refuse overwrite. Keep them outside the repository. Standalone
+inspection contains metadata, hashes and retained findings; checkpoint inspection
+returns the exact prepared request/result, including its already scoped candidate
+text. Neither command reads arbitrary transcripts, copies authentication or
+approves a checkpoint. These commands make no model calls.
+
+Each sequence includes at most 2,048 original references, parent/delegate/resume
+links, policy/authorization, action/decision/outcome and content availability.
+Deterministic summaries index consecutive groups of 32 records using half-open
+`[start, end)` ranges and their hashes. Original references remain in the packet;
+summaries are navigation, not replacement evidence. The exact total and omitted
+ranges remain visible when the history exceeds the limit. Missing causal
+originals, legacy coverage and uncertain records remain incomplete. Native
+compaction and hidden reasoning are unavailable; omitted content is not
+reconstructed from a hash or a summary. The canonical input limit is 4 MiB and
+result limit 256 KiB, with at most 32 findings of 4,096 characters each. Overflow
+holds review rather than triggering suspicion-based runtime stopping.
+
+To attach a concern to selected original operations, copy their `operation_id`
+values from the checkpoint export and run:
+
+```sh
+ptw checkpoint ID --finding 'Inspect the linked earlier change' --event-ref OPERATION_SHA256
+```
+
+Repeat `--event-ref` for at most 32 distinct originals. References must occur in
+that exact checkpoint packet; invented identities are rejected. Omit event
+references for a concern about the assembled candidate itself. This changes the
+review hash and uses the existing rejection or explicit `resolve HASH: REASON`
+then `approve HASH` terminal flow. Earlier findings remain relevant to later
+checkpoints. Missing originals cannot be waived by resolution.
+
+An existing packet is a snapshot, not a fresh assertion about current work.
+Publication rechecks current evidence and candidate bindings: changed inputs,
+including edits subsequently restored byte-for-byte, require a fresh checkpoint.
+An identical inspection reuses the existing request/result without model calls;
+`no_findings` means no findings are recorded, not semantic safety or approval.
+Old packets without the sequence view must be prepared again.
+
+For optional Codex analysis, first export and inspect the exact selected request:
+
+```sh
+ptw project-review --state "$PTW_STATE" --project PROJECT --checkpoint ID --codex --out "$PRIVATE_REVIEW/selected.json"
+ptw project-review --state "$PTW_STATE" --project PROJECT --checkpoint ID --codex --approve-upload REQUEST_SHA256 --out "$PRIVATE_REVIEW/result.json"
+```
+
+Use the displayed `upload_sha256` only after inspecting `selected.json`. The
+second command sends that content to the existing authenticated Codex CLI
+0.154.0, GPT-5.6 Sol/low. It does not copy login files, read arbitrary transcripts
+or substitute a model. Native effect tools, user configuration and rules are
+disabled; controller credentials are not passed to the subprocess. There is
+one call, a 120-second total deadline, a 4 MiB prompt limit and 256 KiB limits on
+combined runtime output and each output file. No reviewer calls occur during
+startup, ordinary file operations or idle monitoring.
+
+Results are cached privately by the full request: candidate/base, policy/grants,
+assumptions, tests, original history/coverage, current findings and reviewer
+configuration. Changed inputs require fresh upload consent. Failures are cached
+too; the command does not retry to obtain a favorable judgment. Output identifies
+cache reuse, elapsed time, exposed token usage and unavailable monetary cost.
+Each new call reserves 1 MiB of the project's evidence quota before contacting
+the reviewer, including serialized result and file overhead. Cache files live
+under their checkpoint; failed, interrupted and subsequently stale attempts
+retain that conservative reservation. Exhaustion refuses a new call without
+deleting unresolved evidence. Earlier shared cache files are retained and
+conservatively charged to each project. Exact cache reuse needs no new cache
+reservation; recording findings still requires available evidence space.
+Timeout, excess output, malformed/tool-bearing replies, unavailable login,
+refusal or interruption remain incomplete; raw provider errors are not exported.
+Every model finding must include an `events` array of retained original operation
+IDs; candidate-only findings use `[]`. The provider schema requires all fields,
+as specified by [OpenAI Structured Outputs](https://developers.openai.com/api/docs/guides/structured-outputs#all-fields-must-be-required).
+Existing manual candidate-only findings may omit `events`.
+
+Findings change the checkpoint review hash and require the existing exact
+operator disposition/approval. A failed selected review holds that checkpoint;
+the operator may prepare a fresh checkpoint for offline manual review. Neither
+path waives missing mandatory evidence, resets counters, clears quarantine or
+stops other work. `no_findings` never approves a checkpoint. The adapter is
+experimental and semantically unvalidated. Cached deterministic fixtures test
+its plumbing, not live detection or resistance to persuasion.
 
 The checkpoint creates `refs/ptw/checkpoints/ID` in the real repository, with
 the current HEAD as parent and only the selected changes. It preserves the

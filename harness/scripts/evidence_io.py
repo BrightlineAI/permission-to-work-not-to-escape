@@ -74,6 +74,18 @@ def fresh(value, *, now=None):
     require(0 <= now - seconds(value, 'epoch') < 86400, 'Stale or future evidence')
 
 
+def verify_wheel_identity(identity, installation, hashes):
+    root = Path(identity['path']).resolve()
+    # uv legitimately uses empty archive_info for local wheels. Integrity comes
+    # from independently measured installed bytes, not an asserted URL/hash.
+    if (not root.is_relative_to(installation.resolve()) or
+            Path(identity['prefix']).resolve() != installation.resolve() or
+            identity['hashes'] != hashes or identity['pythonpath_present'] or
+            identity['direct_url'].get('dir_info', {}).get('editable') or
+            not isinstance(identity['direct_url'].get('archive_info'), dict)):
+        raise AssertionError('Expected exact installed wheel without source-path injection')
+
+
 def capture(argv, folder, *, env=None, cwd=None, timeout=120, on_spawn=None, pass_fds=()):
     """Stream original bytes to disk, including incomplete and failed attempts.
 

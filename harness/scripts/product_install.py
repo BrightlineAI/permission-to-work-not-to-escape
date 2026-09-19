@@ -184,6 +184,20 @@ def archive_files(data, *, directories=False):
     return result
 
 
+# Flat archive paths also work with the existing payload installer. These are
+# current maintained contracts/guides, never historical benchmark evidence.
+SAFETY_FILES = {
+    'PRODUCT_ACCEPTANCE.json': 'harness/PRODUCT_ACCEPTANCE.json',
+    'PROJECT_SAFETY_ACCEPTANCE.json': 'harness/PROJECT_SAFETY_ACCEPTANCE.json',
+    'INCIDENT_SAFETY_ACCEPTANCE.json': 'harness/INCIDENT_SAFETY_ACCEPTANCE.json',
+    'PROJECT-SAFETY-EXTENSION-REVIEW.md': 'docs/PROJECT-SAFETY-EXTENSION-REVIEW.md',
+    'PROJECT-SAFETY-SCENARIOS.md': 'docs/PROJECT-SAFETY-SCENARIOS.md',
+    'SAFETY.md': 'harness/SAFETY.md',
+    'DAILY.md': 'harness/DAILY.md',
+    'SEQUENCE_CASES.json': 'harness/SEQUENCE_CASES.json',
+}
+
+
 def release_files(data):
     files = archive_files(data)
     require("release.json" in files, "Missing release manifest")
@@ -193,7 +207,7 @@ def release_files(data):
     require(manifest.get("files") == {name: sha(value) for name, value in files.items()}, "Release file manifest mismatch")
     wheel = f"permission_to_work_harness-{manifest['version']}-py3-none-any.whl"
     require(set(files) == {wheel, "requirements.lock", "package.json", "package-lock.json",
-                           "product_install.py", "INSTALL.md", "LICENSE", "THIRD_PARTY_NOTICES.md"},
+                           "product_install.py", "INSTALL.md", "LICENSE", "THIRD_PARTY_NOTICES.md"} | set(SAFETY_FILES),
             "Unexpected application artifact contents")
     validate_wheel(files[wheel], manifest["version"])
     return manifest, files

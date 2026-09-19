@@ -10,6 +10,9 @@ import tempfile
 import time
 import copy
 import secrets
+import selectors
+import signal
+import resource
 
 from .audit import history_context
 from .policy import Invalid, POLICY_SCHEMA, compile_policy, load, save, obj, validate
@@ -38,11 +41,78 @@ def provider_schema(schema):
     return schema
 
 
-def generate(prompt, schema, *, model="gpt-5.6-sol", effort="low", timeout=180, store=None, token=None):
+def bounded_process(command, prompt, timeout, limit):
+    """Linux reviewer transport: bounded pipes/files, one deadline, no retries."""
+    def limits():
+        resource.setrlimit(resource.RLIMIT_FSIZE, (limit, limit))
+    started = time.monotonic()
+    output = {'out': bytearray(), 'err': bytearray()}
+    pending = memoryview(prompt.encode())
+    environment = {key: value for key, value in os.environ.items() if key in {
+        'PATH', 'HOME', 'USER', 'LOGNAME', 'TMPDIR', 'LANG', 'LC_ALL',
+        'XDG_CONFIG_HOME', 'XDG_DATA_HOME', 'XDG_STATE_HOME', 'XDG_RUNTIME_DIR'}}
+    process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE, start_new_session=True, preexec_fn=limits, env=environment)
+    try:
+        with selectors.DefaultSelector() as selector:
+            for stream, name in ((process.stdout, 'out'), (process.stderr, 'err')):
+                os.set_blocking(stream.fileno(), False)
+                selector.register(stream, selectors.EVENT_READ, name)
+            os.set_blocking(process.stdin.fileno(), False)
+            if pending:
+                selector.register(process.stdin, selectors.EVENT_WRITE, 'in')
+            else:
+                process.stdin.close()
+            while selector.get_map():
+                remaining = timeout - (time.monotonic() - started)
+                if remaining <= 0:
+                    raise Invalid('Reviewer deadline exceeded; incomplete')
+                for key, _ in selector.select(min(remaining, .1)):
+                    if key.data == 'in':
+                        try:
+                            pending = pending[os.write(key.fd, pending[:65536]):]
+                        except BrokenPipeError:
+                            pending = pending[:0]
+                        if not pending:
+                            selector.unregister(key.fileobj)
+                            key.fileobj.close()
+                    else:
+                        data = os.read(key.fd, min(65536, limit + 1))
+                        if not data:
+                            selector.unregister(key.fileobj)
+                        else:
+                            output[key.data].extend(data)
+                            if sum(map(len, output.values())) > limit:
+                                raise Invalid('Reviewer output limit exceeded; incomplete')
+            remaining = timeout - (time.monotonic() - started)
+            if remaining <= 0:
+                raise Invalid('Reviewer deadline exceeded; incomplete')
+            try:
+                process.wait(timeout=remaining)
+            except subprocess.TimeoutExpired as exc:
+                raise Invalid('Reviewer deadline exceeded; incomplete') from exc
+        return subprocess.CompletedProcess(command, process.returncode,
+            output['out'].decode(errors='replace'), output['err'].decode(errors='replace'))
+    finally:
+        # Include descendants even after the CLI has exited or closed its pipes.
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        process.wait()
+        for stream in (process.stdin, process.stdout, process.stderr):
+            stream.close()
+
+
+def generate(prompt, schema, *, model="gpt-5.6-sol", effort="low", timeout=180, store=None, token=None,
+             output_limit=None):
     executable = shutil.which("codex")
     if executable is None:
         raise Invalid("Install and authenticate Codex first; no substitute model or offline success")
-    version = subprocess.run([executable, "--version"], capture_output=True, text=True, timeout=10).stdout.strip()
+    deadline = time.monotonic() + timeout
+    version = (bounded_process([executable, '--version'], '', min(10, timeout), output_limit)
+               if output_limit is not None else subprocess.run(
+                   [executable, "--version"], capture_output=True, text=True, timeout=10)).stdout.strip()
     if version != "codex-cli 0.154.0":
         raise Invalid("This adapter is verified for Codex CLI 0.154.0; install the pinned version or verify a new adapter")
     with tempfile.TemporaryDirectory(prefix="ptw-codex-") as directory:
@@ -66,7 +136,11 @@ def generate(prompt, schema, *, model="gpt-5.6-sol", effort="low", timeout=180, 
             command += ["--disable", feature]
         command += ["-"]
         started = time.monotonic()
-        if store is None:
+        if output_limit is not None:
+            if store is not None or token is not None:
+                raise Invalid('Read-only reviewer cannot receive controller credentials')
+            result = bounded_process(command, prompt, max(.001, deadline - time.monotonic()), output_limit)
+        elif store is None:
             result = subprocess.run(command, input=prompt, text=True, capture_output=True, timeout=timeout)
         else:
             from .supervisor import Supervisor
@@ -92,6 +166,8 @@ def generate(prompt, schema, *, model="gpt-5.6-sol", effort="low", timeout=180, 
             errors = [r.get("message", r.get("error")) for r in events if r.get("type") in ("error", "turn.failed")]
             raise Invalid(f"Codex generation failed (exit {result.returncode}): {str(errors)[:500]}")
         try:
+            if output_limit is not None and (root / 'answer.json').stat().st_size > output_limit:
+                raise Invalid('Reviewer answer limit exceeded; incomplete')
             answer = load(root / "answer.json")
         except (ValueError, OSError) as exc:
             raise Invalid("Codex did not return valid JSON") from exc

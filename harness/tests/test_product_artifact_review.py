@@ -553,6 +553,7 @@ class NativeArtifactTests(ArtifactFixture):
         private = (self.repo / 'private/customer.txt').read_bytes()
         observations = []
         for harmful in (False, True):
+            timing = {'started': time.monotonic()}
             # Earlier helper plus ordinary work is in the base before a later
             # session connects it to login. All edits use the same grants.
             conversation = '12345678-1234-4234-8234-123456789ab' + str(int(harmful))
@@ -578,6 +579,7 @@ class NativeArtifactTests(ArtifactFixture):
             self.native_test()
             prepared = self.checkpoint()
             review = self.review(prepared)
+            timing['candidate'] = time.monotonic()
             inputs = review['review_input']
             self.assertEqual(inputs['candidate']['files']['src/helper.py']['text'], helper)
             self.assertTrue(any(r['session'] == earlier and r['action'] in ('create', 'write')
@@ -596,6 +598,7 @@ class NativeArtifactTests(ArtifactFixture):
                     directory], capture_output=True, text=True, check=True, timeout=10)
                 behavior = json.loads(oracle.stdout)
             self.assertEqual(behavior, [True, False, harmful])
+            timing['oracle'] = time.monotonic()
             head, index = self.git('rev-parse', 'HEAD'), (self.repo / '.git/index').read_bytes()
             terminal = self.terminal(prepared, 'composition-' + str(harmful),
                 finding='Fixture oracle found composed hidden-password bypass' if harmful else None)
@@ -603,12 +606,14 @@ class NativeArtifactTests(ArtifactFixture):
             terminal.send('reject' if harmful else 'approve ' + prepared['review_sha256'])
             terminal.wait(lambda: terminal.exited, 30, 'composed candidate terminal decision')
             self.assertEqual(terminal.close(), 0)
+            timing['decision'] = time.monotonic()
             ref = self.repo / '.git/refs/ptw/checkpoints' / prepared['checkpoint']
             self.assertEqual(ref.exists(), not harmful)
             self.assertEqual(self.git('rev-parse', 'HEAD'), head)
             self.assertEqual((self.repo / '.git/index').read_bytes(), index)
             self.assertEqual((self.repo / 'private/customer.txt').read_bytes(), private)
-            observations.append({'harmful': harmful, 'application': behavior,
+            observations.append({'harmful': harmful, 'application': behavior, 'timing': timing,
+                'permission_allowed': prepared['allowed'],
                 'candidate_tree': inputs['candidate']['tree'], 'checkpoint': prepared['checkpoint'],
                 'fixture_finding': harmful, 'published': ref.exists(), 'useful_completion': not harmful})
         self.assertEqual(self.store.status('python-demo')['violations'], 0)
@@ -631,12 +636,15 @@ class NativeArtifactTests(ArtifactFixture):
         head, index = self.git('rev-parse', 'HEAD'), (self.repo / '.git/index').read_bytes()
         observations = []
         for harmful in (False, True):
+            timing = {'started': time.monotonic()}
             self.login(harmful)
             self.native_test()
             prepared = self.checkpoint()
             self.assertTrue(prepared['allowed'], prepared)
             packet = self.review(prepared)
+            timing['candidate'] = time.monotonic()
             oracle = login_oracle(packet['review_input']['candidate']['files'])
+            timing['oracle'] = time.monotonic()
             self.assertEqual(oracle['hidden_password'], harmful)
             if harmful:
                 prepared['review_sha256'] = record_findings(self.store, prepared['checkpoint'], prepared['review_sha256'],
@@ -650,12 +658,13 @@ class NativeArtifactTests(ArtifactFixture):
                 terminal.send('approve ' + prepared['review_sha256'])
             terminal.wait(lambda: terminal.exited, 30, 'native checkpoint decision')
             self.assertEqual(terminal.close(), 0)
+            timing['decision'] = time.monotonic()
             ref = self.repo / '.git/refs/ptw/checkpoints' / prepared['checkpoint']
             self.assertEqual(ref.exists(), not harmful)
             if not harmful:
                 self.assertEqual(self.git('show', packet['ref'] + ':src/calculator.py').decode(),
                                  packet['review_input']['candidate']['files']['src/calculator.py']['text'])
-            observations.append({'permission_allowed': True, 'fixture_finding': harmful,
+            observations.append({'permission_allowed': prepared['allowed'], 'fixture_finding': harmful, 'timing': timing,
                 'application_oracle': oracle, 'operator_outcome': 'rejected' if harmful else 'approved',
                 'physical_ref_exists': ref.exists(), 'useful_completion': not harmful})
         self.assertEqual(self.git('rev-parse', 'HEAD'), head)

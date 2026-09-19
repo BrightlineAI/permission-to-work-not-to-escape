@@ -10,6 +10,94 @@ Full acceptance against the final source, the integrated Git evidence and public
 candidate installation remain pending manager validation. Synthetic validator
 fixtures are not product evidence or publication approval.
 
+## Installed extension journeys
+
+`test_product_safety_acceptance` participates in ordinary full regression
+discovery. It builds the current wheel once, then installs it with hashed
+dependencies into three separate retained environments. Native prerequisites
+are mandatory; absent tools, unavailable services and skipped cases fail.
+Use the [isolated source-test setup](README.md#run-the-tests) to launch discovery;
+the installed children never use that editable runtime or PYTHONPATH.
+
+| Journey | Installed behavior checked |
+| --- | --- |
+| New project | Reviewed initial evidence profile, exact CLI review/adoption, AT1/AT3 application oracles, terminal checkpoint holds and useful acceptance, linked sequence findings |
+| Existing project | Useful activity before explicit profile adoption; original project identity, authority and history preserved; the same native review and incident cases |
+| Upgrade/recovery | Stale adoption and unsupported schema refused; old-runtime query cannot access adopted state; backed-up migration preserves stops/counts/quarantine; interrupted adoption rolls back and permits a fresh exact review |
+
+Both new/existing runs reuse the incident fixtures for terminal surrender,
+caller/descendant stopping, lost acknowledgement, supervisor/capture/quota
+uncertainty, scope confinement and shipped warn1/stop3 aggregate stopping.
+The cases retain their original application, file, listener, process, cgroup
+and unrelated-work assertions. They are separate disposable fixture projects,
+not a single long model session. Fixture policy approvals and terminal answers
+are scripted; harmful-work findings come from deterministic oracles, not an LLM.
+
+`SAFETY_EVIDENCE` identifies the private output directory. Keep it: it contains
+the wheel/build receipts, all three installations, selected original test IDs,
+failure logs, PTY records and physical observations. Foreground and detached
+imports are checked against actual installed bytes, recursively including
+subpackages/data. Actual checkpoint monitor command lines must use the installed
+interpreter. Loaded runtime modules are checked again after the journeys.
+Only test/driver code is loaded from the checkout.
+
+The installed journeys and optional-review terminal passed manager development checks. The
+optional-review terminal case exports an exact request, consumes an explicitly
+labeled cached fixture, holds its checkpoint and verifies useful continued work;
+final-source parsed evidence validation remains pending. No live reviewer call is made.
+These checks do not
+replace the original seven journeys or their installer-to-ready 30-second
+target. A passing fixture suite does not establish model detection,
+public installation, or release readiness.
+
+The product runner adds a version-1 `safety_extension` reference to its original
+schema-1 report. `safety/extension.json` binds all three contract hashes, the
+current reviewed documents/guides, frozen case manifest, exact candidate record,
+wheel and maintained source. Each extension ID, IG1–IG5 and AT1–AT3 maps to actual
+native test IDs, the previously recorded full-suite receipt, and the new/existing/
+upgrade installed records. The full source suite is consumed, never rerun by the
+product runner. Installed compositions use the wheel extracted from the exact
+candidate archive; `--release-tag TAG` retains the public download route without
+substituting a local build.
+
+The gate independently hashes retained installations and parses original
+application/ref/process/sentinel/collector observations, adoption history,
+operator PTY inputs/exits and native test inventory/output. Each upgrade lifecycle case retains original
+before/after schema, authority and history records, refusal/failure outcomes and
+a useful file oracle. Migration and rollback retain private stopped SQLite
+backups with their original identity receipts. The gate parses those databases
+read-only and compares authority, event identities and outcomes with the
+observations; empty original lists, missing backups and contradictory outcomes
+fail even with matching summary hashes. These backups contain synthetic fixture
+state and stay in private evidence output, outside the public checkout.
+
+Rehashing a summary cannot hide a contradictory original. Missing/stale contracts, changed reviewed
+documents, omitted cases, unavailable native prerequisites, altered installed
+bytes and claims of unmeasured semantic success fail. These are consistency
+checks, not signatures against an author able to forge every record. Keep raw
+receipts and installations private and outside the checkout.
+
+The existing release bundle now includes the exact three contracts, reviewed
+proposal/scenarios, current safety/daily guides and frozen cases. Old bundles
+without them cannot satisfy additive acceptance. The original installer-to-ready
+clock and privacy requirements are unchanged. The extension runs after the seven
+original journeys; it adds no reviewer calls to startup or ordinary operations.
+
+The [eight-case manifest](SEQUENCE_CASES.json) freezes four benign/harmful pairs
+before any semantic results: same-permission login (AT1), separated composition
+(AT3), omitted security repair, and forged approval/reviewer injection (IG4).
+It records the common grants/assumptions, toy source, histories, independent
+application expectations, prompt, reviewer and budgets. These are synthetic
+fixtures, not spontaneous model trajectories. Mechanical facts-identical
+rationale variants remain in the existing sequence tests without extra calls.
+No live comparison has run: artifact-only and history-aware detection, misses,
+false alerts, completion, latency and token/cost totals are **unmeasured**, with
+zero evaluated live cases and zero live calls. The report explicitly leaves all
+three arms unmeasured, with zero denominators and null metrics. Denial-only
+comparison remains separate from semantic detection and fixture gate decisions.
+The ceiling remains eight cases and sixteen calls, one call per semantic arm
+per case; no retries, case replacement or automatic-clearance promotion.
+
 ## Reproduction and schema
 
 Use the isolated source-test environment described below on the supported VPS.

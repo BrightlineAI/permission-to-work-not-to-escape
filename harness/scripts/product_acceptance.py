@@ -82,6 +82,8 @@ def record_candidate(out, release, source):
     archive, bootstrap = Path(release['artifact']), Path(release['bootstrap'])
     actual = digest(archive)
     require(actual == release['sha256'], 'Candidate archive changed')
+    from product_safety_evidence import candidate_payload
+    candidate_payload(archive, REPO, tree(REPO / 'harness'))
     value = {'source_sha256': source, 'ended_epoch': time.time(),
         'version': tomllib.loads((REPO / 'harness/pyproject.toml').read_text())['project']['version'],
         'origin': release['origin'], 'publication': 'still-required',
@@ -280,6 +282,8 @@ def acceptance(out, release_tag=None):
                 report['unmet_requirements'].append('first-setup')
             save(out / 'attempt.json', report)
         report['local_git'] = load(out / 'local-git.json')
+        from product_safety_evidence import collect
+        report['safety_extension'] = collect(out, report, REPO)
         report['requirements'] = map_requirements(out, report)
         report['unmet_requirements'] = [] if all(r['passed'] for r in report['journeys']) else ['first-setup']
         report['ended_epoch'] = time.time()

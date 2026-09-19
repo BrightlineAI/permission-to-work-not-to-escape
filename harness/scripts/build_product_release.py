@@ -19,7 +19,7 @@ import tempfile
 import tomllib
 import zipfile
 
-from product_install import (CODEX, PINS, archive_files, clean_env, download, require,
+from product_install import (CODEX, PINS, SAFETY_FILES, archive_files, clean_env, download, require,
                              run, safe_path, sha, validate_npm, validate_wheel)
 
 REPO = Path(__file__).resolve().parents[2]
@@ -29,7 +29,9 @@ BUILD_PIN = "setuptools==82.0.1 --hash=sha256:a59e362652f08dcd477c78bb6e7bd9d80a
 def source_files(repo):
     names = ["harness/pyproject.toml", "harness/requirements.lock", "harness/INSTALL.md",
              "harness/scripts/product_install.py", "LICENSE", "THIRD_PARTY_NOTICES.md"]
-    names += [str(path.relative_to(repo)) for path in sorted((repo / "harness/ptw").glob("*.py"))]
+    names += list(SAFETY_FILES.values())
+    names += [str(path.relative_to(repo)) for path in sorted((repo / "harness/ptw").rglob("*"))
+              if path.is_file() and '__pycache__' not in path.parts and path.suffix not in ('.pyc', '.pyo')]
     result = {}
     for name in names:
         path = safe_path(repo / name)
@@ -72,6 +74,7 @@ def assemble(project, sources, wheel, package, lock):
                            ("harness/INSTALL.md", "INSTALL.md"), ("LICENSE", "LICENSE"),
                            ("THIRD_PARTY_NOTICES.md", "THIRD_PARTY_NOTICES.md")):
         files[target] = sources[source]
+    files.update({target: sources[source] for target, source in SAFETY_FILES.items()})
     manifest = {"format": 1, "version": project["version"],
                 "files": {name: sha(value) for name, value in files.items()},
                 "source_sha256": {name: sha(value) for name, value in sources.items()}}

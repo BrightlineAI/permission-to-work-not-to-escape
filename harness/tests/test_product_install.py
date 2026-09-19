@@ -581,7 +581,9 @@ class ArchiveTests(unittest.TestCase):
         self.assertLess(len(first), 500_000)
         self.assertTrue(manifest["source_sha256"])
         self.assertFalse(any("validation" in name or "experiments" in name for name in manifest["source_sha256"]))
-        self.assertEqual(len(files), 8)
+        self.assertEqual(len(files), 8 + len(product.SAFETY_FILES))
+        for name, source in product.SAFETY_FILES.items():
+            self.assertEqual(files[name], (builder.REPO / source).read_bytes())
 
     def test_builder_rejects_linked_source_and_inconsistent_version(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -76,6 +76,8 @@ def candidate_record(root, report, repo):
     archive = artifact(root, value.get('archive'))
     bootstrap = artifact(root, value.get('bootstrap'))
     require(archive.stat().st_size > 0 and bootstrap.stat().st_size > 0, 'Empty candidate asset')
+    from product_safety_evidence import candidate_payload
+    candidate_payload(archive, repo, report['runtime_sha256'])
     version = tomllib.loads((repo / 'harness/pyproject.toml').read_text())['project']['version']
     require(value.get('version') == version and value.get('publication') == 'still-required',
             'Candidate version or publication claim differs')
@@ -397,6 +399,8 @@ def verify(root, repo=REPO):
         security_check(root, check, report)
     local_git_check(root, report.get('local_git'), report)
     candidate_record(root, report, repo)
+    from product_safety_evidence import verify as verify_safety
+    verify_safety(root, report, repo)
     required = {r['id'] for r in contract['requirements'] if r['mandatory']}
     coverage = report.get('requirements')
     require(isinstance(coverage, dict) and set(coverage) == required, 'Mandatory contract coverage incomplete')

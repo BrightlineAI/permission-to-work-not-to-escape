@@ -141,6 +141,10 @@ def usage(db, project, *, excluding=None):
     # Include failed attempts. Ownership comes from the controller request,
     # never a worktree file. These files are not optional expiring payloads.
     if database:
+        # Earlier experimental reviewers wrote a shared flat cache without
+        # ownership records. Retain it and conservatively charge each project;
+        # new caches live in their already-accounted checkpoint directories.
+        total += file_usage(Path(database).parent / 'review-cache')
         sessions = {r[0] for r in db.execute('SELECT id FROM sessions WHERE project=?', (project,))}
         for folder in (Path(database).parent / 'git-requests').glob('*'):
             request = folder / 'request.json'

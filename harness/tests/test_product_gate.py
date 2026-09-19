@@ -39,6 +39,8 @@ class ProductGateTests(unittest.TestCase):
         (self.repo / 'harness/requirements.lock').write_text('fixture-dependency==1.0\n')
         shutil.copyfile(gate.REPO / 'harness/PRODUCT_ACCEPTANCE.json',
                         self.repo / 'harness/PRODUCT_ACCEPTANCE.json')
+        import safety_evidence_fixtures as safety_fixture
+        safety_fixture.prepare(self.repo, gate.REPO)
         self.source = native.sources(self.repo)
         self.epoch = time.time()
         self.runtime, self.inputs = gate.tree(self.repo / 'harness'), gate.inputs(self.repo)
@@ -129,7 +131,7 @@ class ProductGateTests(unittest.TestCase):
             else:
                 self.report['security_checks'].append(row)
         archive, bootstrap = self.out / 'synthetic-candidate.tar.gz', self.out / 'install.sh'
-        archive.write_bytes(b'synthetic validator candidate; not an installation')
+        archive.write_bytes(safety_fixture.archive(self.repo))
         bootstrap.write_bytes(b'synthetic validator bootstrap; never executed')
         provenance = self.write('build.json', {'status': 'built-unpublished',
             'archive_sha256': digest(archive), 'bootstrap_sha256': digest(bootstrap)})
@@ -139,6 +141,7 @@ class ProductGateTests(unittest.TestCase):
             'provenance': provenance, 'assertions': assertion})
         parent = self.root / 'native'
         suite = NativeReceiptTests.suite()
+        suite.addTests(safety_fixture.suite())
         selected = native.inventory(suite)
         self.enterContext(patch.object(native, 'discover', return_value=selected))
         self.enterContext(patch.object(native, 'verify_environment'))
@@ -147,6 +150,7 @@ class ProductGateTests(unittest.TestCase):
             native.run_recorded(unittest.TextTestRunner(stream=io.StringIO(), verbosity=2), suite,
                                 inspect.unwrap(unittest.TextTestRunner.run), repo=self.repo, parent=parent)
         self.report['native_suite'] = native.retain(self.out, repo=self.repo)
+        safety_fixture.extension(self)
         from product_acceptance import map_requirements
         self.report['requirements'] = map_requirements(self.out, self.report)
         self.report['ended_epoch'] = time.time()

@@ -56,7 +56,10 @@ Continue a protected conversation through
 `ptw codex --resume ID`; see [current daily-work limits](harness/DAILY.md).
 Agents can explicitly [surrender their own session](harness/INTERACTIVE.md) when
 blocked. Surrender closes descendant admission and requests physical stopping;
-it is distinct from task completion. Native qualification is pending.
+it is distinct from task completion. Native incident acceptance passed; final-source
+installed acceptance remains pending. Operators can inspect [bounded linked
+activity](harness/DAILY.md#bounded-project-sequence-review) offline and use findings
+at checkpoint review without per-action model calls.
 The review shows warn1/stop3 and package restrictions before explicit approval;
 generated files are published recoverably afterward. Edits, packages, builds, tests and delegates use
 shared controls underneath. [Python and npm package checks](harness/ECOSYSTEMS.md)
