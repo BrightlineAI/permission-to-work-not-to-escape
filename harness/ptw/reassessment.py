@@ -79,9 +79,13 @@ def attempt(db, package_set, outcome, detail, *, actor=None, cause=None):
               'cause': cause if cause is not None else digest([active['session'], active['event']]) if active else None,
               'outcome': outcome}}
     detail['_seal'] = digest(detail)
-    admit(db, row['project'], charge(detail))
+    receipt = {'attempt': secrets.token_hex(16), 'package_set': package_set, 'at': observed,
+               'outcome': outcome, 'detail': canonical(detail)}
+    # Charge exactly the stored representation, including escaped detail and
+    # identity/time fields. usage() also sees any uncommitted package-row growth.
+    admit(db, row['project'], charge(receipt))
     db.execute('INSERT INTO package_assessments VALUES(?,?,?,?,?)',
-               (secrets.token_hex(16), package_set, observed, outcome, canonical(detail)))
+               tuple(receipt.values()))
 
 
 def cached(row, rules):
@@ -118,9 +122,11 @@ def refresh(store, token, package_set, *, definition=None, snapshot=None, provid
             try:
                 previous = records(row)
             except EvidenceError as exc:
+                db.execute('BEGIN IMMEDIATE')
                 db.execute("UPDATE package_sets SET assessment_state='blocked',assessment_reason=?,"
                            'assessment_generation=assessment_generation+1 WHERE id=?', (str(exc), package_set))
                 attempt(db, package_set, 'blocked', {'reason': str(exc)}, actor=actor)
+                db.commit()
                 raise
             generation = row['assessment_generation']
             approval = bundle['approval']['sha256']
@@ -174,6 +180,7 @@ def refresh(store, token, package_set, *, definition=None, snapshot=None, provid
                 matches = {tuple(key) for key, _ in forbidden}
                 reason = '; '.join(sorted({r for _, reasons in forbidden for r in reasons}))
                 db.execute('BEGIN IMMEDIATE')
+                quarantined = []
                 for other in db.execute('SELECT * FROM package_sets WHERE project=?', (actor['project'],)).fetchall():
                     try:
                         affected = any(identity(r, other['ecosystem']) in matches for r in records(other))
@@ -182,8 +189,19 @@ def refresh(store, token, package_set, *, definition=None, snapshot=None, provid
                     if affected:
                         db.execute("UPDATE package_sets SET assessment_state='quarantined',assessment_reason=?,"
                                    'assessment_generation=assessment_generation+1 WHERE id=?', (reason, other['id']))
-                        attempt(db, other['id'], 'quarantined', {'source_set': package_set,
+                        quarantined.append(other['id'])
+                # Capture the entire batch or none. On capture failure preserve
+                # the restrictive state if storage permits, then stop the project
+                # through the existing fault handler; never claim a receipt exists.
+                db.execute('SAVEPOINT assessment_receipts')
+                try:
+                    for identity_ in quarantined:
+                        attempt(db, identity_, 'quarantined', {'source_set': package_set,
                                 'forbidden': forbidden, 'evidence': updated, 'errors': errors}, actor=actor)
+                except (QuotaError, sqlite3.Error):
+                    db.execute('ROLLBACK TO assessment_receipts')
+                    db.commit()
+                    raise
                 db.commit()
                 raise EvidenceError('Package set quarantined: ' + reason)
             if latest['assessment_generation'] != generation or latest['assessment_state'] == 'quarantined':
@@ -201,10 +219,14 @@ def refresh(store, token, package_set, *, definition=None, snapshot=None, provid
                     errors.append(str(exc))
             state = 'blocked' if errors else 'current'
             reason = '; '.join(sorted(set(errors))) if errors else None
+            # A direct Supervisor.launch has no enclosing operation intent yet.
+            # Eligibility and its required receipt must therefore commit together.
+            db.execute('BEGIN IMMEDIATE')
             db.execute('UPDATE package_sets SET assessment_state=?,assessment_reason=?,evidence=?, '
                        'assessment_generation=assessment_generation+1 WHERE id=?',
                        (state, reason, row['evidence'] if errors else canonical(updated), package_set))
             attempt(db, package_set, state, {'evidence': updated, 'errors': errors}, actor=actor)
+            db.commit()
             if errors:
                 raise EvidenceError('Package reassessment unavailable: ' + reason)
     except (QuotaError, sqlite3.Error):

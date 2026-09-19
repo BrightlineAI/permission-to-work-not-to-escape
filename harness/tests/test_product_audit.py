@@ -1302,6 +1302,482 @@ class AuditStorageTests(workspace_fixtures.WorkspaceFixture):
 
 
 @unittest.skipUnless(os.environ.get('PTW_LINUX_TESTS') == '1', 'Requires native isolated package installer')
+class AuditReassessmentTests(unittest.TestCase):
+    """Reuse existing advisory fixtures without rediscovering their test suite."""
+
+    def fixture(self):
+        import test_product_reassessment as fixtures
+        fixture = fixtures.ReassessmentTests()
+        fixture.setUp()
+        self.addCleanup(fixture.doCleanups)
+        packet = fixture.store.evidence_review('website', DEFAULT)
+        fixture.store.adopt_evidence('website', DEFAULT, digest(packet), 'fixture operator')
+        return fixture
+
+    @staticmethod
+    def limit(db, budget):
+        db.execute('UPDATE evidence_profiles SET profile=? WHERE project=?',
+                   (canonical({**DEFAULT, 'project_bytes': budget}), 'website'))
+
+    @staticmethod
+    def row_bytes(row):
+        # Calculate from the actual persisted row, not the admission argument.
+        from ptw.evidence_storage import ROW_OVERHEAD
+        return ROW_OVERHEAD + 4 * len(json.dumps(dict(row), sort_keys=True,
+            separators=(',', ':'), ensure_ascii=True, allow_nan=False).encode())
+
+    def test_complete_receipt_exact_quota_and_one_byte_short_all_outcomes(self):
+        from ptw.evidence_storage import usage
+        from ptw.reassessment import attempt
+        fixture = self.fixture()
+        with fixture.store.locked() as db:
+            actor = fixture.store.session(db, fixture.a['token'])
+            for outcome in ('current', 'blocked', 'discarded', 'quarantined'):
+                with self.subTest(outcome=outcome), patch('ptw.reassessment.time.time', return_value=1700000000.0), \
+                        patch('ptw.reassessment.secrets.token_hex', return_value='f' * 32):
+                    detail = {'evidence': [], 'errors': ['escaped "quote" \\ newline\n雪']}
+                    db.execute('BEGIN IMMEDIATE')
+                    attempt(db, fixture.package, outcome, detail, actor=actor)
+                    receipt = db.execute("SELECT * FROM package_assessments WHERE attempt=?", ('f' * 32,)).fetchone()
+                    required = self.row_bytes(receipt)
+                    db.rollback()
+                    # Stabilize the profile's own decimal width in accounted usage.
+                    for _ in range(3):
+                        self.limit(db, usage(db, 'website') + required)
+                    budget = usage(db, 'website') + required
+                    self.limit(db, budget)
+                    before = usage(db, 'website')
+                    count = db.execute('SELECT count(*) FROM package_assessments').fetchone()[0]
+                    self.limit(db, budget - 1)
+                    with self.assertRaises(QuotaError):
+                        attempt(db, fixture.package, outcome, detail, actor=actor)
+                    self.assertEqual(db.execute('SELECT count(*) FROM package_assessments').fetchone()[0], count)
+                    self.limit(db, budget)
+                    db.execute('BEGIN IMMEDIATE')
+                    attempt(db, fixture.package, outcome, detail, actor=actor)
+                    self.assertEqual(usage(db, 'website'), budget)
+                    self.assertEqual(usage(db, 'website') - before, required)
+                    self.assertTrue(db.in_transaction, 'Writer must not commit its caller transaction')
+                    db.rollback()
+                    self.limit(db, DEFAULT['project_bytes'])
+
+    def test_seed_preserves_caller_transaction_and_rollback(self):
+        from ptw.reassessment import seed
+        fixture = self.fixture()
+        before = fixture.row()
+        with fixture.store.locked() as db:
+            count = db.execute('SELECT count(*) FROM package_assessments').fetchone()[0]
+            db.execute('BEGIN IMMEDIATE')
+            seed(db, fixture.package, [{**fixture.evidence, 'checked_at': time.time()}])
+            self.assertTrue(db.in_transaction)
+            db.rollback()
+            self.assertEqual(db.execute('SELECT count(*) FROM package_assessments').fetchone()[0], count)
+        self.assertEqual(fixture.row(), before)
+
+    def test_public_refresh_commits_current_blocked_and_missing_provenance(self):
+        from ptw.package_evidence import EvidenceError
+        from ptw.packages import mounted_set
+        from test_product_reassessment import AdvisoryFixture
+        fixture = self.fixture()
+        fixture.expire()
+        before = fixture.row()
+        fixture.reuse()
+        self.assertEqual(fixture.row()['assessment_generation'], before['assessment_generation'] + 1)
+        with fixture.store.locked() as db:
+            mounted_set(fixture.store, db, fixture.store.session(db, fixture.a['token']), fixture.package)
+            self.assertEqual(db.execute('SELECT outcome FROM package_assessments ORDER BY rowid DESC').fetchone()[0], 'current')
+        fixture.reuse(AdvisoryFixture({('idna', '3.11'): AssertionError('fresh reuse queried network')}))
+        for missing in (False, True):
+            with self.subTest(missing=missing):
+                fixture.expire()
+                if missing:
+                    with fixture.store.locked() as db:
+                        db.execute('UPDATE package_sets SET evidence=NULL WHERE id=?', (fixture.package,))
+                before = fixture.row()
+                with self.assertRaises(EvidenceError):
+                    fixture.reuse(AdvisoryFixture({('idna', '3.11'): EvidenceError('fixture offline')}))
+                self.assertEqual(fixture.row()['assessment_state'], 'blocked')
+                self.assertEqual(fixture.row()['evidence'], before['evidence'])
+                self.assertEqual(fixture.row()['assessment_generation'], before['assessment_generation'] + 1)
+                with fixture.store.locked() as db:
+                    self.assertEqual(db.execute('SELECT outcome FROM package_assessments ORDER BY rowid DESC').fetchone()[0], 'blocked')
+        self.assertFalse(fixture.store.status('website')['stopped'])
+        self.assertEqual(fixture.store.status('website')['violations'], 0)
+
+    def test_refresh_interruption_rolls_back_eligibility_and_receipt(self):
+        from ptw.reassessment import attempt
+        class Interrupted(BaseException):
+            pass
+        for after_insert in (False, True):
+            with self.subTest(after_insert=after_insert):
+                fixture = self.fixture()
+                fixture.expire()
+                before = fixture.row()
+                with fixture.store.locked() as db:
+                    count = db.execute('SELECT count(*) FROM package_assessments').fetchone()[0]
+                def interrupt(db, *args, **kwargs):
+                    self.assertTrue(db.in_transaction)
+                    if after_insert:
+                        attempt(db, *args, **kwargs)
+                    raise Interrupted()
+                with patch('ptw.reassessment.attempt', side_effect=interrupt), self.assertRaises(Interrupted):
+                    fixture.reuse()
+                fixture.store = Store(fixture.store.directory)
+                self.assertEqual(fixture.row(), before)
+                with fixture.store.locked() as db:
+                    self.assertEqual(db.execute('SELECT count(*) FROM package_assessments').fetchone()[0], count)
+                    self.assertEqual(db.execute("SELECT count(*) FROM events WHERE state='pending'").fetchone()[0], 0)
+                # No external effect occurred: an explicit fresh collection can succeed.
+                fixture.reuse()
+                self.assertEqual(fixture.row()['assessment_generation'], before['assessment_generation'] + 1)
+
+    def test_refresh_quota_includes_package_growth_before_reuse(self):
+        from ptw.evidence_storage import usage
+        from ptw.reassessment import attempt
+        from test_product_reassessment import AdvisoryFixture
+        class Probe(BaseException):
+            pass
+        for short in (0, 1):
+            with self.subTest(short=short):
+                fixture = self.fixture()
+                fixture.expire()
+                before = fixture.row()
+                provider = AdvisoryFixture({('idna', '3.11'): [{
+                    'id': 'withdrawn "fixture" \\ 雪' * 30, 'withdrawn': '2020-01-01T00:00:00Z'}]})
+                with fixture.store.locked() as db:
+                    baseline = usage(db, 'website')
+                    count = db.execute('SELECT count(*) FROM package_assessments').fetchone()[0]
+                measured = {}
+                def probe(db, *args, **kwargs):
+                    attempt(db, *args, **kwargs)
+                    measured['delta'] = usage(db, 'website') - baseline
+                    measured['receipt'] = self.row_bytes(db.execute(
+                        'SELECT * FROM package_assessments ORDER BY rowid DESC').fetchone())
+                    raise Probe()
+                with patch('ptw.reassessment.time.time', return_value=time.time()), \
+                        patch('ptw.reassessment.secrets.token_hex', return_value='e' * 32):
+                    with patch('ptw.reassessment.attempt', side_effect=probe), self.assertRaises(Probe):
+                        fixture.reuse(provider)
+                    self.assertEqual(fixture.row(), before)
+                    self.assertGreater(measured['delta'], measured['receipt'])
+                    with fixture.store.locked() as db:
+                        for _ in range(3):
+                            budget = usage(db, 'website') + measured['delta'] - short
+                            self.limit(db, budget)
+                    if short:
+                        with self.assertRaises(QuotaError):
+                            fixture.reuse(provider)
+                        self.assertEqual(fixture.row(), before)
+                    else:
+                        fixture.reuse(provider)
+                        self.assertEqual(fixture.row()['assessment_state'], 'current')
+                    with fixture.store.locked() as db:
+                        self.assertEqual(db.execute('SELECT count(*) FROM package_assessments').fetchone()[0],
+                                         count + (not short))
+                        if not short:
+                            self.assertEqual(usage(db, 'website'), budget)
+                if short:
+                    # Restoring capacity permits capture, never automatic reopening.
+                    packet = fixture.store.evidence_review('website', DEFAULT)
+                    fixture.store.adopt_evidence('website', DEFAULT, digest(packet), 'fixture operator')
+                    fixture.store = Store(fixture.store.directory)
+                    self.assertTrue(fixture.store.status('website')['stopped'])
+                    with self.assertRaisesRegex(Invalid, 'stopped'):
+                        fixture.reuse()
+                self.assertEqual(fixture.store.status('website')['violations'], 0)
+
+    def test_quarantine_batch_capture_failure_retains_restriction_without_partial_receipts(self):
+        from ptw.evidence_storage import admit, usage
+        from ptw.package_evidence import EvidenceError
+        from test_packages import CRITICAL
+        from test_product_reassessment import AdvisoryFixture
+        for failure in ('quota', 'storage'):
+            with self.subTest(failure=failure):
+                fixture = self.fixture()
+                duplicate = fixture.make_set([fixture.evidence])
+                fixture.expire()
+                with fixture.store.locked() as db:
+                    count = db.execute('SELECT count(*) FROM package_assessments').fetchone()[0]
+                    if failure == 'storage':
+                        db.execute("CREATE TRIGGER fail_second BEFORE INSERT ON package_assessments "
+                            "WHEN (SELECT count(*) FROM package_assessments) > " + str(count) +
+                            " BEGIN SELECT RAISE(FAIL,'fixture assessment failure'); END")
+                calls = []
+                def admission(db, project, size, **kwargs):
+                    calls.append(size)
+                    if failure == 'quota' and len(calls) == 2:
+                        for _ in range(3):
+                            self.limit(db, usage(db, project) + size - 1)
+                    return admit(db, project, size, **kwargs)
+                with patch('ptw.reassessment.admit', side_effect=admission), \
+                        self.assertRaises((QuotaError, sqlite3.Error)):
+                    fixture.reuse(AdvisoryFixture({('idna', '3.11'): [CRITICAL]}))
+                self.assertEqual(len(calls), 2)
+                fixture.store = Store(fixture.store.directory)
+                self.assertTrue(fixture.store.status('website')['stopped'])
+                self.assertEqual(fixture.store.status('website')['violations'], 0)
+                for package in (fixture.package, duplicate):
+                    self.assertEqual(fixture.row(package)['assessment_state'], 'quarantined')
+                    with self.assertRaises(Invalid):
+                        fixture.reuse(identity=package)
+                with fixture.store.locked() as db:
+                    self.assertEqual(db.execute('SELECT count(*) FROM package_assessments').fetchone()[0], count)
+
+    def test_discarded_refresh_retains_winner_and_capture_failure_stops_reuse(self):
+        from ptw.evidence_storage import usage
+        from test_product_reassessment import AdvisoryFixture
+        for change in ('closed', 'concurrent'):
+            for fault in (None, 'quota', 'storage'):
+                with self.subTest(change=change, fault=fault):
+                    fixture = self.fixture()
+                    fixture.expire()
+                    winner = {}
+                    def changed(*args):
+                        if change == 'closed':
+                            fixture.store.close_session(fixture.a['token'])
+                        else:
+                            fixture.reuse()
+                        winner.update(fixture.row())
+                        with fixture.store.locked() as db:
+                            if fault == 'quota':
+                                for _ in range(3):
+                                    self.limit(db, usage(db, 'website'))
+                            elif fault == 'storage':
+                                db.execute("CREATE TRIGGER fail_discard BEFORE INSERT ON package_assessments "
+                                    "WHEN NEW.outcome='discarded' BEGIN SELECT RAISE(FAIL,'fixture capture failure'); END")
+                        return []
+                    provider = AdvisoryFixture()
+                    provider.advisories = changed
+                    if fault or change == 'closed':
+                        with self.assertRaises((Invalid, QuotaError, sqlite3.Error)):
+                            fixture.reuse(provider)
+                    else:
+                        fixture.reuse(provider)
+                    fixture.store = Store(fixture.store.directory)
+                    self.assertEqual(fixture.row(), winner)
+                    with fixture.store.locked() as db:
+                        discarded = db.execute("SELECT * FROM package_assessments WHERE outcome='discarded'").fetchall()
+                    self.assertEqual(len(discarded), int(fault is None))
+                    if discarded:
+                        detail = json.loads(discarded[0]['detail'])
+                        self.assertIn('reason', detail)
+                        self.assertEqual(detail['_audit']['requester']['id'], fixture.a['session'])
+                    status = fixture.store.status('website')
+                    self.assertEqual(status['stopped'], bool(fault))
+                    self.assertEqual(status['violations'], 0)
+                    if fault:
+                        with self.assertRaises(Invalid):
+                            fixture.reuse()
+
+    def test_failed_current_blocked_and_missing_capture_never_commits_eligibility(self):
+        from ptw.evidence_storage import usage
+        from ptw.package_evidence import EvidenceError
+        from test_product_reassessment import AdvisoryFixture
+        for outcome in ('current', 'blocked', 'missing'):
+            for fault in ('quota', 'storage'):
+                with self.subTest(outcome=outcome, fault=fault):
+                    fixture = self.fixture()
+                    fixture.expire()
+                    with fixture.store.locked() as db:
+                        if outcome == 'missing':
+                            db.execute('UPDATE package_sets SET evidence=NULL WHERE id=?', (fixture.package,))
+                        count = db.execute('SELECT count(*) FROM package_assessments').fetchone()[0]
+                        if fault == 'quota':
+                            for _ in range(3):
+                                self.limit(db, usage(db, 'website'))
+                        else:
+                            db.execute("CREATE TRIGGER fail_assessment BEFORE INSERT ON package_assessments "
+                                       "BEGIN SELECT RAISE(FAIL,'fixture capture failure'); END")
+                    before = fixture.row()
+                    provider = AdvisoryFixture({('idna', '3.11'): EvidenceError('fixture offline')}
+                                               if outcome == 'blocked' else None)
+                    with self.assertRaises((QuotaError, sqlite3.Error)):
+                        fixture.reuse(provider)
+                    fixture.store = Store(fixture.store.directory)
+                    self.assertEqual(fixture.row(), before)
+                    with fixture.store.locked() as db:
+                        self.assertEqual(db.execute('SELECT count(*) FROM package_assessments').fetchone()[0], count)
+                    self.assertTrue(fixture.store.status('website')['stopped'])
+                    self.assertEqual(fixture.store.status('website')['violations'], 0)
+                    if outcome == 'missing':
+                        self.assertEqual(provider.calls, [])
+
+    @unittest.skipUnless(os.environ.get('PTW_LINUX_TESTS') == '1', 'Requires native process crash/recovery')
+    def test_direct_launch_abrupt_refresh_death_has_atomic_eligibility(self):
+        import multiprocessing
+        from ptw.package_evidence import EvidenceError
+        from ptw.packages import mounted_set
+        from ptw.reassessment import attempt, refresh
+        from ptw.supervisor import Supervisor
+        from test_product_reassessment import AdvisoryFixture
+        for phase in ('before_receipt', 'after_receipt', 'after_commit'):
+            with self.subTest(phase=phase):
+                fixture = self.fixture()
+                fixture.expire()
+                before = fixture.row()
+                with fixture.store.locked() as db:
+                    count = db.execute('SELECT count(*) FROM package_assessments').fetchone()[0]
+                def capture(db, *args, **kwargs):
+                    if phase == 'after_receipt':
+                        attempt(db, *args, **kwargs)
+                    os._exit(77)
+                def committed(*args, **kwargs):
+                    refresh(*args, **kwargs)
+                    os._exit(77)
+                def run():
+                    target = 'ptw.reassessment.refresh' if phase == 'after_commit' else 'ptw.reassessment.attempt'
+                    with patch('ptw.registry.provider_for', return_value=AdvisoryFixture()), \
+                            patch(target, side_effect=committed if phase == 'after_commit' else capture):
+                        Supervisor(fixture.store).launch(fixture.a['token'], ['/usr/bin/true'],
+                                                         package_set=fixture.package)
+                child = multiprocessing.get_context('fork').Process(target=run)
+                child.start()
+                try:
+                    child.join(15)
+                    self.assertEqual(child.exitcode, 77)
+                finally:
+                    if child.is_alive():
+                        child.kill()
+                        child.join(5)
+                fixture.store = Store(fixture.store.directory)
+                after = fixture.row()
+                with fixture.store.locked() as db:
+                    self.assertEqual(db.execute('SELECT count(*) FROM workloads').fetchone()[0], 0)
+                    self.assertEqual(db.execute("SELECT count(*) FROM events WHERE state='pending'").fetchone()[0], 0)
+                    self.assertEqual(db.execute('SELECT count(*) FROM package_assessments').fetchone()[0],
+                                     count + int(phase == 'after_commit'))
+                    actor = fixture.store.session(db, fixture.a['token'])
+                    if phase == 'after_commit':
+                        mounted_set(fixture.store, db, actor, fixture.package)
+                        self.assertEqual(after['assessment_generation'], before['assessment_generation'] + 1)
+                    else:
+                        self.assertEqual(after, before)
+                        with self.assertRaises(EvidenceError):
+                            mounted_set(fixture.store, db, actor, fixture.package)
+                # Refresh has no external effect or pending launch to replay.
+                # Only an explicit new request may collect evidence after death.
+                provider = AdvisoryFixture()
+                fixture.reuse(provider)
+                self.assertEqual(len(provider.calls), int(phase != 'after_commit'))
+                self.assertFalse(fixture.store.status('website')['stopped'])
+
+    @unittest.skipUnless(os.environ.get('PTW_LINUX_TESTS') == '1', 'Requires native PTY/systemd/confinement')
+    def test_launch_capture_fault_stops_effects_retains_other_work_and_terminal_refusal(self):
+        import tempfile
+        from ptw.evidence_storage import usage
+        from ptw.policy import approve, compile_policy, load, save
+        from ptw.sample import create
+        from ptw.supervisor import Supervisor
+        from test_product_reassessment import AdvisoryFixture
+        scripts = str(Path(__file__).resolve().parents[1] / 'scripts')
+        with patch.object(sys, 'path', [scripts, *sys.path]):
+            from terminal_driver import Terminal
+        evidence = Path(tempfile.mkdtemp(prefix='ptw-audit-reuse-native-'))
+        print('AUDIT_REUSE_EVIDENCE ' + str(evidence), flush=True)
+        source = Path(__file__).resolve().parents[1]
+        save(evidence / 'source.json', {str(p.relative_to(source)): hashlib.sha256(p.read_bytes()).hexdigest()
+             for p in [*sorted((source / 'ptw').rglob('*.py')), Path(__file__).resolve(),
+                       source / 'scripts/terminal_driver.py', source / 'tests/test_product_reassessment.py']})
+        for fault in ('quota', 'storage'):
+            with self.subTest(fault=fault):
+                fixture = self.fixture()
+                installed = fixture.install()
+                self.assertTrue(installed['allowed'], installed)
+                fixture.package = installed['package_set']
+                create(fixture.root / 'other-project', packages=True)
+                other_inv = load(fixture.root / 'other-project/inventory.json')
+                other_policy = copy.deepcopy(fixture.policy)
+                other_policy['project']['id'] = 'unrelated'
+                fixture.store.activate(approve(other_policy, other_inv,
+                    digest(compile_policy(other_policy, other_inv)), 'fixture operator'))
+                other = fixture.store.register('unrelated', 'frontend')
+                supervisor = Supervisor(fixture.store)
+                units, observations = [], {}
+                paths = [Path(inv['root']) / inv['resources']['ui']['path'] for inv in (fixture.inv, other_inv)]
+                code = ("import time\nfrom pathlib import Path\np=Path('/resources/ui')\n"
+                        "p.write_text('SYNTHETIC_PACKAGE_OK\\n')\n"
+                        "while True:\n"
+                        " with p.open('a') as f: f.write('tick ' + str(time.monotonic()) + chr(10)); f.flush()\n"
+                        " time.sleep(.05)\n")
+                # Real installed import precedes the continuously observable effect.
+                affected_code = 'import idna; assert idna.VALUE == "SYNTHETIC_PACKAGE_OK"; ' + code
+                try:
+                    units.append(supervisor.launch(fixture.a['token'], ['/usr/bin/python3', '-c', affected_code],
+                                                   package_set=fixture.package))
+                    self.addCleanup(supervisor.terminate, units[-1])
+                    units.append(supervisor.launch(other['token'], ['/usr/bin/python3', '-c', code]))
+                    self.addCleanup(supervisor.terminate, units[-1])
+                    deadline = time.monotonic() + 10
+                    while time.monotonic() < deadline and not all('tick' in p.read_text() for p in paths):
+                        time.sleep(.05)
+                    self.assertTrue(all('tick' in p.read_text() for p in paths))
+                    fixture.expire()
+                    before = fixture.row()
+                    with fixture.store.locked() as db:
+                        count = db.execute('SELECT count(*) FROM package_assessments').fetchone()[0]
+                        workload_count = db.execute('SELECT count(*) FROM workloads').fetchone()[0]
+                        if fault == 'quota':
+                            for _ in range(3):
+                                self.limit(db, usage(db, 'website'))
+                        else:
+                            db.execute("CREATE TRIGGER fail_assessment BEFORE INSERT ON package_assessments "
+                                       "BEGIN SELECT RAISE(FAIL,'fixture capture failure'); END")
+                    with patch('ptw.registry.provider_for', return_value=AdvisoryFixture()), \
+                            self.assertRaises((QuotaError, sqlite3.Error)):
+                        supervisor.launch(fixture.a['token'], ['/usr/bin/true'], package_set=fixture.package)
+                    self.assertTrue(supervisor.state(units[0])['confirmed_stopped'])
+                    snapshots = [p.read_text() for p in paths]
+                    time.sleep(.2)
+                    observations['affected_unchanged'] = paths[0].read_text() == snapshots[0]
+                    observations['unrelated_continues'] = paths[1].read_text() != snapshots[1]
+                    self.assertTrue(observations['affected_unchanged'])
+                    self.assertTrue(observations['unrelated_continues'])
+                    self.assertEqual(fixture.row(), before)
+                    with fixture.store.locked() as db:
+                        self.assertEqual(db.execute('SELECT count(*) FROM package_assessments').fetchone()[0], count)
+                        self.assertEqual(db.execute('SELECT count(*) FROM workloads').fetchone()[0], workload_count)
+                        if fault == 'storage':
+                            db.execute('DROP TRIGGER fail_assessment')
+                    # Restore capture capacity through the exact public operator review.
+                    packet = fixture.store.evidence_review('website', DEFAULT)
+                    fixture.store.adopt_evidence('website', DEFAULT, digest(packet), 'fixture operator')
+                    supervisor.reconcile()
+                    self.assertTrue(fixture.store.status('website')['stopped'])
+                    self.assertEqual(fixture.store.status('website')['violations'], 0)
+                    self.assertFalse(fixture.store.status('unrelated')['stopped'])
+                    for label, actor, extra, expected in (
+                            ('blocked', fixture.a, ['--package-set', fixture.package], 2),
+                            ('permitted', other, [], 0)):
+                        session = fixture.root / (label + '.json')
+                        save(session, actor)
+                        command = ['/usr/bin/python3', '-c', "open('/resources/ui','a').write('TERMINAL_OK\\n')"]
+                        terminal = Terminal([sys.executable, '-B', '-m', 'ptw', 'launch',
+                            '--state', str(fixture.store.directory), '--session', str(session), *extra,
+                            '--', *command], evidence / (fault + '-' + label))
+                        try:
+                            terminal.wait(lambda: terminal.exited, 20, 'reassessment launch terminal')
+                            self.assertEqual(terminal.close(), expected)
+                            if label == 'blocked':
+                                self.assertIn('stopped', terminal.text.lower())
+                        finally:
+                            if not terminal.closed:
+                                terminal.close(graceful=False)
+                    deadline = time.monotonic() + 10
+                    while 'TERMINAL_OK' not in paths[1].read_text() and time.monotonic() < deadline:
+                        time.sleep(.05)
+                    self.assertIn('TERMINAL_OK', paths[1].read_text())
+                    self.assertNotIn('TERMINAL_OK', paths[0].read_text())
+                finally:
+                    save(evidence / (fault + '-observations.json'), {
+                        'fixture': 'synthetic advisories and injected required capture failure',
+                        'observations': observations,
+                        'projects': [fixture.store.status(p) for p in ('website', 'unrelated')],
+                        'physical': [supervisor.state(unit) for unit in units]})
+                    for project in ('website', 'unrelated'):
+                        fixture.store.stop(project)
+                    supervisor.reconcile()
+
+
 class AuditInstallTests(workspace_fixtures.WorkspaceFixture):
     """Real dispatch/installer effects; registry responses are synthetic fixtures."""
 
@@ -1412,13 +1888,12 @@ class AuditInstallTests(workspace_fixtures.WorkspaceFixture):
                     limit(db, 'python-demo', 1)
             return result
         def assessment_admission(db, project, size, **kwargs):
-            if phase == 'assessment-quota':
-                # seed's detail charge fits exactly. The persisted assessment
-                # also has identity/timestamp/escaping overhead, so the final
-                # full-row check must still reject before rename.
-                limit(db, project, size)
-            result = admit(db, project, size, **kwargs)
             assessment_admissions.append(size)
+            if phase == 'assessment-quota':
+                # Leave one byte less than the complete assessment row needs;
+                # admission must reject before any installation rename.
+                limit(db, project, size - 1)
+            result = admit(db, project, size, **kwargs)
             return result
         def observed(src, dst, *args, **kwargs):
             result = rename(src, dst, *args, **kwargs)

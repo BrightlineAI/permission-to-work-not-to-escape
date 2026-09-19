@@ -7,24 +7,22 @@ not retroactively change the paper or historical validation. The governing
 design is [section 11 of the reviewed proposal](../docs/PROJECT-SAFETY-EXTENSION-REVIEW.md#11-reviewed-disposition-and-minimum-implementation-contract),
 including sections 11.6 and 11.7 and the [scenario catalogue](../docs/PROJECT-SAFETY-SCENARIOS.md).
 
-The extension is **partly implemented and not accepted**. Audit controls provide
-versioned metadata, exact checkpoint approval provenance and durable intent
-across command/package/preview/Git preparation and delegation. Session/resume,
-policy revision, native launch and stop lifecycle capture passed focused native
-checks before the storage changes. Package-assessment export linkage, reviewed
-quota/content profiles, retention/archive and transactional adoption are now
-implemented. Their combined native/terminal verification remains pending.
-Trusted delegation-denial provenance preserves admission and failed-effect
-distinctions; focused manager checks passed. Local/editable Python publication
-now records durable pre-rename intent, admits required evidence before the effect,
-and links assessments to preparation sessions and artifact receipts. Combined
-publication retains closed preparation sessions. Capture failures stop affected
-admission; crash recovery retains uncertainty and blocks silent reinstallation.
-Registry publication also accounts for full package and assessment rows before
-rename; its new quota and capture-fault native regressions await manager checks.
-Monitor restarts now replace the bounded current-process identity snapshot;
-optional diagnostic failure remains visible without preventing reconciliation.
-Full task acceptance, including the approved local setup retry, remains pending.
+The extension is **partly implemented and not accepted**. Task 14's audit controls
+provide versioned metadata, exact checkpoint approval provenance, lifecycle
+linkage and durable intent across supported operations. Reviewed quota/content
+profiles, retention/archive and transactional adoption preserve existing history.
+Registry and local/editable publication admit complete package/assessment rows
+before rename and bind capture to the original preparation authority. Reuse-time
+refresh commits eligibility and its required assessment together. Capture failure
+blocks affected admission and requests termination; quarantine remains restrictive
+where storage permits. Crash recovery retains uncertain external effects and
+blocks silent reinstallation. Optional diagnostic loss remains visible without
+preventing supervisor reconciliation.
+
+Focused manager checks passed the shared accounting/transaction repair and affected
+publication controls. Added direct-launch crash, capture-failure, running-work and
+terminal regressions await execution. Full task acceptance remains pending against
+the final source; focused results do not establish acceptance.
 Read the [audit guide and coverage matrix](AUDIT.md) before
 using its exports. Artifact review, sequence review and surrender remain queued
 work; copying their contract is not evidence of implementation.

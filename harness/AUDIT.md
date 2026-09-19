@@ -1,7 +1,7 @@
 # Controller audit exports
 
-This guide describes the implemented audit controls. Full extension acceptance
-and native validation of storage/adoption changes remain pending.
+This guide describes the implemented audit controls. Focused recovery checks
+passed; full task acceptance against the final source remains pending.
 The [current contract page](SAFETY.md) identifies the remaining requirements.
 
 From a trusted operator terminal, export one project's controller metadata:
@@ -66,9 +66,9 @@ receipt/session facts need not be copied into another log. This transition does
 not claim a new human review; the original reviewed policy remains its authority.
 
 Both registry and local publication account for the full package and assessment
-rows with the completion reservation before the rename. The final check includes
-the assessment row's identity, timestamps and serialized overhead, beyond its
-detail payload. Their eligibility and the completion record commit together;
+rows with the completion reservation before the rename. The shared assessment
+writer charges the exact stored row, including identity, timestamps and escaped
+detail. Their eligibility and the completion record commit together;
 the durable intent remains outside that rollback transaction. Required capture
 failure stops affected admission and requests physical termination. Local setup
 discards the unpublished installation where possible. Registry post-rename
@@ -79,6 +79,21 @@ Resolve the retained operation and measured effects through operator recovery.
 If the stop-state write also fails, registry intent remains pending and the API
 raises; best-effort physical termination does not claim durable closure. Existing
 recovery must persist the stop before marking that operation uncertain.
+
+Reuse-time refresh commits eligibility, generation and its required assessment
+in one transaction, including changed package-row size in quota admission. This
+also covers direct operator launch, which has no launch intent until refresh
+succeeds. Interruption before commit retains the prior evidence; it cannot leave
+fresh reusable evidence without its receipt. A captured blocked result commits
+before the operational error is returned. Discarded concurrent or invalidated
+results use the same complete-row admission.
+
+Quarantine captures all matching installations as one batch. If required capture
+fails, partial batch receipts roll back; restrictive quarantine is retained where
+storage permits and the existing capture-fault handler stops affected project
+admission and requests termination. Missing receipts are not reconstructed, and
+best-effort stopping is not durable confirmation. Restoring quota cannot clear
+the project stop or revive a quarantined installation.
 
 An allowed command with nonzero exit status has outcome `failed`. An interrupted
 publication has unknown outcome even if an independent file/ref observation
@@ -250,7 +265,7 @@ of every syscall, hidden reasoning or arbitrary-prose correctness.
 | Preview | Enforced fixed reviewed service route; startup intent, failed-start effect and cleanup/stop result observed | Existing native daily checks; failed-preview lifecycle and open-session adoption check pending native verification |
 | Checkpoint preparation/publication | Enforced exact operator gate; preparation intent, receipt and outcome observed | Audit Git fixtures cover real refs with a fixture worker; native terminal acceptance pending |
 | Stop/reconciliation | Enforced admission closure; requested/unconfirmed/confirmed states observed separately | Offline deduplication/fault checks; native sentinels and unrelated-work controls pending |
-| Package quarantine | Enforced reassessment; existing assessment records exported with stored rule/time/actor provenance and unknown legacy fields | Existing reassessment tests plus audit export/rule-history checks |
+| Package quarantine | Enforced reassessment; atomic refresh eligibility/capture, full-row admission and restrictive quarantine on capture failure; stored rule/time/actor provenance and unknown legacy fields | Existing reassessment tests and audit export/rule-history checks; new recovery regressions pending manager verification |
 | Optional transcripts/compaction | Observed only by existing selected-history adapters | Not captured in this export; absence never means misconduct |
 | Worker native shell/hooks/network/service/deploy bypass | Disabled on supported adapter routes | Existing confinement tests; no outside deployment assurance |
 | Quota, expiry, archive, adoption/downgrade | Enforced for reviewed profiles; reservations, optional tombstones, closed-history export and transactional migration | `AuditStorageTests`; native quota/terminal/service verification pending |
@@ -264,6 +279,20 @@ bounded rejected-request lease storage, expiry/archive, interrupted migration an
 downgrade refusal. `AuditLegacyReadTests` covers public file-read capture,
 truncation, replay and optional-write failure. `AuditCheckpointTests`
 checks pinned reviews and real Git refs before/after quota or capture faults.
+`AuditReassessmentTests` reuses advisory fixtures for exact quota/one-byte-short
+boundaries across all outcomes, caller-owned seed rollback, public refresh,
+package-row growth and all-or-none quarantine capture. Additional cases exercise
+discarded concurrent/closed-session results and capture failures for current,
+blocked and missing-provenance refresh. Direct operator launch is interrupted by
+real process death before receipt insertion, after insertion and after commit;
+reopening checks actual eligibility and absence of a launch. Native installed
+imports and append sentinels test required quota/write failure while affected and
+unrelated work run. Real PTYs then verify refusal after capacity restoration and
+useful unrelated work. The native test prints `AUDIT_REUSE_EVIDENCE` for retained
+private transcripts, source hashes and measured state/effects. These are synthetic
+advisories and injected failures, not model trajectories. The accounting repair
+passed focused manager checks; the added crash/workload/terminal cases remain
+untested until final manager execution.
 `AuditInstallTests` uses synthetic registry evidence with real confined installation
 and import under an adopted profile, live-intent reopening, duplicate replay,
 reversed-slot concurrency and abrupt-exit recovery through public dispatch.
@@ -272,7 +301,8 @@ assessment-row overhead, failed assessment capture and post-rename completion
 capture, including simultaneous stop-state storage failure. Directory and database
 observations check publication versus eligibility;
 native workloads check affected stopping and unrelated-project survival. These
-new registry fault cases await manager validation. Child-process deadlines bound lock
+registry fault cases passed focused checks; full task acceptance remains pending.
+Child-process deadlines bound lock
 regressions without changing runtime retry or timeout behavior.
 `AuditLocalPythonTests` reuses local-source fixture helpers without rediscovering
 their suites. Native builds/imports and PTY setup use real tools; registry evidence
@@ -288,8 +318,8 @@ rows. Missing or truncated diagnostics are explicit; no credentials, environment
 values or full controller database are copied. The monitor emits one first-failure
 location record per process, with stage, exception class and up to eight frames,
 excluding exception payloads and locals. These diagnostics survive fixture
-cleanup; keep them outside the public checkout. The approved local setup retry
-requires native acceptance against the corrected monitor restart path.
+cleanup; keep them outside the public checkout. The local setup retry remains
+in full native acceptance.
 The monitor atomically replaces its private current-process identity snapshot
 on restart using one reusable staging file; it does not overwrite audit history.
 An identity-capture failure appears in monitor health and the bounded journal

@@ -44,6 +44,13 @@ the existing supervisor. Unconfirmed termination stays visible for reconciliatio
 retry. Other sets, sessions and projects are not stopped by that quarantine.
 Previously completed effects cannot be rolled back.
 
+Required assessment-capture or quota failure also blocks new affected work and
+requests termination through the existing supervisor, without misconduct counts.
+This capture failure stops the affected project, including when a quarantine
+batch cannot retain all its receipts. Partial batch receipts are rolled back;
+restrictive quarantine is retained where storage permits. A failed stop-state
+write permits best-effort physical termination, not a claim of durable closure.
+
 Freshness expiry alone does not terminate already-admitted bounded work. A
 confirmed finding discovered on a later use does. Commands revalidate before
 publishing outputs; expiry or quarantine during execution prevents publication.
@@ -58,6 +65,10 @@ the approved evidence service and retry with a new command event ID. Fresh compl
 evidence clears the block. There is no offline bypass. Do not edit the database,
 cached timestamps or package files.
 
+If required capture failed, restore storage capacity through the exact operator
+evidence review. This permits recording termination confirmation but does not
+reopen the stopped project or clear quarantine. Missing assessments stay missing.
+
 For quarantine, use the existing reviewed dependency flow, such as `ptw deps update`,
 to select an allowed dependency and install a freshly assessed replacement. A
 corrected or withdrawn advisory may permit a new installation of the same version;
@@ -68,7 +79,12 @@ review flow. Recovery never resets violation history or a stopped project.
 
 Requests run outside the controller lock. Before recording results, the controller
 rechecks session, scope, integrity and policy bindings. Assessment generations
-prevent older clean results from overwriting newer quarantine. Quarantine of all
+prevent older clean results from overwriting newer quarantine. Refreshed evidence,
+eligibility, generation and the required assessment commit atomically. Admission
+includes changed package-row size and the full serialized assessment row, including
+identity, timestamps and escaped detail. This applies before direct operator
+launch as well as command/preview reuse. A crash before that commit leaves the
+previous evidence; it cannot silently renew freshness. Quarantine of all
 matching sets is transactional. Append-only assessment attempts record installation,
 refresh, operational failures and discarded concurrent results. Trusted command
 bindings are checked under the launch lock, registered with workloads and checked
