@@ -271,12 +271,6 @@ class PackageControl:
                 sets.mkdir(mode=0o700, exist_ok=True)
                 self.store.begin(db, actor['id'], event, request_hash, request)
                 try:
-                    os.rename(target, sets / identity)
-                    # Mounts are read only. Make accidental operator writes difficult too.
-                    for path in (sets / identity).rglob("*"):
-                        if not path.is_symlink():
-                            path.chmod(0o555 if path.is_dir() or path.stat().st_mode & 0o111 else 0o444)
-                    (sets / identity).chmod(0o555)
                     response = {"allowed": True, "effect": "installed", "level": "allow",
                                 "package_set": identity, "packages": selected, "ecosystem": ecosystem,
                                 "manifest_sha256": digest(manifest), "policy_sha256": current["approval"]["sha256"],
@@ -292,13 +286,24 @@ class PackageControl:
                                 canonical(manifest), time.time(), ecosystem, current['approval']['sha256']))
                     from .reassessment import seed
                     seed(db, identity, evidence, actor=actor)
+                    # Keep the durable preparation intent outside this transaction.
+                    # Account for the full package/assessment rows alongside its
+                    # completion reservation before publishing filesystem effects.
+                    from .evidence_storage import admit
+                    admit(db, actor['project'], 0)
+                    os.rename(target, sets / identity)
+                    # Mounts are read only. Make accidental operator writes difficult too.
+                    for path in (sets / identity).rglob("*"):
+                        if not path.is_symlink():
+                            path.chmod(0o555 if path.is_dir() or path.stat().st_mode & 0o111 else 0o444)
+                    (sets / identity).chmod(0o555)
                     self.store.complete(db, actor['id'], event, response)
                     db.commit()
                     return response
                 except Exception:
-                    db.rollback()
-                    db.execute("UPDATE projects SET stopped=1,reason=? WHERE id=?",
-                               ("uncertain package publication; operator review required", actor["project"]))
-                    self.store.complete(db, actor['id'], event, None, state='uncertain')
+                    self.store.capture_fault(db, actor['project'])
+                    # The operation's existing recovery marks uncertainty only
+                    # after persisting the stop. A failed stop write must leave
+                    # intent pending, not falsely report durable closure.
                     return {"allowed": False, "effect": "unknown", "level": "stop",
-                            "reason": "Package publication failed; project stopped for review"}
+                            "reason": "Package publication failed; outcome uncertain; operator review required"}

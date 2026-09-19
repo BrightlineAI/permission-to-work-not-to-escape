@@ -49,7 +49,37 @@ receipt. A terminal rejection records `operator_rejection`, never approval.
 Worker claims of approval never supply that authority. These records
 do not verify a natural person's identity beyond the trusted local operator API.
 
-`decision` describes admission; `outcome` describes what the controller observed.
+`decision` describes authorization; `outcome` describes what the controller observed.
+When preparation was admitted before a later trusted authorization denial (for
+example, registration rejects an unknown or wider delegate task),
+`admission_decision` preserves that earlier admission and `decision` records the
+actual denial. Original policy and grant hashes remain bound to the request.
+Replay returns the retained denial without creating a child or counting it again.
+Execution failures alone do not replace the authorization decision.
+Local Python publication uses the same event store. Before renaming either a
+single-source or combined installation, it records a `local_publication` intent
+binding the package/destination, manifest and receipt digests, policy and actual
+preparation session/source IDs. Combined publication is a controller transition
+after all preparations close; it does not impersonate an active session. The
+assessment's `audit.cause` links to that publication's `operation_id`, so the
+receipt/session facts need not be copied into another log. This transition does
+not claim a new human review; the original reviewed policy remains its authority.
+
+Both registry and local publication account for the full package and assessment
+rows with the completion reservation before the rename. The final check includes
+the assessment row's identity, timestamps and serialized overhead, beyond its
+detail payload. Their eligibility and the completion record commit together;
+the durable intent remains outside that rollback transaction. Required capture
+failure stops affected admission and requests physical termination. Local setup
+discards the unpublished installation where possible. Registry post-rename
+failure or abrupt death can leave an orphan directory, but no eligible package row. Reopening
+retains unknown outcome and a stop, even if the directory exists. Do not retry an
+uncertain installation or treat filesystem presence as successful publication.
+Resolve the retained operation and measured effects through operator recovery.
+If the stop-state write also fails, registry intent remains pending and the API
+raises; best-effort physical termination does not claim durable closure. Existing
+recovery must persist the stop before marking that operation uncertain.
+
 An allowed command with nonzero exit status has outcome `failed`. An interrupted
 publication has unknown outcome even if an independent file/ref observation
 later finds an effect. Recovery preserves its stop and prevents silent replay.
@@ -213,9 +243,9 @@ of every syscall, hidden reasoning or arbitrary-prose correctness.
 | --- | --- | --- |
 | File/repository operations | Enforced; observed intent, result, policy and path | Existing `test_core`/`test_workspace`; new audit crash/replay/tamper fixtures |
 | Command execution/publication | Enforced; observed pre-execution intent, execution phase, publication result, exit status and cleanup confirmation | Offline live-lease/crash/replay checks; native successful cleanup and capture-fault publication checks pending |
-| Package preparation/publication | Enforced; observed preparation intent, package-set/manifest identity and result | Existing package/reassessment suites; `AuditInstallTests` dispatch collision, reversed-slot concurrency, replay and crash checks pending native verification |
+| Package preparation/publication | Enforced; observed preparation/publication intent, package-set/manifest/receipt identity and result; local assessments link to actual preparation sessions | Existing package/reassessment suites; `AuditInstallTests` covers dispatch collision, reversed-slot concurrency, replay and crash. `AuditLocalPythonTests` adds real local imports/live edits, single/combined quota, capture faults, abrupt death, changed authority, receipt tamper and terminal recovery; native verification pending |
 | Policy activation/revision | Enforced exact operator review; old/new authority observed | Real dependency-revision fixture checks; no retrospective authority changes |
-| Parent/delegate sessions | Enforced; registration, ancestry and closure observed | Offline closure/admission fault and lost-delegation-receipt checks; native subtree stopping pending |
+| Parent/delegate sessions | Enforced; registration, ancestry, actual authorization denial and closure observed | Focused manager checks passed for useful narrower delegation, nonexistent/wider-task rejection, unchanged replay/counts and lost receipts; full task acceptance pending |
 | Protected resume | Enforced by existing conversation binding; predecessor and fresh session observed | Existing resume fixtures and linked useful-work checks; legacy predecessor stays unknown |
 | Preview | Enforced fixed reviewed service route; startup intent, failed-start effect and cleanup/stop result observed | Existing native daily checks; failed-preview lifecycle and open-session adoption check pending native verification |
 | Checkpoint preparation/publication | Enforced exact operator gate; preparation intent, receipt and outcome observed | Audit Git fixtures cover real refs with a fixture worker; native terminal acceptance pending |
@@ -235,9 +265,39 @@ downgrade refusal. `AuditLegacyReadTests` covers public file-read capture,
 truncation, replay and optional-write failure. `AuditCheckpointTests`
 checks pinned reviews and real Git refs before/after quota or capture faults.
 `AuditInstallTests` uses synthetic registry evidence with real confined installation
-and import, live-intent reopening, duplicate replay, reversed-slot concurrency and
-abrupt-exit recovery through public dispatch. Child-process deadlines bound lock
+and import under an adopted profile, live-intent reopening, duplicate replay,
+reversed-slot concurrency and abrupt-exit recovery through public dispatch.
+Registry publication faults separately exercise insufficient package-row capacity,
+assessment-row overhead, failed assessment capture and post-rename completion
+capture, including simultaneous stop-state storage failure. Directory and database
+observations check publication versus eligibility;
+native workloads check affected stopping and unrelated-project survival. These
+new registry fault cases await manager validation. Child-process deadlines bound lock
 regressions without changing runtime retry or timeout behavior.
+`AuditLocalPythonTests` reuses local-source fixture helpers without rediscovering
+their suites. Native builds/imports and PTY setup use real tools; registry evidence
+and injected capture/quota failures are labeled deterministic fixtures. Independent
+directory, database, process and unrelated-project controls distinguish publication,
+eligibility, stopping and uncertainty. These additions await manager execution.
+The local setup PTY case prints a private `AUDIT_LOCAL_TERMINAL_EVIDENCE`
+directory containing both attempts' original transcripts, input/exit records,
+digest receipts and source hashes. Before recovery or cleanup, it also records
+the exact monitor's service result, attempt-scoped journal (80 entries, at most
+64 KiB), heartbeat, runtime identity, setup phase and up to 32 project/workload
+rows. Missing or truncated diagnostics are explicit; no credentials, environment
+values or full controller database are copied. The monitor emits one first-failure
+location record per process, with stage, exception class and up to eight frames,
+excluding exception payloads and locals. These diagnostics survive fixture
+cleanup; keep them outside the public checkout. The approved local setup retry
+requires native acceptance against the corrected monitor restart path.
+The monitor atomically replaces its private current-process identity snapshot
+on restart using one reusable staging file; it does not overwrite audit history.
+An identity-capture failure appears in monitor health and the bounded journal
+diagnostic, while supervisor reconciliation continues. A retained snapshot can
+describe an earlier process: check its PID/time and current health before using
+it as runtime evidence. `AuditMonitorRecoveryTests` covers replacement, interrupted
+staging, write failure and symlink isolation with local fixtures; the real PTY
+retry remains part of manager acceptance.
 `AuditTerminalTests` and `NativeAuditTests` require the native manager for exact
 terminal decisions, real workloads, quota/capture faults and unrelated-work controls.
 They reuse the existing workspace/daily/reassessment fixtures without duplicating

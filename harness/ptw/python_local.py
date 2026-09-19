@@ -123,11 +123,13 @@ def prepare_combined_setup(store, bundle, task, stage):
     sources = bundle['policy']['project']['python_dependencies']['sources']
     approval, project_id = bundle['approval']['sha256'], bundle['policy']['project']['id']
     payloads = []
+    preparation_sessions = []
     with tempfile.TemporaryDirectory(prefix='local-combined-', dir=store.directory) as temporary:
         root = Path(temporary)
         site = root / 'site'
         for index, source in enumerate(sources):
             actor = store.register_preparation(project_id, task, source['id'], approval)
+            preparation_sessions.append(actor['session'])
             try:
                 payload = install_source(store, actor['token'], source['id'], mode=source['mode'],
                                          payload=root / ('source-' + str(index)))
@@ -202,7 +204,8 @@ def prepare_combined_setup(store, bundle, task, stage):
                 raise EvidenceError('Combined dependency evidence no longer permits publication')
             result = publish_set(store, db, project_id, approval, site,
                                  {'pypi:' + n for n in selected}, manifest, receipt,
-                                 [*records, *(r for p in payloads for r in p['build_records'])])
+                                 [*records, *(r for p in payloads for r in p['build_records'])],
+                                 preparation_sessions=preparation_sessions)
         return [result]
 
 
@@ -1400,29 +1403,58 @@ def publish_install(store, token, identity, source, approval, site, selected, re
             raise OutsideScope('Local build dependencies exceed session package grants')
         if any(evaluate(r, bundle['policy']['project']['packages']) for r in records):
             raise EvidenceError('Local dependency evidence no longer permits publication')
-        return publish_set(store, db, actor['project'], approval, site, names, manifest, receipt, records)
+        return publish_set(store, db, actor['project'], approval, site, names, manifest, receipt, records,
+                           preparation_sessions=[actor['id']])
 
 
-def publish_set(store, db, project, approval, site, names, manifest, receipt, records):
+def publish_set(store, db, project, approval, site, names, manifest, receipt, records, *, preparation_sessions):
     """Caller holds the controller lock and has revalidated all constituent inputs."""
     from .reassessment import validate_publication
     validate_publication(db, project, 'pypi', records)
+    if (receipt['policy_sha256'] != approval or receipt['manifest_sha256'] != digest(manifest)
+            or file_manifest(site) != manifest):
+        raise Invalid('Local publication receipt or installation changed')
     sets = store.directory / 'package-sets'
     sets.mkdir(mode=0o700, exist_ok=True)
     package_id = 'pkg_' + secrets.token_hex(12)
     destination = sets / package_id
+    event = 'local_publication:' + package_id
+    publication = {'operation_id': digest(['controller:' + project, event]),
+                   'package_set': package_id, 'destination': 'package-sets/' + package_id,
+                   'receipt_sha256': digest(receipt), 'manifest_sha256': digest(manifest),
+                   'preparations': [{'session': session, 'source_id': part['source_id']}
+                                    for session, part in zip(preparation_sessions, receipt_sources(receipt), strict=True)]}
+    # This short transition holds the controller lock throughout. Combined setup
+    # deliberately has no active actor: every constituent session is closed.
+    # Keep intent outside the publication transaction so rollback/death cannot
+    # erase the evidence that recovery needs to prevent an uncertain retry.
+    store.lifecycle(db, project, 'local_publication', event=event, facts=publication, pending=True,
+                    session=preparation_sessions[0] if len(preparation_sessions) == 1 else None)
     try:
         db.execute('BEGIN IMMEDIATE')
-        os.rename(site, destination)
         db.execute('INSERT INTO package_sets(id,project,names,manifest,created,ecosystem,policy_sha256,local_source) '
                    'VALUES(?,?,?,?,?,?,?,?)', (package_id, project, canonical(sorted(names)),
                    canonical(manifest), time.time(), 'pypi', approval, canonical(receipt)))
         from .reassessment import seed
-        seed(db, package_id, records)
+        seed(db, package_id, records, cause=publication['operation_id'])
+        # Include the entire package row and assessment, with the intent's
+        # completion reservation, before making the installation visible.
+        from .evidence_storage import admit
+        admit(db, project, 0)
+        os.rename(site, destination)
+        store.complete(db, 'controller:' + project, event,
+                       {'allowed': True, 'level': 'allow', 'effect': 'local_publication',
+                        'package_set': package_id, 'manifest_sha256': digest(manifest), 'published': True})
         db.commit()
     except BaseException:
         db.rollback()
-        if destination.exists():
-            shutil.rmtree(destination)
+        # Stop admission and reconcile even when the evidence writer fails.
+        # A retained pending intent is not a claim of durable closure.
+        store.capture_fault(db, project)
+        try:
+            if destination.exists():
+                shutil.rmtree(destination)
+        except OSError:
+            pass  # Unmountable orphan; retain uncertainty for operator review.
         raise
     return {'package_set': package_id, **receipt}

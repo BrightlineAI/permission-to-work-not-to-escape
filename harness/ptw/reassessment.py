@@ -38,12 +38,13 @@ def records(row):
         raise EvidenceError('Installed set lacks trustworthy assessment provenance; review and install again') from None
 
 
-def seed(db, package_set, evidence, *, actor=None):
+def seed(db, package_set, evidence, *, actor=None, cause=None):
     # Full install records retain artifact, registry and build provenance. Local
     # sources have separate reviewed receipts and are never queried as PyPI names.
     db.execute("UPDATE package_sets SET evidence=?,assessment_state='current',assessment_reason=NULL,"
                'assessment_generation=assessment_generation+1 WHERE id=?', (canonical(evidence), package_set))
-    attempt(db, package_set, 'current', {'source': 'installation', 'evidence': evidence}, actor=actor)
+    attempt(db, package_set, 'current', {'source': 'installation', 'evidence': evidence},
+            actor=actor, cause=cause)
 
 
 def validate_publication(db, project, ecosystem, evidence):
@@ -61,7 +62,7 @@ def validate_publication(db, project, ecosystem, evidence):
                 raise EvidenceError('Dependency was quarantined during installation; collect new evidence and retry')
 
 
-def attempt(db, package_set, outcome, detail, *, actor=None):
+def attempt(db, package_set, outcome, detail, *, actor=None, cause=None):
     from .store import _operation
     active = _operation.get()
     row = db.execute('SELECT project FROM package_sets WHERE id=?', (package_set,)).fetchone()
@@ -75,7 +76,7 @@ def attempt(db, package_set, outcome, detail, *, actor=None):
               'enforcer': {'kind': 'local_controller', 'uid': os.getuid()},
               'authorization': {'method': 'standing_policy', 'rule_sha256': digest(bundle['policy']['project']['packages']),
                                 'human_review_required': False, 'human_review_performed': False},
-              'cause': digest([active['session'], active['event']]) if active else None,
+              'cause': cause if cause is not None else digest([active['session'], active['event']]) if active else None,
               'outcome': outcome}}
     detail['_seal'] = digest(detail)
     admit(db, row['project'], charge(detail))

@@ -14,6 +14,17 @@ policy revision, native launch and stop lifecycle capture passed focused native
 checks before the storage changes. Package-assessment export linkage, reviewed
 quota/content profiles, retention/archive and transactional adoption are now
 implemented. Their combined native/terminal verification remains pending.
+Trusted delegation-denial provenance preserves admission and failed-effect
+distinctions; focused manager checks passed. Local/editable Python publication
+now records durable pre-rename intent, admits required evidence before the effect,
+and links assessments to preparation sessions and artifact receipts. Combined
+publication retains closed preparation sessions. Capture failures stop affected
+admission; crash recovery retains uncertainty and blocks silent reinstallation.
+Registry publication also accounts for full package and assessment rows before
+rename; its new quota and capture-fault native regressions await manager checks.
+Monitor restarts now replace the bounded current-process identity snapshot;
+optional diagnostic failure remains visible without preventing reconciliation.
+Full task acceptance, including the approved local setup retry, remains pending.
 Read the [audit guide and coverage matrix](AUDIT.md) before
 using its exports. Artifact review, sequence review and surrender remain queued
 work; copying their contract is not evidence of implementation.

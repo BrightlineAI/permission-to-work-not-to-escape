@@ -7298,12 +7298,16 @@ class CombinedStaticHookTests(unittest.TestCase):
 
 if __name__ == '__main__':
     if len(sys.argv) > 1 and sys.argv[1] in ('--local-setup-fixture', '--local-hook-setup-fixture',
+                                          '--local-publication-fault-fixture',
                                           '--multi-local-setup-fixture', '--multi-local-lock-setup-fixture'):
         from ptw.cli import main
         # No model call or authentication access. Policy review, uv, monitoring,
         # transaction, controller and Linux confinement are the real path.
         with ExitStack() as fixtures:
             fixtures.enter_context(patch('ptw.codex.require_login'))
+            if sys.argv[1] == '--local-publication-fault-fixture':
+                fixtures.enter_context(patch('ptw.reassessment.seed',
+                    side_effect=OSError('injected required local publication capture failure')))
             if sys.argv[1] == '--multi-local-setup-fixture':
                 fixtures.enter_context(patch('ptw.dependency_resolution.PyPIEvidence', MultiProjectIndexFixture))
                 fixtures.enter_context(patch('ptw.python_lock.PyPIEvidence', MultiProjectIndexFixture))
@@ -7323,7 +7327,7 @@ if __name__ == '__main__':
                 fixtures.enter_context(patch('ptw.registry.PyPIEvidence', HookIndexFixture))
             try:
                 print(json.dumps(main(sys.argv[2:])), flush=True)
-            except (Invalid, EvidenceError, EOFError, KeyboardInterrupt) as exc:
+            except (Invalid, EvidenceError, OSError, EOFError, KeyboardInterrupt) as exc:
                 print(type(exc).__name__ + ': ' + str(exc), flush=True)
                 sys.exit(2)
     else:

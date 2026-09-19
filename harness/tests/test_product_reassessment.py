@@ -423,7 +423,7 @@ class ReassessmentTests(PackageFixture, unittest.TestCase):
             # No registry runtime names: this is retained local build evidence.
             with self.assertRaisesRegex(EvidenceError, 'quarantined during installation'):
                 publish_set(self.store, db, 'website', bundle['approval']['sha256'], site,
-                            set(), file_manifest(site), {}, [self.evidence])
+                            set(), file_manifest(site), {}, [self.evidence], preparation_sessions=[])
             self.assertEqual(db.execute('SELECT COUNT(*) FROM package_sets').fetchone()[0], 1)
         self.assertEqual((site / 'fixture').read_text(), 'built local wheel')
         self.assertFalse(self.store.status('website')['stopped'])

@@ -579,6 +579,11 @@ class Store:
 
     def deny(self, db, actor, project, bundle, event, request_hash, request, reason):
         """The same counter transition for every controlled effect."""
+        pending = db.execute('SELECT request_hash,state FROM events WHERE session=? AND event=?',
+                             (actor['id'], event)).fetchone()
+        if pending and self.owns_pending(actor['id'], event):
+            if pending['state'] != 'pending' or pending['request_hash'] != request_hash:
+                raise Invalid('Operation intent changed')
         db.execute("BEGIN IMMEDIATE")
         db.execute("UPDATE projects SET violations=violations+1 WHERE id=?", (actor["project"],))
         tasks = {actor["task"]}
@@ -602,7 +607,12 @@ class Store:
             db.execute("UPDATE projects SET stopped=1, reason=? WHERE id=?", ("violation threshold", actor["project"]))
         response = {"allowed": False, "effect": "none", "level": "stop" if stop else "warn" if warn else "deny",
                     "reason": reason, "project_violations": total, "task_violations": task_count}
-        self.record(db, actor["id"], event, request_hash, request, response)
+        if pending and self.owns_pending(actor['id'], event):
+            # This is a trusted authorization denial after preparation admission,
+            # not an execution failure inferred from a response's allowed flag.
+            self.complete(db, actor['id'], event, response, authorization_decision=response['level'])
+        else:
+            self.record(db, actor["id"], event, request_hash, request, response)
         if stop and not project['stopped']:
             self.lifecycle(db, actor['project'], 'admission_stopped', session=actor['id'],
                            facts={'cause': digest([actor['id'], event]), 'termination': 'unconfirmed'})
@@ -740,12 +750,16 @@ class Store:
             active['started'] = True
             active['held']['started'] = True
 
-    def complete(self, db, session, event, response, *, state='complete'):
+    def complete(self, db, session, event, response, *, state='complete', authorization_decision=None):
         from .event_evidence import outcome, seal, validate_response
         if state not in ('complete', 'uncertain') or (state == 'complete' and response is None):
             raise Invalid('Unsupported event completion')
         if response is not None:
             validate_response(response)
+        if authorization_decision is not None and (
+                state != 'complete' or authorization_decision != response['level'] or
+                not self.owns_pending(session, event)):
+            raise Invalid('Authorization completion requires the originating decision')
         row = db.execute('SELECT * FROM events WHERE session=? AND event=?', (session, event)).fetchone()
         if row is None or row['state'] != 'pending':
             raise Invalid('Event has no pending intent')
@@ -754,6 +768,9 @@ class Store:
             if meta.get('_seal') != seal(meta, json.loads(row['response'] or '{}'), row['state']):
                 raise Invalid('Pending event evidence changed')
             meta['_audit'].update(completed_at=time.time(), outcome=outcome(response or {}, state))
+            if authorization_decision is not None:
+                meta['_audit']['admission_decision'] = meta['_audit']['decision']
+                meta['_audit']['decision'] = authorization_decision
             if response and response.get('effect') == 'git_review':
                 meta['_audit']['authorization']['human_review_required'] = True
             meta['_seal'] = seal(meta, response or {}, state)
