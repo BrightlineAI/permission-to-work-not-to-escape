@@ -118,9 +118,12 @@ def extract_result(archive_path, destination, *, storage_limit=None):
                 raise UnsafeExport("Broken or cyclic build output link") from exc
 
 
-def run_build(store, token, command, target, *, preparation=False, binding=None, command_result=None,
-              storage_limit=None):
-    """Convert the adapter's sole writable bind into bounded disposable memory."""
+def bounded_command(command, target, command_result=None):
+    """Apply the existing tmpfs/export boundary, independently of supervision.
+
+    The demo comparator uses this same boundary without project lifecycle state.
+    This function does not execute or authorize the supplied command.
+    """
     try:
         boundary = command.index("--")
         prefix, payload = command[:boundary], command[boundary + 1:]
@@ -132,7 +135,13 @@ def run_build(store, token, command, target, *, preparation=False, binding=None,
         raise EvidenceError("Build adapter supplied an unexpected mount layout") from exc
     result_args = (['--ptw-command', str(command_result['timeout_seconds']), command_result.get('cwd', '')]
                    if command_result is not None else [])
-    bounded = prefix + ["--", "/usr/bin/python3", "-I", "-S", "-c", WRAPPER, *result_args, *payload]
+    return prefix + ["--", "/usr/bin/python3", "-I", "-S", "-c", WRAPPER, *result_args, *payload]
+
+
+def run_build(store, token, command, target, *, preparation=False, binding=None, command_result=None,
+              storage_limit=None):
+    """Convert the adapter's sole writable bind into bounded disposable memory."""
+    bounded = bounded_command(command, target, command_result)
     supervisor = Supervisor(store)
     with tempfile.TemporaryFile(dir=store.directory) as logs, tempfile.TemporaryFile(dir=store.directory) as archive:
         process, unit = supervisor.engine(token, bounded, stderr=logs,

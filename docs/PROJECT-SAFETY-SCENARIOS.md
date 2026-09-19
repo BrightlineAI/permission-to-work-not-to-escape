@@ -503,3 +503,16 @@ Return a compact mapping of scenario ID → existing evidence/test → missing c
 All concrete probes should use disposable local systems, dummy credentials and inert payloads. Do not attack external services, access production data, fill the shared VPS disk or alter unrelated jobs. Run workloads on the authorized isolated Linux environment, not the owner's laptop. A hypothetical severe outcome motivates a test; it does not authorize reproducing that harm.
 
 The final package should let the implementation agent answer: **What bad outcome are we trying to prevent, where can we actually intervene, how will we know whether the intervention worked, and what remains unprotected?**
+# Incident-inspired demo amendment
+
+The maintained [demo plan and reproduction guide](../harness/DEMO.md) freezes one
+synthetic report task. The implementation pairs underlying
+confinement alone with the same confinement plus Vega. Both must deny the local
+upload analogue and complete the report; OS-denied uploads and ordinary failed
+tests must leave controller counts unchanged. Native results are pending.
+Scripted worker/resume stopping now uses shared task-17 observers and linked
+protected conversation registration, with synthetic metadata and no Codex launch.
+Executable wrong-output/wrong-grant controls and three paired timing trials are
+implemented. Native validation and a privacy-reviewed measured sample remain
+required before full demo acceptance. No historical
+incident prevention or spontaneous-model result is claimed by this reconstruction.

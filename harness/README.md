@@ -1,5 +1,9 @@
 # Project safety harness
 
+The [incident-inspired report demo](DEMO.md) has an installed run/verify workflow
+for paired confinement and scripted shared escalation. Native demo acceptance
+remains pending; the guide documents controls, measurements and evidence limits.
+
 The [current safety contracts](SAFETY.md) distinguish original product acceptance
 from the versioned extension. The [audit guide](AUDIT.md) and
 [daily review guide](DAILY.md#bounded-project-sequence-review) document implemented

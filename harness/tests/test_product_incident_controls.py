@@ -19,6 +19,10 @@ import tempfile
 import threading
 import time
 import unittest
+
+SCRIPTS = Path(__file__).resolve().parents[1] / 'scripts'
+if str(SCRIPTS) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS))
 from unittest.mock import patch
 
 import test_workspace as workspace_fixtures
@@ -309,6 +313,7 @@ class NativeIncidentTests(workspace_fixtures.WorkspaceFixture):
              for p in [*runtime, Path(__file__), Path(workspace_fixtures.__file__),
                        Path(ecosystem_fixtures.__file__), source / 'tests/test_packages.py',
                        source / 'scripts/terminal_driver.py', source / 'scripts/evidence_io.py',
+                       source / 'scripts/native_observers.py',
                        source / 'requirements.lock', source / 'PRODUCT_ACCEPTANCE.json',
                        source / 'PROJECT_SAFETY_ACCEPTANCE.json', source / 'INCIDENT_SAFETY_ACCEPTANCE.json']})
         self.observations = []
@@ -323,51 +328,16 @@ class NativeIncidentTests(workspace_fixtures.WorkspaceFixture):
             process.communicate(timeout=10)
 
     def start_sentinel(self, actor, name):
-        """Trusted registered process fixture plus a real descendant, not an agent tool."""
-        sentinel = self.root / (name + '.txt')
-        # Publish a complete sample atomically: SIGKILL can arrive between a
-        # truncating write's open and write, leaving an empty final sample.
-        code = ("import os,time; from pathlib import Path; p=Path(" + repr(str(sentinel)) + "); "
-                "tmp=p.with_suffix('.pending')"
-                "\nfor i in range(3600):\n tmp.write_text(str(os.getpid())+':'+str(i)); tmp.replace(p); time.sleep(.05)")
-        parent = 'import subprocess,time; subprocess.Popen(' + repr([sys.executable, '-c', code]) + '); time.sleep(180)'
-        process, unit = Supervisor(self.store).engine(actor['token'], [sys.executable, '-c', parent])
-        self.running.append((process, unit, sentinel, None))
-        deadline = time.monotonic() + 10
-        while not sentinel.exists() and time.monotonic() < deadline:
-            time.sleep(.02)
-        self.assertTrue(sentinel.exists())
-        group = Supervisor.state(unit)['ControlGroup']
-        self.assertTrue(group)
-        self.running[-1] = (process, unit, sentinel, Path('/sys/fs/cgroup' + group))
-        self.assertIn('populated 1', (self.running[-1][3] / 'cgroup.events').read_text())
-        return self.running[-1]
+        from native_observers import start_sentinel
+        return start_sentinel(self.store, actor, self.root / (name + '.txt'), self.running)
 
     def assert_stopped(self, work):
-        process, unit, sentinel, group = work
-        process.wait(timeout=10)
-        # These oracles do not consult workloads.stopped or the surrender response.
-        events = group / 'cgroup.events'
-        self.assertTrue(not events.exists() or 'populated 0' in events.read_text())
-        pid = int(sentinel.read_text().split(':')[0])
-        proc = Path('/proc') / str(pid) / 'stat'
-        self.assertTrue(not proc.exists() or proc.read_text().split(') ')[1].startswith('Z '))
-        before = sentinel.read_bytes()
-        time.sleep(.15)
-        self.observations.append({'unit': unit, 'cgroup_events': events.read_text() if events.exists() else 'removed',
-                                  'sentinel_before': before.decode(), 'sentinel_after': sentinel.read_text()})
-        self.assertEqual(before, sentinel.read_bytes())
+        from native_observers import observe
+        self.observations.append(observe(work, stopped=True))
 
     def assert_continues(self, work):
-        process, unit, sentinel, group = work
-        before = sentinel.read_bytes()
-        time.sleep(.15)
-        self.assertIsNone(process.poll())
-        self.assertIn('populated 1', (group / 'cgroup.events').read_text())
-        self.assertNotEqual(before, sentinel.read_bytes())
-        self.observations.append({'unit': unit, 'continued': True,
-            'sentinel_before': before.decode(), 'sentinel_after': sentinel.read_text(),
-            'cgroup_events': (group / 'cgroup.events').read_text()})
+        from native_observers import observe
+        self.observations.append(observe(work, stopped=False))
 
     def start_monitor(self):
         monitor = subprocess.Popen([sys.executable, '-B', '-m', 'ptw.monitor', '--state', str(self.store.directory)],

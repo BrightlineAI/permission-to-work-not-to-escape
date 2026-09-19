@@ -40,6 +40,10 @@ Run fresh benchmark workloads on an isolated Linux VPS using the [reproduction i
 
 ## Build on the work
 
+The [incident-inspired demo](harness/DEMO.md) documents the paired synthetic report
+workflow, fair confinement comparison and scripted shared-stop sequence. Native
+demo validation is pending; scripted actions are not spontaneous model evidence.
+
 The [current harness safety contracts](harness/SAFETY.md) identify the reviewed
 extension, supported-route audit coverage and implementation limits separately
 from the frozen paper and historical evidence.
