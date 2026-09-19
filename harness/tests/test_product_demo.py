@@ -90,13 +90,27 @@ class DemoOfflineTests(unittest.TestCase):
 
     def test_failure_is_retained_without_green_result(self):
         with tempfile.TemporaryDirectory() as parent:
-            out = Path(parent) / 'attempt'
-            with patch.object(demo, 'installed_identity', side_effect=RuntimeError('fixture prerequisite failure')):
-                with self.assertRaises(RuntimeError):
-                    demo.run(out)
-            self.assertEqual(load(out / 'failed.json')['error_type'], 'RuntimeError')
-            self.assertFalse((out / 'result.json').exists())
-            self.assertFalse(load(out / 'attempt.json')['complete'])
+            for stage, error in (
+                ('source_identity', PermissionError('fixture source unavailable')),
+                ('installed_identity', RuntimeError('fixture prerequisite failure')),
+            ):
+                out = Path(parent) / stage
+                with self.subTest(stage=stage), patch.object(demo, stage, side_effect=error), \
+                     patch.object(demo, 'run_pair') as run_pair:
+                    with self.assertRaises(type(error)):
+                        demo.run(out)
+                    run_pair.assert_not_called()
+                    self.assertEqual(load(out / 'failed.json')['error_type'], type(error).__name__)
+                    self.assertFalse((out / 'result.json').exists())
+                    self.assertFalse((out / 'public-sample.json').exists())
+                    attempt = load(out / 'attempt.json')
+                    self.assertFalse(attempt['complete'])
+                    if stage == 'source_identity':
+                        self.assertNotIn('source', attempt)
+                    else:
+                        self.assertEqual(attempt['source'], demo.source_identity())
+                    with self.assertRaises((ValueError, FileNotFoundError)):
+                        demo.verify(out)
 
     def test_verifier_rejects_linked_envelopes_before_reading_evidence(self):
         with tempfile.TemporaryDirectory() as parent:

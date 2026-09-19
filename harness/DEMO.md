@@ -61,7 +61,10 @@ is needed. Run from the repository root, with `PYTHONPATH` and `PYTHONHOME` unse
 The first command needs a directory that does not yet exist, outside the source
 checkout. Keep the installation and receipts for verification. Reused or linked
 output directories fail. A failed or interrupted attempt retains `attempt.json`
-and `failed.json`; preserve it and choose a new directory for a retry. Verification
+and `failed.json` when the output directory remains writable; preserve it and
+choose a new directory for a retry. The attempt is recorded before source
+fingerprinting: if that prerequisite fails, its hash is absent, never fabricated.
+Verification
 is offline; it never reruns commands named by receipt data. CLI errors return 2,
 interruptions return 130. No interactive input is required. Continuation uses the public conversation
 binding and session-registration APIs with labelled synthetic metadata. It does

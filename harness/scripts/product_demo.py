@@ -394,9 +394,11 @@ def run(out):
     require(out.resolve() == out and not out.is_relative_to(SOURCE), 'Use a new canonical directory outside the checkout')
     out.mkdir(mode=0o700, parents=True, exist_ok=False)
     attempt = {'schema': 1, 'label': LABEL, 'started_epoch': time.time(), 'complete': False,
-               'milestone': 'report-lifecycle-controls-and-timing', 'source': source_identity()}
+               'milestone': 'report-lifecycle-controls-and-timing'}
     save(out / 'attempt.json', attempt)
     try:
+        attempt['source'] = source_identity()
+        save(out / 'attempt.json', attempt)
         attempt['installed'] = installed_identity()
         save(out / 'attempt.json', attempt)
         startup_seconds = time.monotonic() - started
