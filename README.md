@@ -40,6 +40,11 @@ Run fresh benchmark workloads on an isolated Linux VPS using the [reproduction i
 
 ## Build on the work
 
+The [three-demo specifications and implementation status](docs/demos/README.md)
+cover executing dependencies, task-scoped fixes and private collaboration.
+The dependency prerequisite passed its native check; task-scope physical
+validation and complete demo acceptance remain pending.
+
 The [incident-inspired demo](harness/DEMO.md) documents the paired synthetic report
 workflow, fair confinement comparison and scripted shared-stop sequence, with a
 [measured historical sample](harness/validation/demo-20260919/README.md).

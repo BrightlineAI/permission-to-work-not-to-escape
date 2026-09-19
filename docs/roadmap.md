@@ -1,5 +1,11 @@
 # Roadmap
 
+The bounded [dependency and task-scope demos](demos/README.md) add executing-code
+containment and useful local recovery to the existing report demo. Their finite
+checklist and actual missing coverage are maintained there. The dependency native
+prerequisite passed; the three-arm task-scope milestone awaits physical validation.
+No complete new demo acceptance is claimed.
+
 The owner-authorized [demo MVP plan](../harness/DEMO.md) adds a same-task sandbox
 comparison and useful local report workflow, followed by separately scripted
 worker/resume escalation. A [privacy-reviewed historical sample](../harness/validation/demo-20260919/README.md)

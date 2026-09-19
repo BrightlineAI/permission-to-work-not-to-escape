@@ -1,5 +1,11 @@
 # Project Safety Scenarios: Prioritized Harms and Concrete Failure Chains
 
+The maintained [three-demo contract](demos/README.md) maps the executing-dependency
+fixture to S1, the local A/B task-scope fixture to S2/S3/S8, and private collaboration
+to S2/S5/S6. These are bounded reconstructed scenarios. The dependency native
+prerequisite passed; task-scope physical validation remains pending; the specifications do not establish prevention
+of the historical incidents or complete coverage of these scenario families.
+
 **Status:** Problem and scenario brief for independent AI review. Written September 18, 2026 at Allister's request. This document does not add queue tasks or change an accepted implementation contract.
 
 **Event-record guidance added:** 2026-09-18T22:14:18Z. Earlier edits have only a known date; no exact historical edit times are inferred.

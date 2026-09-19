@@ -1,5 +1,10 @@
 # Project safety harness
 
+The [maintained demo specifications](../docs/demos/README.md) distinguish expected
+dependency/task-scope behavior from implemented and measured coverage. The dependency
+prerequisite passed; task-scope native validation remains pending; the original report runner below keeps
+its existing invocation and evidence contract.
+
 The [incident-inspired report demo](DEMO.md) has an installed run/verify workflow
 for paired confinement and scripted shared escalation, with a
 [measured historical sample](validation/demo-20260919/README.md).

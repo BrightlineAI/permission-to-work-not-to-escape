@@ -22,7 +22,7 @@ def record_conversation(folder, bundle):
     from ptw.conversation import attach, remember
     operator = folder / 'operator'
     operator.mkdir()
-    record = {'repo': bundle['inventory']['root'], 'project': 'report-demo',
+    record = {'repo': bundle['inventory']['root'], 'project': bundle['policy']['project']['id'],
               'policy_sha256': bundle['approval']['sha256']}
     with attach(operator, record, 'work') as (conversation, _):
         identity = str(uuid.uuid4())
