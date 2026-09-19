@@ -14,6 +14,7 @@ import time
 import zipfile
 from types import SimpleNamespace
 from unittest.mock import patch
+from evidence_io import capture, reference
 
 from ptw import onboarding
 from ptw.monitor import ensure, remove
@@ -65,7 +66,7 @@ def terminal_setup(repo, state, args, out, *, refusals=()):
                 terminal.send(answer)
             terminal.wait(lambda: terminal.exited, 60)
         finally:
-            code = terminal.close()
+            code = terminal.close(graceful=False)
             reviews.append({'answer': answer, 'exit_code': code})
             save(terminal.folder / 'result.json', reviews[-1])
         expected = 0 if answer == 'yes' else 130 if answer == 'eof' else 2
@@ -110,7 +111,7 @@ def revision(out, record, repo, state, *, ecosystem, root, source, operation, sp
                 terminal.send(answer)
             terminal.wait(lambda: terminal.exited, 180)
         finally:
-            code = terminal.close()
+            code = terminal.close(graceful=False)
             reviews.append({'answer': answer, 'exit_code': code})
             save(terminal.folder / 'result.json', reviews[-1])
         if code != (0 if answer == 'yes' else 130 if answer == 'eof' else 2):
@@ -320,11 +321,13 @@ def wheel_step(argv, out, env, *, cwd=None, timeout=120):
     receipt = {'argv': [str(a) for a in argv], 'passed': False}
     started = time.monotonic()
     try:
-        process = subprocess.run(argv, env=env, cwd=cwd, capture_output=True, timeout=timeout)
+        folder = out.with_suffix('.process')
+        process = capture(argv, folder, env=env, cwd=cwd, timeout=timeout)
         receipt.update(exit_code=process.returncode,
             stdout_sha256=hashlib.sha256(process.stdout).hexdigest(),
             stderr_sha256=hashlib.sha256(process.stderr).hexdigest())
-        # out is under this run's private mkdtemp directory, never the checkout.
+        receipt['probe'] = reference(out.parent, folder / 'process.json')
+        # Preserve the existing diagnostic paths as well as streamed originals.
         out.with_suffix('.stdout').write_bytes(process.stdout)
         out.with_suffix('.stderr').write_bytes(process.stderr)
         if process.returncode:
@@ -333,13 +336,16 @@ def wheel_step(argv, out, env, *, cwd=None, timeout=120):
         return process.stdout.decode()
     except BaseException as exc:
         receipt['error_type'] = type(exc).__name__
-        if isinstance(exc, subprocess.TimeoutExpired):
-            for suffix, output in (('.stdout', exc.stdout), ('.stderr', exc.stderr)):
-                if output is not None:
-                    out.with_suffix(suffix).write_bytes(output)
-                    receipt[suffix[1:] + '_sha256'] = hashlib.sha256(output).hexdigest()
         raise
     finally:
+        folder = out.with_suffix('.process')
+        if (folder / 'process.json').is_file():
+            receipt['probe'] = reference(out.parent, folder / 'process.json')
+            for name in ('stdout', 'stderr'):
+                if (folder / name).is_file():
+                    data = (folder / name).read_bytes()
+                    out.with_suffix('.' + name).write_bytes(data)
+                    receipt[name + '_sha256'] = hashlib.sha256(data).hexdigest()
         receipt['seconds'] = time.monotonic() - started
         save(out, receipt)
 

@@ -89,6 +89,9 @@ The [bounded support matrix and validation status](harness/DEPENDENCY_STATUS.md)
 distinguish these results from final integration acceptance. Manager checks passed
 the source and fresh-wheel journey matrices; final-source integration acceptance,
 complete product readiness and first-setup timing remain separate gates.
+The [acceptance evidence guide](harness/ACCEPTANCE.md) provides the seven-journey
+runner, strict evidence gate and reproduction commands. Full final-source product
+acceptance and public installation remain pending manager validation.
 
 The repository includes experimental policy, authorization, diagnostic and escalation components. See the [architecture](docs/architecture.md), [data availability](docs/evidence.md), [future work](docs/roadmap.md) and [contribution guide](CONTRIBUTING.md).
 

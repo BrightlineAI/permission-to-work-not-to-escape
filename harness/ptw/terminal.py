@@ -85,6 +85,9 @@ def codex_command(store, session_path, work, prompt=None, *, interactive=True, c
     base += ["-C", str(work), "-m", "gpt-5.6-sol", "-a", "never"]
     values = {
         "model_reasoning_effort": '"low"',
+        # The release installer owns the pinned CLI lifecycle. A TUI updater
+        # could replace it using global npm before the protected handshake.
+        "check_for_update_on_startup": "false",
         "model_catalog_json": json.dumps(str(catalog)),
         "project_doc_max_bytes": "0",
         "web_search": '"disabled"',
@@ -149,6 +152,8 @@ def launch(store, session, session_path, run_dir, *, prompt=None, conversation=N
     work = Path(conversation) / 'work' if conversation is not None else run_dir / 'work'
     command = codex_command(store, session_path, work, prompt,
                             conversation=conversation, resume=resume)
+    from .runtime_identity import snapshot
+    save(run_dir / 'launcher-identity.json', snapshot('launcher'))
     # Record only fixed launch options and synthetic paths, never auth or tokens.
     save(run_dir / "launch.json", {"argv": command, "session": session["session"],
                                   "project": session["project"], "started": time.time()})

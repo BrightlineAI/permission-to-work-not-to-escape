@@ -91,7 +91,7 @@ def candidates_after_init(repo, root):
     return candidates(repo, ['src'])
 
 
-def git_journey(root):
+def git_journey(root, *, probe=None):
     """Native confined Git and real operator PTYs, with no model trajectory claim."""
     from ptw.local_git import candidates
     root = Path(root).resolve()
@@ -105,22 +105,41 @@ def git_journey(root):
 
     def check(value, label):
         report['checks'].append({'name': label, 'passed': bool(value)})
+        if probe is not None:
+            probe.check(str(len(report['checks'])) + ': ' + label, True, bool(value))
         if not value:
             raise AssertionError(label)
 
+    git_number = 0
+
     def fixture_git(*args):
-        return subprocess.run(['/usr/bin/git', '-C', str(repo), '-c', 'core.hooksPath=/dev/null',
+        from evidence_io import capture, reference
+        nonlocal git_number
+        git_number += 1
+        folder = root / ('git-process-' + str(git_number))
+        try:
+            result = capture(['/usr/bin/git', '-C', str(repo), '-c', 'core.hooksPath=/dev/null',
             '-c', 'user.name=Fixture', '-c', 'user.email=fixture@localhost', *args],
+            folder,
             env={'PATH': '/usr/bin:/bin', 'HOME': str(root), 'GIT_CONFIG_NOSYSTEM': '1',
-                 'GIT_CONFIG_GLOBAL': '/dev/null'}, capture_output=True, check=True).stdout
+                 'GIT_CONFIG_GLOBAL': '/dev/null'}, cwd=root)
+        finally:
+            if probe is not None and (folder / 'process.json').exists():
+                probe.response('original fixture Git process', reference(probe.evidence, folder / 'process.json'))
+        result.check_returncode()
+        return result.stdout
 
     number = 0
 
     def action(operation, **fields):
         nonlocal number
         number += 1
-        result = Workspace(store).request(actor['token'], 'git-native-' + str(number), request(operation, **fields))
-        save(root / ('request-' + str(number) + '.json'), {'action': operation, 'result': result})
+        req = request(operation, **fields)
+        result = Workspace(store).request(actor['token'], 'git-native-' + str(number), req)
+        receipt = {'request': req, 'result': result}
+        save(root / ('request-' + str(number) + '.json'), receipt)
+        if probe is not None:
+            probe.response('actual confined Git request and response', receipt)
         return result
 
     try:
@@ -143,10 +162,14 @@ def git_journey(root):
         definitions = candidates(repo, ['src'])
         policy['project']['commands'] += definitions
         policy['tasks'][0]['commands'] += [d['id'] for d in definitions]
-        env = {'PTW_USER_STATE': str(root / 'operator')}
+        from product_journey import child_environment
+        env = child_environment(os.environ)
+        env['PTW_USER_STATE'] = str(root / 'operator')
         with patch.dict(os.environ, env):
             directory = private_directory(repo)
         bundle = approve(policy, inv, digest(compile_policy(policy, inv)), 'known synthetic Git fixture operator')
+        if probe is not None:
+            probe.response('explicit fixture policy approval', bundle)
         save(directory / 'approved.json', bundle)
         save(directory / 'project.json', {'repo': str(repo), 'project': 'python-demo',
             'state': str(directory / 'controller'), 'bundle': str(directory / 'approved.json'),
@@ -168,7 +191,8 @@ def git_journey(root):
             result = action('git_checkpoint', resource='git-checkpoint', content=content)
             check(result['allowed'], 'native checkpoint preparation')
             terminal = Terminal([sys.executable, '-B', '-m', 'ptw', 'checkpoint', result['checkpoint'],
-                                 '--repo', str(repo)], root / ('approval' if accepted else 'rejection'), env=env)
+                                 '--repo', str(repo)], root / ('approval' if accepted else 'rejection'),
+                                 env=env, replace_env=True, cwd=root)
             terminals.append(terminal)
             terminal.expect('Type approve ' + result['review_sha256'], 30)
             terminal.send('approve ' + result['review_sha256'] if accepted else 'reject')
@@ -176,7 +200,8 @@ def git_journey(root):
             check(terminal.close() == 0, 'operator terminal exited successfully')
             terminals.remove(terminal)
             phase = load(store.directory / 'git-requests' / result['checkpoint'] / 'state.json')['phase']
-            check(phase == ('published' if accepted else 'rejected'), 'exact operator decision persisted')
+            check(phase == ('published' if accepted else 'rejected'),
+                  ('approved' if accepted else 'rejected') + ' exact operator decision persisted')
             if accepted:
                 published = load(store.directory / 'git-requests' / result['checkpoint'] / 'review.json')
         check(not sentinel.exists(), 'hostile Git configuration did not execute')
@@ -193,6 +218,8 @@ def git_journey(root):
         # stopped projects, not natural completion in a still-open session.
         # Query physical state before cleanup can mask a surviving worker.
         report['git_workers'] = physical_workloads(store, 'python-demo')
+        if probe is not None:
+            probe.response('actual registered Git worker states', report['git_workers'])
         check(bool(report['git_workers']) and all(w['confirmed_stopped'] for w in report['git_workers']),
               'all supervised Git workers terminated before cleanup')
         report['passed'] = True
@@ -202,12 +229,51 @@ def git_journey(root):
         raise
     finally:
         for terminal in terminals:
-            terminal.close()
+            terminal.close(graceful=False)
         if store is not None:
+            if probe is not None:
+                probe.response('original Git controller events', store.audit_events('python-demo'))
             store.stop('python-demo', 'daily Git acceptance cleanup')
             report['termination'] = Supervisor(store).reconcile()
             save(root / 'status.json', store.status('python-demo'))
+            from ptw.monitor import remove
+            remove(store)
         save(root / 'result.json', report)
+
+
+def git_evidence(evidence, source):
+    """Retained local Git proof, separate from the fixed twenty security IDs."""
+    from evidence_io import reference, require
+    from product_security import Probe
+    evidence = Path(evidence)
+    root = evidence / 'git-fixture'
+    require(not root.exists() and not (evidence / 'local-git.json').exists(), 'Use fresh Git evidence')
+    root.mkdir()
+    probe = Probe(evidence, evidence / 'everyday/local-git', 'local-git', source,
+        kind='native-lifecycle', fixture='synthetic local repository and scripted operator PTYs; no model calls')
+    try:
+        git_journey(root, probe=probe)
+        terminals = {}
+        for folder in ('approval', 'rejection'):
+            terminals[folder] = {}
+            for name in ('terminal.txt', 'inputs.json', 'exit.json'):
+                path = root / folder / name
+                require(path.is_file(), 'Missing original Git operator record: ' + folder + '/' + name)
+                ref = reference(evidence, path)
+                terminals[folder][name] = ref
+                probe.response('original operator terminal ' + folder + '/' + name, ref)
+        row = probe.finish()
+        row['operator_terminals'] = terminals
+        save(evidence / 'local-git.json', row)
+        return row
+    except BaseException as exc:
+        # Capture partial operator output too; never replace the failed attempt.
+        for folder in ('approval', 'rejection'):
+            path = root / folder / 'terminal.txt'
+            if path.exists():
+                probe.response('partial operator terminal ' + folder, reference(evidence, path))
+        probe.persist(exc)
+        raise
 
 
 def preview_journey(root):
@@ -815,7 +881,7 @@ def resume_journey(root):
         raise
     finally:
         for terminal in terminals:
-            terminal.close()
+            terminal.close(graceful=False)
         if store is not None:
             store.stop('python-demo', 'daily acceptance cleanup')
             report['termination'] = Supervisor(store).reconcile()

@@ -107,9 +107,15 @@ def remove(store):
 
 
 def serve(directory):
+    from .policy import save
+    from .runtime_identity import snapshot
+    identity_recorded = False
     while True:
         try:
             store = Store(directory)  # Includes recovery of interrupted effects.
+            if not identity_recorded:
+                save(store.directory / 'monitor-identity.json', snapshot('monitor'))
+                identity_recorded = True
             outcomes = Supervisor(store).reconcile()
             error = "termination pending" if any(not r["confirmed_stopped"] for r in outcomes) else ""
             with store.locked() as db:

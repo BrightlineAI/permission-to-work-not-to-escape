@@ -2038,10 +2038,10 @@ class WheelIdentityTests(unittest.TestCase):
         from product_ecosystems_acceptance import wheel_step
         with tempfile.TemporaryDirectory() as temporary:
             out = Path(temporary) / 'step.json'
-            with patch('product_ecosystems_acceptance.subprocess.run', return_value=
-                       SimpleNamespace(returncode=7, stdout=b'private output', stderr=b'private error')):
-                with self.assertRaises(AssertionError):
-                    wheel_step(['fixture'], out, {})
+            script = Path(temporary) / 'fixture.py'
+            script.write_text('import os; os.write(1,b"private output"); os.write(2,b"private error"); exit(7)')
+            with self.assertRaises(AssertionError):
+                wheel_step([sys.executable, '-I', '-B', script], out, {})
             result = load(out)
             self.assertFalse(result['passed'])
             self.assertEqual(result['exit_code'], 7)
@@ -2049,12 +2049,12 @@ class WheelIdentityTests(unittest.TestCase):
             self.assertNotIn('private error', out.read_text())
             self.assertEqual(out.with_suffix('.stderr').read_bytes(), b'private error')
             timeout = Path(temporary) / 'timeout.json'
-            with patch('product_ecosystems_acceptance.subprocess.run',
-                       side_effect=subprocess.TimeoutExpired('fixture', 1)):
-                with self.assertRaises(subprocess.TimeoutExpired):
-                    wheel_step(['fixture'], timeout, {}, timeout=1)
+            with self.assertRaises(subprocess.TimeoutExpired):
+                wheel_step([sys.executable, '-I', '-B', '-c',
+                    'import os,time; os.write(2,b"partial timeout output"); time.sleep(60)'], timeout, {}, timeout=.5)
             self.assertFalse(load(timeout)['passed'])
             self.assertEqual(load(timeout)['error_type'], 'TimeoutExpired')
+            self.assertEqual(timeout.with_suffix('.stderr').read_bytes(), b'partial timeout output')
 
     def test_installed_identity_rejects_source_editable_and_changed_bytes(self):
         sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))

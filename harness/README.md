@@ -200,6 +200,11 @@ verification and native-install phases, including synthetic terminal children.
 The existing runner, order, assertions, confinement and deadlines remain in force.
 No arguments, payloads, output or exception messages enter these timing records.
 
+The same full discovery now retains a separate [native suite receipt](ACCEPTANCE.md)
+with the original runner log and exact test inventory. Keep those private logs and
+the source-test environment for independent verification. Focused receipts, old
+source receipts and incomplete attempts cannot satisfy full product acceptance.
+
 Timings are inclusive and nested, so do not add phase durations to test durations.
 CPU counters are cumulative user/system totals for the process and its waited-for
 children; subtract corresponding start/end counters. Detached systemd services and

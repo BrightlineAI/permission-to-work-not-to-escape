@@ -239,4 +239,6 @@ if __name__ == "__main__":
     args = parser.parse_args()
     if args.bridge:
         raise SystemExit(bridge(args.state, args.session))
+    from .runtime_identity import snapshot
+    save(Path(args.session).parent / 'broker-identity.json', snapshot('broker'))
     server(Adapter(args.state, args.session)).run(transport="stdio")

@@ -8,10 +8,10 @@ import argparse
 import json
 import os
 from pathlib import Path
-import subprocess
 import time
 
 from product_install import require, safe_path, sha, verify
+from evidence_io import capture, reference
 
 
 def main():
@@ -40,11 +40,11 @@ def main():
         report["bootstrap_sha256"] = sha(args.bootstrap.read_bytes())
         report["artifact_sha256"] = sha(args.artifact.read_bytes())
         started = time.monotonic()
-        install = subprocess.run(["bash", str(args.bootstrap.resolve()), "--artifact", str(args.artifact.resolve()),
+        install = capture(["bash", str(args.bootstrap.resolve()), "--artifact", str(args.artifact.resolve()),
             "--sha256", args.sha256, "--root", str(root), "--bin-dir", str(commands)], env=env,
-            capture_output=True, timeout=600)
+            folder=out / 'installer', cwd=out, timeout=600)
         report["installer"] = {"exit_code": install.returncode, "seconds": time.monotonic() - started,
-                               "stdout_sha256": sha(install.stdout), "stderr_sha256": sha(install.stderr)}
+                               "probe": reference(out, out / 'installer/process.json')}
         require(install.returncode == 0, "Real cold installation failed; attempt retained")
         state = json.loads((root / "state.json").read_text())
         installed = root / "releases" / state["active"]
@@ -53,18 +53,19 @@ def main():
         env["PTW_NONO"] = str(installed / "bin/nono")
         python = installed / "venv/bin/python"
         probe = "import json,pathlib,ptw,hashlib; p=pathlib.Path(ptw.__file__).parent; print(json.dumps({'path':str(p),'hashes':{f.name:hashlib.sha256(f.read_bytes()).hexdigest() for f in p.glob('*.py')}}))"
-        identity = subprocess.run([python, "-I", "-B", "-c", probe], env=env, capture_output=True, text=True, check=True)
+        identity = capture([python, "-I", "-B", "-c", probe], out / 'identity', env=env, cwd=out)
+        require(identity.returncode == 0, 'Installed identity failed; inspect private probe')
         report["installed_source"] = json.loads(identity.stdout)
         require(Path(report["installed_source"]["path"]).is_relative_to(installed), "Imported source is not installed")
         require(report["installed_source"]["hashes"] == {Path(n).name: h for n, h in report["source_sha256"].items()},
                 "Installed source differs from this acceptance checkout")
         scripts = Path(__file__).resolve().parent
         driver = "import sys; sys.path.insert(0,sys.argv.pop(1)); import interactive_acceptance; interactive_acceptance.main()"
-        result = subprocess.run([python, "-I", "-B", "-c", driver, str(scripts), "--out", str(out / "journey"),
+        result = capture([python, "-I", "-B", "-c", driver, str(scripts), "--out", str(out / "journey"),
             "--ptw", str(commands / "ptw"), "--language", args.language, "--journey-start", str(started),
-            *(["--existing"] if args.existing else [])], env=env, capture_output=True, timeout=1000)
-        report["journey_process"] = {"exit_code": result.returncode, "stdout_sha256": sha(result.stdout),
-                                     "stderr_sha256": sha(result.stderr)}
+            *(["--existing"] if args.existing else [])], out / 'journey-process', env=env, cwd=out, timeout=1000)
+        report["journey_process"] = {"exit_code": result.returncode,
+                                     "probe": reference(out, out / 'journey-process/process.json')}
         require(result.returncode == 0, "Native setup/action journey failed; inspect retained private journey")
         journey = json.loads((out / "journey/result.json").read_text())
         report["timing"] = journey["timing"]

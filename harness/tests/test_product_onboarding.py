@@ -859,10 +859,13 @@ class TimingDriverTests(unittest.TestCase):
             artifact.write_bytes(b"synthetic unused artifact")
             def failed(*args, **kwargs):
                 time.sleep(.02)
-                return subprocess.CompletedProcess(args[0], 2, b"SYNTHETIC_PRIVATE_OUTPUT", b"failed")
+                return native_journey_capture([sys.executable, "-I", "-c",
+                    "import sys; print('SYNTHETIC_PRIVATE_OUTPUT'); print('failed', file=sys.stderr); sys.exit(2)"],
+                    **kwargs)
+            native_journey_capture = native_journey.capture
             with patch.object(sys, "argv", ["driver", "--out", str(out), "--bootstrap", str(bootstrap),
                     "--artifact", str(artifact), "--sha256", "0" * 64]), \
-                    patch.object(native_journey.subprocess, "run", side_effect=failed) as run, \
+                    patch.object(native_journey, "capture", side_effect=failed) as run, \
                     self.assertRaisesRegex(Exception, "cold installation failed"):
                 native_journey.main()
             self.assertEqual(run.call_count, 1)
@@ -871,6 +874,13 @@ class TimingDriverTests(unittest.TestCase):
             self.assertGreaterEqual(report["installer"]["seconds"], .02)
             self.assertGreaterEqual(report["full_attempt_seconds"], report["installer"]["seconds"])
             self.assertNotIn("SYNTHETIC_PRIVATE_OUTPUT", (out / "result.json").read_text())
+            from evidence_io import artifact as checked_artifact
+            receipt = load(checked_artifact(out, report["installer"]["probe"]))
+            self.assertEqual(receipt["exit_code"], 2)
+            self.assertTrue(receipt["complete"])
+            self.assertEqual(checked_artifact(out / "installer", receipt["stdout"]).read_bytes(),
+                             b"SYNTHETIC_PRIVATE_OUTPUT\n")
+            self.assertEqual(checked_artifact(out / "installer", receipt["stderr"]).read_bytes(), b"failed\n")
             self.assertTrue(report["source_sha256"])
 
     def test_installed_source_mismatch_blocks_live_journey(self):
@@ -880,17 +890,21 @@ class TimingDriverTests(unittest.TestCase):
             bootstrap.write_text("unused fixture")
             artifact.write_bytes(b"unused fixture")
             calls = []
-            def run(argv, **kwargs):
+            native_journey_capture = native_journey.capture
+            def run(argv, *args, **kwargs):
                 calls.append(argv)
                 if len(calls) == 1:
                     installed = out / "installation/releases/fixture"
                     installed.mkdir(parents=True)
                     save(out / "installation/state.json", {"active": "fixture", "releases": {"fixture": {"receipt": {}}}})
-                    return subprocess.CompletedProcess(argv, 0, b"fixture", b"")
-                return subprocess.CompletedProcess(argv, 0, json.dumps({"path": str(out / "installation/releases/fixture/ptw"), "hashes": {}}), "")
+                    output = "fixture"
+                else:
+                    output = json.dumps({"path": str(out / "installation/releases/fixture/ptw"), "hashes": {}})
+                return native_journey_capture([sys.executable, "-I", "-c", "import sys; print(sys.argv[1])", output],
+                                              *args, **kwargs)
             with patch.object(sys, "argv", ["driver", "--out", str(out), "--bootstrap", str(bootstrap),
                     "--artifact", str(artifact), "--sha256", "0" * 64]), \
-                    patch.object(native_journey.subprocess, "run", side_effect=run), \
+                    patch.object(native_journey, "capture", side_effect=run), \
                     patch.object(native_journey, "verify"), self.assertRaisesRegex(Exception, "source differs"):
                 native_journey.main()
             self.assertEqual(len(calls), 2)

@@ -11,6 +11,7 @@ import json
 import os
 from pathlib import Path
 import resource
+import sys
 import tempfile
 import time
 import unittest
@@ -163,6 +164,11 @@ def enable():
     global _enabled
     if _enabled or os.environ.get('PTW_LINUX_TESTS') != '1':
         return
+    scripts = str(Path(__file__).resolve().parents[1] / 'scripts')
+    if scripts not in sys.path:
+        sys.path.insert(0, scripts)
+    from native_receipt import enable as enable_receipts
+    enable_receipts()
     _enabled = True
     original = unittest.TestSuite.run
 

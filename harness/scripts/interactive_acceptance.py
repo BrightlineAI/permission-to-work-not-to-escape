@@ -7,6 +7,7 @@ no mock model is used. Raw terminal recordings stay private in --out.
 import argparse
 import hashlib
 import json
+import os
 from pathlib import Path
 import shutil
 import time
@@ -63,11 +64,13 @@ def main():
         raise ValueError("Journey start must precede setup")
     records, timing = [], {"profile": "cold-install-first-setup" if args.journey_start is not None else "already-installed-first-setup"}
     terminal = None
+    terminal_env = {k: v for k, v in os.environ.items() if k not in ('PYTHONPATH', 'PYTHONHOME')}
+    terminal_env['PTW_USER_STATE'] = str(state_base)
     original = {str(p.relative_to(repo)): hashlib.sha256(p.read_bytes()).hexdigest()
                 for p in repo.rglob("*") if p.is_file() and p.parts[-2] in ("tests", "private")}
     try:
         terminal = Terminal([args.ptw, "codex", "--repo", str(repo)], args.out / "terminal-1",
-                            env={"PTW_USER_STATE": str(state_base)})
+                            env=terminal_env, replace_env=True, cwd=args.out)
         if not args.existing:
             terminal.expect("Language (python/javascript/typescript)")
             terminal.send(args.language)
@@ -164,7 +167,7 @@ def main():
         terminal = None
         # Same documented command reuses scope and counts, without another review.
         terminal = Terminal([args.ptw, "codex", "--repo", str(repo)], args.out / "terminal-2",
-                            env={"PTW_USER_STATE": str(state_base)})
+                            env=terminal_env, replace_env=True, cwd=args.out)
         terminal.expect("OpenAI Codex", 30)
         terminal.wait(lambda: protected_connection(directory, store, project), 30, "new protected MCP handshake")
         terminal.quiet(timeout=40)
@@ -189,7 +192,7 @@ def main():
         raise
     finally:
         if terminal:
-            terminal.close()
+            terminal.close(graceful=False)
 
 
 if __name__ == "__main__":

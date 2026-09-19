@@ -261,21 +261,33 @@ class DiagnosticTimingTests(unittest.TestCase):
         self.assertTrue(any(e['kind'] == 'phase' and e.get('outcome') == 'completed' for e in events))
 
     def test_native_discovery_hook_keeps_runner_and_records_source(self):
-        script = ('import os, sys, unittest\n'
+        script = ('import io, os, sys, unittest\n'
                   'sys.path.insert(0, ' + repr(str(Path(__file__).parent)) + ')\n'
                   'from regression_timing import enable\n'
                   'os.environ["PTW_LINUX_TESTS"] = "1"\n'
                   'enable()\nenable()\n'
+                  'class Nested(unittest.TestCase):\n'
+                  '    def runTest(self): pass\n'
                   'class Fixture(unittest.TestCase):\n'
-                  '    def test_ok(self): pass\n'
+                  '    def test_ok(self):\n'
+                  '        result = unittest.TextTestRunner(stream=io.StringIO()).run(unittest.TestSuite([Nested()]))\n'
+                  '        assert result.wasSuccessful()\n'
                   'suite = unittest.defaultTestLoader.loadTestsFromTestCase(Fixture)\n'
                   'result = unittest.TextTestRunner().run(suite)\n'
                   'assert result.wasSuccessful() and result.testsRun == 1\n')
-        env = dict(os.environ, TMPDIR=str(self.directory))
+        env = dict(os.environ, TMPDIR=str(self.directory), XDG_STATE_HOME=str(self.directory / 'state'))
         result = subprocess.run([sys.executable, '-B', '-c', script], env=env,
                                 capture_output=True, text=True, timeout=10)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.count('REGRESSION_TIMING_EVIDENCE '), 1)
+        self.assertEqual(result.stdout.count('NATIVE_SUITE_EVIDENCE '), 1)
+        receipts = list((self.directory / 'state').rglob('complete.json'))
+        self.assertEqual(len(receipts), 1)
+        receipt = json.loads(receipts[0].read_text())
+        self.assertTrue(receipt['passed'])
+        self.assertEqual(receipt['tests_run'], 1)
+        self.assertEqual(receipt['inventory'], ['__main__.Fixture.test_ok'])
+        self.assertEqual((receipts[0].parent / 'unittest.log').read_text(), result.stderr)
         directories = list(self.directory.glob('ptw-regression-timing-*'))
         self.assertEqual(len(directories), 1)
         hashes = json.loads((directories[0] / 'source.json').read_text())

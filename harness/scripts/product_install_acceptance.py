@@ -18,13 +18,23 @@ import time
 
 from build_product_release import REPO, build, source_files
 from product_install import require, safe_path, sha, verify
+from evidence_io import capture, reference, save as save_record
 
 
-def terminal_output(argv, env, cwd, timeout=30, expected=0):
+def terminal_output(argv, env, cwd, timeout=30, expected=0, *, evidence=None):
     """Bounded real PTY; never leave a fixture shell or its children on failure."""
     master, slave = pty.openpty()
     process = None
     transcript = bytearray()
+    started = time.monotonic()
+    receipt = {'argv': [str(arg) for arg in argv], 'complete': False,
+               'started_epoch': time.time(), 'expected_exit': expected}
+    log = None
+    if evidence is not None:
+        evidence = Path(evidence)
+        evidence.mkdir(mode=0o700, parents=True, exist_ok=False)
+        save_record(evidence / 'process.json', receipt)
+        log = (evidence / 'terminal.txt').open('xb')
     try:
         process = subprocess.Popen(argv, env=env, cwd=cwd, stdin=slave, stdout=slave,
                                    stderr=slave, start_new_session=True)
@@ -42,12 +52,20 @@ def terminal_output(argv, env, cwd, timeout=30, expected=0):
                 if not data:
                     break
                 transcript.extend(data)
+                if log is not None:
+                    log.write(data)
+                    log.flush()
                 require(len(transcript) <= 1024 * 1024, "Terminal output limit exceeded")
             elif process.poll() is not None:
                 break
         remaining = max(.001, deadline - time.monotonic())
-        require(process.wait(timeout=remaining) == expected, "Fresh terminal command failed")
+        code = process.wait(timeout=remaining)
+        receipt.update(exit_code=code, complete=True)
+        require(code == expected, "Fresh terminal command failed")
         return bytes(transcript)
+    except BaseException as exc:
+        receipt['error_type'] = type(exc).__name__
+        raise
     finally:
         if process is not None:
             with contextlib.suppress(ProcessLookupError):
@@ -56,6 +74,12 @@ def terminal_output(argv, env, cwd, timeout=30, expected=0):
         os.close(master)
         if slave is not None:
             os.close(slave)
+        if log is not None:
+            log.close()
+            receipt.update(exit_code=process.returncode if process is not None else None,
+                           seconds=time.monotonic() - started, ended_epoch=time.time(),
+                           transcript=reference(evidence, evidence / 'terminal.txt'))
+            save_record(evidence / 'process.json', receipt)
 
 
 def terminal_environment(home, environment):
@@ -79,7 +103,7 @@ def source_identity_command(installed):
     return [installed / "venv/bin/python", "-I", "-B", "-c", probe]
 
 
-def acceptance(out):
+def acceptance(out, *, candidate=None):
     out = safe_path(out)
     require(REPO != out and REPO not in out.parents, "Evidence must be outside the checkout")
     out.mkdir(parents=True, exist_ok=False)
@@ -97,6 +121,7 @@ def acceptance(out):
                         ("source.py", "print('project unchanged')\n")):
         (sentinel / name).write_text(value)
     sentinels = {str(path): sha(path.read_bytes()) for path in sentinel.iterdir()}
+    result['project_before_sha256'] = sentinels
     unrelated_file = out / "unrelated.txt"
     unrelated_file.write_text("unrelated file")
     unrelated = subprocess.Popen(["sleep", "1200"], env=env, cwd=out)
@@ -110,21 +135,32 @@ def acceptance(out):
         records.append(record)
         started = time.monotonic()
         try:
-            process = subprocess.run(record["argv"], env=environment, cwd=out, capture_output=True, text=True, timeout=timeout)
+            folder = out / 'probes' / label
+            process = capture(record["argv"], folder, env=environment, cwd=out, timeout=timeout)
+            record['probe'] = reference(out, folder / 'process.json')
+            stdout, stderr = process.stdout.decode(errors='replace'), process.stderr.decode(errors='replace')
             record.update(exit_code=process.returncode, seconds=round(time.monotonic() - started, 3),
-                          stdout_sha256=sha(process.stdout.encode()), stderr_sha256=sha(process.stderr.encode()))
-            # Retain hashes and exit status, not potentially credential-bearing native output.
+                          stdout=reference(out, folder / 'stdout'), stderr=reference(out, folder / 'stderr'))
+            record['preservation'] = {
+                'project': {name: sha(Path(name).read_bytes()) for name in sentinels},
+                'unrelated_file': unrelated_file.read_text(), 'unrelated_job_alive': unrelated.poll() is None}
+            state_path = root / 'state.json'
+            record['installation_state'] = json.loads(state_path.read_text()) if state_path.exists() else None
+            require(record['preservation'] == {'project': sentinels, 'unrelated_file': 'unrelated file',
+                    'unrelated_job_alive': True}, label + ' changed unrelated data/work')
             require(process.returncode == expected, label + " failed; see phase exit status")
-            require(contains is None or contains in process.stdout + process.stderr,
+            require(contains is None or contains in stdout + stderr,
                     label + " failed for an unexpected reason")
             if contains:
                 record["required_diagnostic"] = contains
             record["passed"] = True
-            return process.stdout
+            return stdout
         except BaseException as exc:
             record.update(passed=False, error=type(exc).__name__, seconds=round(time.monotonic() - started, 3))
             raise
         finally:
+            if (out / 'probes' / label / 'process.json').is_file():
+                record['probe'] = reference(out, out / 'probes' / label / 'process.json')
             save()
 
     try:
@@ -132,13 +168,21 @@ def acceptance(out):
         build_record = {"phase": "build", "passed": False}
         records.append(build_record)
         try:
-            release = build(out / "release")
+            if candidate is None:
+                release = build(out / "release")
+                artifact = out / "release" / release["archive"]
+                entry = out / "release/install.sh"
+            else:
+                project, sources = source_files(REPO)
+                release = {'manifest': {'version': project['version'],
+                    'source_sha256': {n: sha(data) for n, data in sources.items()}},
+                    'candidate': candidate}
+                artifact, entry = Path(candidate['artifact']), Path(candidate['bootstrap'])
+                require(sha(artifact.read_bytes()) == candidate['sha256'], 'Candidate changed')
             build_record.update(passed=True, seconds=round(time.monotonic() - started, 3))
         finally:
             save()
         result["release"] = release
-        artifact = out / "release" / release["archive"]
-        entry = out / "release/install.sh"
 
         class Handler(http.server.BaseHTTPRequestHandler):
             def log_message(self, *args):
@@ -200,7 +244,8 @@ def acceptance(out):
                     startup_dir.mkdir()
                     terminal_env["ZDOTDIR"] = str(startup_dir)
                 if shell == "fish":
-                    terminal_output([executable, "-ic", integration_line(guidance, "fish_add_path ")], terminal_env, out)
+                    terminal_output([executable, "-ic", integration_line(guidance, "fish_add_path ")], terminal_env, out,
+                                    evidence=out / 'probes/fish-integration')
                     startup = home / ".config/fish/fish_variables"
                 else:
                     startup = startup_dir / profile
@@ -209,13 +254,17 @@ def acceptance(out):
                 terminal_record["startup_sha256"] = sha(startup.read_bytes())
                 # command -v works in all three shells and identifies both launchers.
                 transcript = terminal_output([executable, flags,
-                    "command -v ptw; command -v ptw-install; ptw --version && ptw-install status"], terminal_env, out)
+                    "command -v ptw; command -v ptw-install; ptw --version && ptw-install status"], terminal_env, out,
+                    evidence=out / 'probes' / terminal_record['phase'])
                 require(all(value.encode() in transcript for value in (
                     str(commands / "ptw"), str(commands / "ptw-install"), release["manifest"]["version"], first)),
                     "Fresh terminal resolved unexpected commands")
                 verify(installed, state["releases"][first]["receipt"])
                 terminal_record.update(passed=True, transcript_sha256=sha(transcript))
             finally:
+                probe = out / 'probes' / terminal_record['phase'] / 'process.json'
+                if probe.is_file():
+                    terminal_record['probe'] = reference(out, probe)
                 save()
 
         call("same-version-retry", [*base, "--artifact", artifact])
@@ -260,6 +309,8 @@ def acceptance(out):
         require(all(sha(Path(name).read_bytes()) == digest for name, digest in sentinels.items()), "Project files changed")
         require(unrelated_file.read_text() == "unrelated file" and unrelated.poll() is None, "Unrelated work changed")
         require(not any((commands / name).exists() for name in ("ptw", "ptw-codex", "ptw-install")), "Owned launchers remain")
+        result['uninstall_effects'] = {'unowned_note': str(extra), 'unowned_note_sha256': sha(extra.read_bytes()),
+            'owned_launchers': {name: (commands / name).exists() for name in ('ptw', 'ptw-codex', 'ptw-install')}}
         result.update(passed=True, project_hashes_preserved=sentinels, unrelated_job_survived=True,
                       unowned_installation_file_retained=True, full_first_setup_target_measured=False)
     except BaseException as exc:

@@ -140,7 +140,7 @@ def main():
         raise
     finally:
         for terminal in terminals:
-            terminal.close()
+            terminal.close(graceful=False)
 
 
 if __name__ == "__main__":
