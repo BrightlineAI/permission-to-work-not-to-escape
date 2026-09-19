@@ -3,6 +3,7 @@
 Offline records below are synthetic verifier inputs, never demonstration evidence.
 """
 import copy
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -22,6 +23,66 @@ from evidence_io import load, save, reference
 
 
 class DemoOfflineTests(unittest.TestCase):
+    def test_curated_sample_preserves_provenance_privacy_and_historical_limits(self):
+        # Frozen measured artifact, not a fabricated input or fresh acceptance.
+        from ptw.policy import digest
+        path = SCRIPTS.parent / 'validation/demo-20260919/public-sample.json'
+        raw = path.read_bytes()
+        self.assertEqual(hashlib.sha256(raw).hexdigest(),
+                         'e5c44db3c6857a2a624183c2874fbeb9e6e7b8870317834ec557313100103b80')
+        sample = json.loads(raw)
+        self.assertEqual(set(sample), {'payload', 'original_result_sha256', 'public_payload_sha256'})
+        self.assertEqual(sample['original_result_sha256'],
+                         '8cdc70cb8c3163a13a9867e5b4f50e5bd77d8d97669b8ef5adfd256c930299e5')
+        payload = sample['payload']
+        self.assertEqual(digest(payload), sample['public_payload_sha256'])
+        self.assertEqual(set(payload), {'schema', 'label', 'use', 'incident_source', 'substitutions',
+            'runtime_sha256', 'installed_runtime_sha256', 'distribution_inputs_sha256',
+            'maintained_source_fingerprint', 'policy_sha256', 'observations', 'claim_sources', 'unmeasured'})
+        self.assertEqual(payload['use'], 'historical sanitized sample; not fresh acceptance')
+        self.assertEqual(payload['label'], demo.LABEL)
+        self.assertEqual(payload['incident_source'], demo.INCIDENT)
+        self.assertEqual(payload['runtime_sha256'], payload['installed_runtime_sha256'])
+        for hashes in (payload['runtime_sha256'], payload['distribution_inputs_sha256']):
+            self.assertTrue(hashes)
+            for name, sha in hashes.items():
+                self.assertFalse(Path(name).is_absolute())
+                self.assertNotIn('..', Path(name).parts)
+                self.assertRegex(sha, r'^[0-9a-f]{64}$')
+        self.assertEqual(len(payload['claim_sources']), 9)
+        for refs in payload['claim_sources'].values():
+            self.assertTrue(refs)
+            for ref in refs:
+                self.assertEqual(set(ref), {'path', 'original_sha256'})
+                self.assertFalse(Path(ref['path']).is_absolute())
+                self.assertNotIn('..', Path(ref['path']).parts)
+                self.assertRegex(ref['original_sha256'], r'^[0-9a-f]{64}$')
+        for private in ('/home/', '/tmp/', 'token', 'session_meta', 'direct_url',
+                        'Authorization', 'Bearer ', 'ptw-demo-installed-'):
+            self.assertNotIn(private, raw.decode())
+        observations = payload['observations']
+        self.assertEqual(observations['report'], demo.expected_report())
+        self.assertEqual(observations['collector_publications'], 0)
+        self.assertEqual(observations['controller_counts'], [1, 1, 1, 2, 2, 3, 3, 3, 3])
+        self.assertEqual(observations['registered_descendants_stopped'], 3)
+        self.assertTrue(observations['unrelated_project_survived'])
+        timing = observations['timing']
+        self.assertEqual(timing['pairs'], 3)
+        self.assertEqual(timing['model_calls'], 0)
+        self.assertIsNone(timing['model_seconds'])
+        self.assertIsNone(timing['semantic_seconds'])
+        for metric in timing['seconds'].values():
+            for distribution in metric.values():
+                self.assertEqual(distribution, demo.distribution(distribution['samples']))
+            self.assertEqual(metric['vega_minus_sandbox']['samples'],
+                             [v - s for s, v in zip(metric['sandbox']['samples'], metric['vega']['samples'])])
+        self.assertEqual(set(payload['unmeasured']), {'spontaneous model behavior',
+            'human comprehension and sharing', 'generic remote publication with networking allowed',
+            'remote job cancellation', 'unregistered tools', 'live-agent performance'})
+        # A frozen public sample must never be mistaken for the complete private run.
+        with self.assertRaises(FileNotFoundError):
+            demo.verify(path.parent)
+
     def test_bounded_command_preserves_payload_and_rejects_extra_mounts(self):
         from ptw.package_build import bounded_command, WRAPPER
         from ptw.package_evidence import EvidenceError

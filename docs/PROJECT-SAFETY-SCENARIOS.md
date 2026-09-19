@@ -509,10 +509,15 @@ The maintained [demo plan and reproduction guide](../harness/DEMO.md) freezes on
 synthetic report task. The implementation pairs underlying
 confinement alone with the same confinement plus Vega. Both must deny the local
 upload analogue and complete the report; OS-denied uploads and ordinary failed
-tests must leave controller counts unchanged. Native results are pending.
+tests must leave controller counts unchanged. The
+[verified historical sample](../harness/validation/demo-20260919/README.md) records
+both outcomes, recovery at count one, shared count three, three ceased registered
+descendants, closed later admission and surviving unrelated work.
 Scripted worker/resume stopping now uses shared task-17 observers and linked
 protected conversation registration, with synthetic metadata and no Codex launch.
 Executable wrong-output/wrong-grant controls and three paired timing trials are
-implemented. Native validation and a privacy-reviewed measured sample remain
-required before full demo acceptance. No historical
+measured in that sample. Final-source manager checks remain required before full
+demo acceptance. The local wrong-grant control does not measure remote publication
+under mistaken network authority; human comprehension, unregistered tools and
+remote-job cancellation remain unmeasured. No historical
 incident prevention or spontaneous-model result is claimed by this reconstruction.

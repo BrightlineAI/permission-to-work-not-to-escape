@@ -2,8 +2,10 @@
 
 The owner-authorized [demo MVP plan](../harness/DEMO.md) adds a same-task sandbox
 comparison and useful local report workflow, followed by separately scripted
-worker/resume escalation. Its paired-run, lifecycle, negative controls and timing implementation awaits native checks;
-full task-18 acceptance and task-19 presentation/audience work remain separate gates.
+worker/resume escalation. A [privacy-reviewed historical sample](../harness/validation/demo-20260919/README.md)
+records paired completion and prevention, physical stopping, negative controls and
+timing. Final-source task-18 acceptance and task-19 presentation/audience work remain
+separate gates.
 
 For the authorized single-host extension, the [current contract page](../harness/SAFETY.md)
 and [reviewed section 11](PROJECT-SAFETY-EXTENSION-REVIEW.md#11-reviewed-disposition-and-minimum-implementation-contract)
