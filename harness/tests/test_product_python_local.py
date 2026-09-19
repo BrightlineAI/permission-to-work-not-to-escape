@@ -4283,7 +4283,8 @@ shutil.copyfile(root / 'uv.lock', '/target/fixture.lock')
             receipt = install_editable(store, actor['token'], 'local')
         snapshot = scan(self.inv, self.resources)
         for mutate in (False, True):
-            def run(store, token, argv, target, *, binding):
+            def run(store, token, argv, target, *, binding, command_result):
+                self.assertEqual(command_result, command)
                 self.assertEqual(binding['package_sets'], [receipt['package_set']])
                 self.assertEqual(binding['definition'], command)
                 self.assertEqual(binding['snapshot'], snapshot)

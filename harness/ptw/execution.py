@@ -13,24 +13,6 @@ from .supervisor import runtime_namespace
 from .workspace import MAX_ENTRIES, MAX_FILE, MAX_TREE, materialize, scan
 
 RECEIPT = ".ptw-command-result.json"
-WRAPPER = r"""
-import json,os,subprocess,sys,tempfile
-os.chdir('/target' + ('/' + sys.argv[2] if sys.argv[2] else ''))
-with tempfile.TemporaryFile() as output:
-    try:
-        result=subprocess.run(sys.argv[3:],stdin=subprocess.DEVNULL,stdout=output,
-                              stderr=subprocess.STDOUT,timeout=int(sys.argv[1]))
-        code=result.returncode
-    except subprocess.TimeoutExpired:
-        code=124
-    output.seek(0,2)
-    size=output.tell()
-    output.seek(max(0,size-32768))
-    tail=output.read().decode('utf-8','replace')
-# Untrusted command output is not a completion claim or authorization.
-with open('/target/.ptw-command-result.json','w') as handle:
-    json.dump(dict(exit_code=code,output=tail,output_truncated=size>32768),handle)
-"""
 
 
 def prepare_command(store, token, definition, before, settings, temporary, *, binding=None):
@@ -91,7 +73,7 @@ def prepare_command(store, token, definition, before, settings, temporary, *, bi
     materialize(editable_artifacts, target)
     command = runtime_namespace() + ["--bind", str(target), "/target",
                                     "--ro-bind", str(Path(nono).resolve()), "/nono"]
-    permissions = ["/nono", "run", "--sandbox-policy", "landlock", "--block-net",
+    permissions = ["/nono", "run", "--silent", "--sandbox-policy", "landlock", "--block-net",
                    "--allow", "/target", "--allow", "/tmp", "--no-rollback", "--no-audit", "--no-diagnostics"]
     environment = ["PYTHONDONTWRITEBYTECODE=1", "PYTHONNOUSERSITE=1"]
     for ecosystem, mount in mounts.items():
@@ -133,10 +115,7 @@ def prepare_command(store, token, definition, before, settings, temporary, *, bi
             command += ["--symlink", "/node-packages/node_modules", "/node_modules"]
             environment += ["NODE_PATH=/node-packages/node_modules",
                             "PATH=/node-packages/node_modules/.bin:/usr/bin:/bin"]
-    command += ["--", *permissions, "--", "/usr/bin/env", *environment,
-                "/usr/bin/python3", "-I", "-S", "-c", WRAPPER, str(definition["timeout_seconds"]),
-                definition.get('cwd', ''),
-                *definition["argv"]]
+    command += ["--", *permissions, "--", "/usr/bin/env", *environment, *definition["argv"]]
     return target, command, editable_artifacts
 
 
@@ -145,7 +124,7 @@ def execute(store, token, definition, before, settings, *, binding=None):
     with tempfile.TemporaryDirectory(prefix="workspace-", dir=store.directory) as temporary:
         target, command, editable_artifacts = prepare_command(store, token, definition, before, settings, temporary, binding=binding)
         try:
-            run_build(store, token, command, target, binding=binding)
+            run_build(store, token, command, target, binding=binding, command_result=definition)
         except UnsafeExport as exc:
             raise OutsideScope("Command attempted unsafe output: " + str(exc)) from exc
         except EvidenceError as exc:

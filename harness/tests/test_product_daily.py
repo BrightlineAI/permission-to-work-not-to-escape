@@ -835,8 +835,10 @@ class LocalGitTests(LocalGitFixture):
         self.assertTrue(result['allowed'], result)
         self.assertEqual(result['staged'][0]['new_mode'], '100755')
         self.assertTrue(result['working'][0]['binary'])
-        published = self.publish(self.checkpoint())
-        self.assertEqual(self.git('show', published['ref'] + ':src/calculator.py'), b'binary\0value')
+        prepared = self.checkpoint()
+        with self.assertRaisesRegex(Invalid, 'incomplete'):
+            self.publish(prepared)
+        self.assertFalse((self.repo / '.git/refs/ptw/checkpoints' / prepared['checkpoint']).exists())
 
     def test_packed_objects_refs_and_request_replay(self):
         self.git('gc', '--prune=now')

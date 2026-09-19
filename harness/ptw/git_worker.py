@@ -13,6 +13,7 @@ import tempfile
 
 LIMIT = 8 * 1024 * 1024
 OUTPUT_LIMIT = 2 * 1024 * 1024
+CONTEXT_LIMIT = 256 * 1024
 
 
 def git(root, *args, data=None):
@@ -93,6 +94,28 @@ def delta(root, path, before, after, current=None):
     return result
 
 
+def context(root, tree, resources):
+    """Only scoped blobs are opened. Opaque entries remain bound by tree ID."""
+    files, gaps, used = {}, [], 0
+    for path, (mode, identity) in entries(root,
+            ['ls-tree', '-r', '-z', tree, '--', *[r['path'] for r in resources]], resources).items():
+        value = git(root, 'cat-file', 'blob', identity)
+        item = {'mode': mode, 'sha256': hashlib.sha256(value).hexdigest()}
+        try:
+            if b'\0' in value:
+                raise UnicodeError()
+            text = value.decode('utf-8')
+            if used + len(value) > CONTEXT_LIMIT:
+                gaps.append({'path': path, 'reason': 'oversized'})
+            else:
+                item['text'] = text
+                used += len(value)
+        except UnicodeError:
+            gaps.append({'path': path, 'reason': 'binary'})
+        files[path] = item
+    return {'tree': tree, 'files': files, 'gaps': gaps}
+
+
 def work(root):
     info = json.loads((root / 'request.json').read_text())
     resources, base = info['resources'], info['base']
@@ -132,6 +155,7 @@ def work(root):
             rows.append((mode + ' ' + identity + '\t' + path).encode() + b'\0')
         git(root, 'update-index', '-z', '--index-info', data=b''.join(rows))
         tree = git(root, 'write-tree').decode().strip()
+        result['candidate'] = context(root, tree, resources)
         result['commit'] = git(root, 'commit-tree', tree, *(['-p', base] if base else []),
                                data=(info['message'] + '\n').encode()).decode().strip()
         result['objects'] = sorted(str(p.relative_to(objects)) for p in objects.glob('*/*')

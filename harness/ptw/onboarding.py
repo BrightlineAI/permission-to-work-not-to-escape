@@ -183,6 +183,8 @@ def review_text(bundle):
                          '; localhost HTTP GET only; 768 MiB RAM, 100% CPU, 128 tasks; snapshot, no publication')
         if 'git' in command:
             lines.append('    Local Git: scoped status/diff; checkpoint refs require a separate exact operator review; branch and index preserved')
+            if 'review' in command['git']:
+                lines.append('    Assembled review requirements: ' + json.dumps(command['git']['review']))
     granted = {g["resource"] for g in policy["project"]["grants"]}
     lines.append("Denied: " + ", ".join(r["path"] for k, r in inv["resources"].items() if k not in granted))
     levels = policy["project"]["escalation"]
@@ -298,7 +300,8 @@ def setup(repo, directory, args, previous=None):
         result.extend(preview_candidates(scope, metadata, python, args))
         if getattr(args, 'git', False):
             from .local_git import candidates as git_candidates
-            result.extend(git_candidates(repo, sorted(set(scope) | set(metadata))))
+            result.extend(git_candidates(repo, sorted(set(scope) | set(metadata)),
+                tests=[c['id'] for c in result if c['id'].split('-')[-1] in ('test', 'syntax')]))
         return result
     goal = args.goal or ask("What should this project do, and what must it not do?")
     if not goal or len(goal) > 8000:

@@ -19,13 +19,28 @@ where storage permits. Crash recovery retains uncertain external effects and
 blocks silent reinstallation. Optional diagnostic loss remains visible without
 preventing supervisor reconciliation.
 
-Focused manager checks passed the shared accounting/transaction repair and affected
-publication controls. Added direct-launch crash, capture-failure, running-work and
-terminal regressions await execution. Full task acceptance remains pending against
-the final source; focused results do not establish acceptance.
+Task 14 passed its manager acceptance before the artifact-review changes.
+Current-source regression and artifact native acceptance remain pending; earlier
+results do not establish acceptance of the changed runtime.
 Read the [audit guide and coverage matrix](AUDIT.md) before
-using its exports. Artifact review, sequence review and surrender remain queued
-work; copying their contract is not evidence of implementation.
+using its exports. Assembled artifact review is implemented for development
+validation through the [existing checkpoint workflow](DAILY.md#assembled-candidate-review).
+Sequence review and surrender remain separate queued work.
+
+## Frozen task-15 checklist
+
+1. Extend the existing checkpoint packet/publication gate, keeping real terminal authority.
+2. Include scoped assembled text and earlier context; hold required unavailable context.
+3. Bind policy, candidate/base, assumptions, test inputs/outcomes, evidence and reviewer provenance.
+4. Preserve original findings and require exact operator disposition; never waive mandatory gaps.
+5. Exercise AT1 same-permission pairs, AT3 cross-session composition, injection and physical effects.
+6. Preserve ordinary Git/preview/resume, audit recovery and unrelated resources; finish guides and hashes.
+
+The checklist's implementation, guides and offline regressions are ready for
+manager acceptance. Final native validation remains pending, including preview
+compatibility, command output, snapshot reservations and resumed composition.
+This is not acceptance or release readiness. No optional model adapter or
+paid/model run is included in task 15.
 
 ## Frozen task-14 checklist
 
@@ -44,14 +59,14 @@ authorize sibling implementations or a new logger, gateway or model monitor.
 
 | Requirement | Control and evidence owner | Current status |
 | --- | --- | --- |
-| IG1 authority | Task 14: authenticated events; exact operator checkpoint receipt; `test_product_audit` | Implemented; full native acceptance pending |
+| IG1 authority | Task 14: authenticated events; exact operator checkpoint receipt; `test_product_audit` | Task 14 accepted; current-source regression pending |
 | IG2 scope | Task 17: compose existing broker, command, package and preview boundaries | Existing boundaries; additive combinations untested |
 | IG3 surrender | Task 17: connect adapters to existing session closure/supervisor | Adapter connection pending |
-| IG4 review facts | Tasks 15/16: factual checkpoint/sequence inputs distinct from worker explanations | Pending |
+| IG4 review facts | Tasks 15/16: factual checkpoint/sequence inputs distinct from worker explanations | Checkpoint separation implemented; sequence consumer pending |
 | IG5 release | Tasks 16/7: installed additive acceptance and publication verification | Pending |
-| AT1 same permissions, different harm | Tasks 15/16: paired fixture behavior and artifact review | Expected; unmeasured |
+| AT1 same permissions, different harm | Tasks 15/16: paired fixture behavior and artifact review | Offline fixture gate exercised; native/semantic assessment pending |
 | AT2 aggregate escalation | Task 17: shipped thresholds and actual descendant cessation | Existing native controls; refinement unverified |
-| AT3 separated harmful steps | Tasks 15/16: candidate plus linked prior evidence across sessions | Expected; unmeasured |
+| AT3 separated harmful steps | Tasks 15/16: candidate plus linked prior evidence across sessions | Candidate/context fixture implemented; native/semantic assessment pending |
 
 Fixture decisions are deterministic controls, not model detection evidence.
 Semantic misses, false alerts and unavailable optional review must remain

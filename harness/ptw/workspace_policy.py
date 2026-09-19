@@ -31,6 +31,13 @@ COMMAND['properties']['git'] = obj({
     'device': {'type': 'integer', 'minimum': 0},
     'inode': {'type': 'integer', 'minimum': 1},
 })
+COMMAND['properties']['git']['properties']['review'] = obj({
+    'version': {'type': 'integer', 'const': 1},
+    'assumptions': {'type': 'string', 'minLength': 1, 'maxLength': 4096},
+    'required_paths': {'type': 'array', 'maxItems': 128, 'uniqueItems': True,
+                       'items': {'type': 'string', 'minLength': 1, 'maxLength': 1024}},
+    'tests': {'type': 'array', 'maxItems': 64, 'uniqueItems': True, 'items': ID},
+})
 WORKSPACE_SCHEMA['properties']['project']['properties']['python_runtime'] = obj({
     'executable': {'type': 'string', 'minLength': 1},
     'sha256': {'type': 'string', 'pattern': '^[0-9a-f]{64}$'},
@@ -232,6 +239,16 @@ def validate_workspace(policy, inv):
         if any("read" not in grants.get(r, set()) for r in command["resources"]):
             raise Invalid("Commands require project read permission for their resources")
         commands[command["id"]] = command
+    for command in commands.values():
+        review = command.get('git', {}).get('review')
+        if review is not None:
+            if command['git']['operation'] != 'checkpoint':
+                raise Invalid('Artifact review belongs to checkpoint commands only')
+            for path in review['required_paths']:
+                relative(path)
+            if any(name not in commands or 'git' in commands[name] or 'preview' in commands[name]
+                   for name in review['tests']):
+                raise Invalid('Review tests must name ordinary reviewed commands')
     for task in policy["tasks"]:
         if not set(task["commands"]) <= commands.keys():
             raise Invalid("Task commands expand project scope")

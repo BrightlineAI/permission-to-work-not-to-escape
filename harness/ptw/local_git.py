@@ -16,7 +16,7 @@ import stat
 from .monitor import health
 from .policy import Invalid, digest, load, save, scope, validate
 from .setup_transaction import atomic
-from .workspace import REQUEST_SCHEMA, MAX_FILE, materialize, owner, scan, stamp
+from .workspace import REQUEST_SCHEMA, MAX_FILE, MAX_TREE, MAX_ENTRIES, materialize, owner, scan, stamp
 from .workspace_policy import directory_fd, relative
 
 OID = re.compile(r'[0-9a-f]{40}')
@@ -83,13 +83,16 @@ def binding(repo):
         os.close(fd)
 
 
-def candidates(repo, resources):
+def candidates(repo, resources, *, tests=()):
     try:
         identity = binding(repo)
     except OSError as exc:
         raise Invalid('--git requires an ordinary .git directory at the approved repository root') from exc
     return [{'id': 'git-' + action, 'argv': ['/usr/bin/git', action], 'resources': resources,
-             'timeout_seconds': 120, 'git': {'operation': action, **identity}}
+             'timeout_seconds': 120, 'git': {'operation': action, **identity,
+                 **({'review': {'version': 1, 'assumptions':
+                     'Review all scoped candidate text and declared tests; external behavior is not certified.',
+                     'required_paths': [], 'tests': list(tests)}} if action == 'checkpoint' else {})}}
             for action in ('status', 'diff', 'checkpoint')]
 
 
@@ -211,7 +214,8 @@ def execute(store, token, target):
         '/nono', 'run', '--sandbox-policy', 'landlock', '--block-net', '--allow', '/target',
         '--allow', '/tmp', '--read-file', '/git-worker.py', '--no-rollback', '--no-audit', '--no-diagnostics',
         '--', '/usr/bin/python3', '-I', '-S', '/git-worker.py']
-    run_build(store, token, command, target)
+    run_build(store, token, command, target,
+              storage_limit=load(target.parent / 'request.json')['export_storage_limit'])
     result = load(target / 'result.json')
     if not result.get('ok'):
         raise Invalid(result.get('reason', 'Confined Git failed'))
@@ -266,6 +270,15 @@ def git_request(broker, token, event, req):
         if not health(store, db=db)['healthy']:
             return broker.record(db, actor, event, req, 'blocked', 'Controller monitoring unavailable')
         store.begin(db, actor['id'], event, digest(req), req)
+        from .evidence_storage import admit, file_usage
+        try:
+            # Seed creation holds the controller lock. Include file overhead,
+            # index/request metadata and the bounded working tree before copying.
+            admit(db, actor['project'], OBJECT_LIMIT + MAX_TREE +
+                  (16384 + MAX_ENTRIES) * 4096 + 16 * 1024 * 1024)
+        except OSError:
+            store.capture_fault(db, actor['project'])
+            raise
         folder = store.directory / 'git-requests' / secrets.token_hex(16)
         folder.mkdir(parents=True, mode=0o700)
         save(folder / 'request.json', {'session': actor['id'], 'request': req})
@@ -274,7 +287,19 @@ def git_request(broker, token, event, req):
             before = scan(bundle['inventory'], definition['resources'])
             target, meta = prepare(bundle['inventory'], definition, before, options, folder)
             policy_hash = bundle['approval']['sha256']
+            # Both the original seed and export survive; the archive also
+            # occupies disk during extraction. Reserve all three before unlock.
+            # The exporter enforces its byte/file-overhead bound before writing.
+            used = file_usage(folder)
+            export_limit = file_usage(target) + MAX_TREE + 16 * 1024 * 1024
+            extra = 2 * export_limit + 16 * 1024 * 1024
+            admit(db, actor['project'], extra)
+            atomic(folder / 'request.json', {'session': actor['id'], 'request': req,
+                'export_storage_limit': export_limit, 'reserved_bytes': used + extra})
         except (Invalid, OSError, ValueError) as exc:
+            from .evidence_storage import QuotaError
+            if isinstance(exc, QuotaError):
+                store.capture_fault(db, actor['project'])
             save(folder / 'failure.json', {'error': str(exc)})
             return broker.record(db, actor, event, req, 'blocked', str(exc))
     try:
@@ -294,24 +319,48 @@ def git_request(broker, token, event, req):
         if bundle['approval']['sha256'] != policy_hash:
             return broker.record(db, actor, event, req, 'conflict', 'Policy changed during Git operation')
         if definition['git']['operation'] == 'checkpoint':
+            from .artifact_review import packet, initial_result
             allowed = scope(json.loads(actor['grants']))
             for change in result['changes']:
                 needed = {'A': 'create', 'D': 'delete', 'M': 'write'}[change['change']]
                 if needed not in allowed.get(owner(bundle['inventory'], change['path']), set()):
                     return broker.deny(db, actor, project, bundle, event, req, 'Checkpoint change exceeds file action scope')
+            inputs = packet(store, db, actor, bundle, definition, result, event)
             review = {'id': folder.name, 'project': actor['project'], 'session': actor['id'],
                       'policy_sha256': policy_hash, 'command': definition['id'], 'metadata': meta,
                       'snapshot_sha256': snapshot_hash(before), 'message': options['message'],
                       'changes': result['changes'], 'commit': result['commit'], 'objects': result['objects'],
-                      'ref': 'refs/ptw/checkpoints/' + folder.name}
+                      'ref': 'refs/ptw/checkpoints/' + folder.name,
+                      'finding_records': [],
+                      'review_input': inputs, 'review_result': initial_result(inputs),
+                      'object_sha256': {name: hashlib.sha256((target / 'repository/objects' / name).read_bytes()).hexdigest()
+                                        for name in result['objects']}}
+            # Account the actual packet too; unusually large history cannot
+            # outrun the provisional allowance or silently evict old evidence.
+            from .evidence_storage import charge
+            try:
+                admit(db, actor['project'], charge(review))
+            except OSError:
+                store.capture_fault(db, actor['project'])
+                raise
             save(folder / 'review.json', review)
             save(folder / 'state.json', {'phase': 'review', 'sha256': digest(review)})
             db.execute('INSERT OR IGNORE INTO evidence_pins VALUES(?,?)',
                        (actor['project'], 'checkpoint:' + folder.name))
+            release_storage(folder)
             return broker.record(db, actor, event, req, 'allow', 'Checkpoint prepared; no repository write',
                 effect='git_review', review_sha256=digest(review), checkpoint=folder.name,
                 next='Operator: run ptw checkpoint ' + folder.name + ' in a separate terminal in this repository')
+        release_storage(folder)
         return broker.record(db, actor, event, req, 'allow', 'Scoped Git snapshot', effect=req['action'], **result)
+
+
+def release_storage(folder):
+    # Caller holds the controller lock after the exporter has finished. Failed
+    # or interrupted exports retain their reservation for operator recovery.
+    record = load(folder / 'request.json')
+    record['reserved_bytes'] = 0
+    atomic(folder / 'request.json', record)
 
 
 @contextmanager
@@ -338,7 +387,7 @@ def write_new(fd, path, data):
         os.fsync(location)
 
 
-def publish_checkpoint(store, identity, expected):
+def publish_checkpoint(store, identity, expected, *, disposition=None):
     """Trusted operator API. Not reachable through dispatch or MCP."""
     from .workspace import Workspace
     if not isinstance(identity, str) or not IDENTITY.fullmatch(identity):
@@ -359,6 +408,14 @@ def publish_checkpoint(store, identity, expected):
         broker.integrity(db, review['project'], bundle)
         if snapshot_hash(scan(bundle['inventory'], definition['resources'])) != review['snapshot_sha256']:
             raise Invalid('Working files changed since checkpoint review; request a fresh checkpoint')
+        from .evidence_storage import admit, COMPLETION_BYTES
+        try:
+            admit(db, review['project'], COMPLETION_BYTES)
+        except OSError:
+            store.capture_fault(db, review['project'])
+            raise
+        from .artifact_review import eligible
+        eligible(store, db, actor, bundle, definition, review, disposition)
         with repository(bundle['inventory'], definition) as fd:
             with git_locks(fd, review['metadata'], review['ref']):
                 if metadata(fd)[0] != review['metadata']:
@@ -401,7 +458,9 @@ def publish_checkpoint(store, identity, expected):
                     store.complete(db, actor['id'], audit_event, {
                         'allowed': True, 'level': 'allow', 'effect': 'checkpoint_publish',
                         'checkpoint': identity, 'commit': review['commit'], 'ref': review['ref'],
-                        'review_sha256': expected, 'published': True})
+                        'review_sha256': expected, 'published': True,
+                        'review_result_sha256': digest(review['review_result']),
+                        'operator_disposition': disposition})
                     db.execute('BEGIN IMMEDIATE')
                     store.lifecycle(db, review['project'], 'checkpoint_hold_released',
                                     facts={'publication': digest([actor['id'], audit_event])})
@@ -432,12 +491,31 @@ def review_checkpoint(args):
     review = load(folder / 'review.json')
     if review['project'] != record['project']:
         raise Invalid('Foreign checkpoint review')
-    shown = {k: review[k] for k in ('message', 'ref', 'commit', 'changes')}
+    from .artifact_review import record_findings, validate_result
+    if getattr(args, 'finding', None):
+        record_findings(store, args.identity, digest(review),
+                        [{'id': 'operator-' + digest([digest(review), i, text])[:40], 'text': text}
+                         for i, text in enumerate(args.finding)])
+        review = load(folder / 'review.json')
+    inputs, result = validate_result(review)
+    shown = {k: review[k] for k in ('ref', 'commit', 'changes', 'review_input', 'review_result')}
+    shown['untrusted_rationale'] = {'source': 'worker checkpoint message', 'text': review['message']}
     shown['parent'] = review['metadata']['base']
-    print(safe_text('LOCAL CHECKPOINT REVIEW\n' + json.dumps(shown, indent=2) +
+    print(safe_text('LOCAL CHECKPOINT REVIEW\nController authority and observed evidence are separate from untrusted source text and rationale.\n' + json.dumps(shown, indent=2) +
         '\nCreates the displayed ref in this repository. Branch, staging and working files stay unchanged.'), flush=True)
     expected = digest(review)
-    if ask('Type approve ' + expected + ' to create this exact checkpoint', 'reject') != 'approve ' + expected:
+    if inputs['coverage']['state'] != 'complete' or result['state'] == 'incomplete':
+        raise Invalid('Checkpoint review incomplete; mandatory evidence cannot be waived')
+    disposition = None
+    if result['findings']:
+        answer = ask('Unresolved suspicion. Type resolve ' + expected + ': REASON, or reject', 'reject')
+        prefix = 'resolve ' + expected + ': '
+        if answer.startswith(prefix) and answer[len(prefix):].strip():
+            disposition = answer[len(prefix):]
+        else:
+            # Reuse the ordinary rejection path below, without offering approval.
+            disposition = False
+    if disposition is False or ask('Type approve ' + expected + ' to create this exact checkpoint', 'reject') != 'approve ' + expected:
         with store.locked() as db:
             state = load(folder / 'state.json')
             if state['phase'] == 'review':
@@ -453,7 +531,7 @@ def review_checkpoint(args):
                 captured = False  # No new review decision or durable capture is claimed.
         return {'published': False, 'rejected': True, 'evidence': 'recorded' if captured else 'unavailable'}
     try:
-        return publish_checkpoint(store, args.identity, expected)
+        return publish_checkpoint(store, args.identity, expected, disposition=disposition)
     finally:
         from .supervisor import Supervisor
         Supervisor(store).reconcile()

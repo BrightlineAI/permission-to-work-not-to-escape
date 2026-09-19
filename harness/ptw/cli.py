@@ -58,6 +58,7 @@ def main(argv=None):
     checkpoint = commands.add_parser('checkpoint', help='Review and explicitly approve one local checkpoint requested by protected Codex')
     checkpoint.add_argument('identity')
     checkpoint.add_argument('--repo', default=str(Path.cwd()))
+    checkpoint.add_argument('--finding', action='append', help='Record an operator suspicion before exact candidate review; never waives missing evidence')
     evidence = commands.add_parser('evidence', help='Export versioned metadata; no transcripts or tool output')
     evidence.add_argument('--state', required=True)
     evidence.add_argument('--project', required=True)

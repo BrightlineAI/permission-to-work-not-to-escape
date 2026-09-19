@@ -19,28 +19,57 @@ class UnsafeExport(EvidenceError):
 
 
 WRAPPER = """
-import os,shutil,subprocess,sys,tarfile
+import io,json,os,shutil,subprocess,sys,tarfile,tempfile
 shutil.copytree('/seed','/target',dirs_exist_ok=True,symlinks=True)
-r=subprocess.run(sys.argv[1:],stdin=subprocess.DEVNULL,stdout=sys.stderr,stderr=sys.stderr)
-if r.returncode: sys.exit(r.returncode)
+receipt=None
+if sys.argv[1] == '--ptw-command':
+    # This observer is outside the child's Landlock domain. Its export pipe is
+    # neither inherited by the command nor reachable through the child's /proc.
+    with tempfile.TemporaryFile() as output:
+        try:
+            r=subprocess.run(sys.argv[4:],cwd='/target' + ('/' + sys.argv[3] if sys.argv[3] else ''),
+                             stdin=subprocess.DEVNULL,stdout=output,stderr=subprocess.STDOUT,
+                             timeout=int(sys.argv[2]),close_fds=True)
+            code=r.returncode
+        except subprocess.TimeoutExpired:
+            code=124
+        output.seek(0,2)
+        size=output.tell()
+        output.seek(max(0,size-32768))
+        receipt=json.dumps(dict(exit_code=code,output=output.read().decode('utf-8','replace'),
+                                output_truncated=size>32768)).encode()
+else:
+    r=subprocess.run(sys.argv[1:],stdin=subprocess.DEVNULL,stdout=sys.stderr,stderr=sys.stderr)
+    if r.returncode: sys.exit(r.returncode)
 with tarfile.open(fileobj=sys.stdout.buffer,mode='w|') as out:
     # npm/esbuild legitimately creates hard links. Export independent bytes,
     # never host inode aliases. Keep symbolic links for explicit validation.
     def independent_files(info):
         out.inodes.clear()
+        if receipt is not None and (info.name == 'result/.ptw-command-result.json' or
+                                   info.name.startswith('result/.ptw-command-result.json/')):
+            return None
         return info
     out.add('/target',arcname='result',recursive=True,filter=independent_files)
+    if receipt is not None:
+        info=tarfile.TarInfo('result/.ptw-command-result.json')
+        info.size=len(receipt)
+        info.mode=0o600
+        out.addfile(info,io.BytesIO(receipt))
 """
 
 
-def extract_result(archive_path, destination):
+def extract_result(archive_path, destination, *, storage_limit=None):
     """Validate all names before writing; never trust build-created tar metadata."""
     with tarfile.open(fileobj=archive_path, mode="r:") as archive:
-        members, expanded = [], 0
+        members, expanded, storage = [], 0, 0
         for member in archive:
             expanded += member.size
+            storage += member.size + (4096 if not member.isdir() else 0)
             if len(members) >= 50000 or expanded > LIMIT:
                 raise EvidenceError("Build output exceeds publication limit")
+            if storage_limit is not None and storage > storage_limit:
+                raise EvidenceError("Build output exceeds reserved evidence storage")
             members.append(member)
         seen, links = set(), []
         for member in members:
@@ -89,7 +118,8 @@ def extract_result(archive_path, destination):
                 raise UnsafeExport("Broken or cyclic build output link") from exc
 
 
-def run_build(store, token, command, target, *, preparation=False, binding=None):
+def run_build(store, token, command, target, *, preparation=False, binding=None, command_result=None,
+              storage_limit=None):
     """Convert the adapter's sole writable bind into bounded disposable memory."""
     try:
         boundary = command.index("--")
@@ -100,7 +130,9 @@ def run_build(store, token, command, target, *, preparation=False, binding=None)
         prefix[index:index + 3] = ["--ro-bind", str(target), "/seed", "--size", str(LIMIT), "--tmpfs", "/target"]
     except ValueError as exc:
         raise EvidenceError("Build adapter supplied an unexpected mount layout") from exc
-    bounded = prefix + ["--", "/usr/bin/python3", "-I", "-S", "-c", WRAPPER, *payload]
+    result_args = (['--ptw-command', str(command_result['timeout_seconds']), command_result.get('cwd', '')]
+                   if command_result is not None else [])
+    bounded = prefix + ["--", "/usr/bin/python3", "-I", "-S", "-c", WRAPPER, *result_args, *payload]
     supervisor = Supervisor(store)
     with tempfile.TemporaryFile(dir=store.directory) as logs, tempfile.TemporaryFile(dir=store.directory) as archive:
         process, unit = supervisor.engine(token, bounded, stderr=logs,
@@ -118,7 +150,7 @@ def run_build(store, token, command, target, *, preparation=False, binding=None)
                 if not chunk:
                     break
                 size += len(chunk)
-                if size > LIMIT:
+                if size > (min(LIMIT, storage_limit) if storage_limit is not None else LIMIT):
                     raise EvidenceError("Build output exceeds publication limit")
                 archive.write(chunk)
             process.wait(timeout=10)
@@ -143,7 +175,7 @@ def run_build(store, token, command, target, *, preparation=False, binding=None)
         output = target.with_name(target.name + "-export")
         output.mkdir(mode=0o700)
         try:
-            extract_result(archive, output)
+            extract_result(archive, output, storage_limit=storage_limit)
         except EvidenceError:
             raise
         except (ValueError, tarfile.TarError, OSError) as exc:

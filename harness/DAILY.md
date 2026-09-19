@@ -98,6 +98,82 @@ phrase, or reject. Model text cannot approve. Keep the requesting session open
 until review finishes. Changed working inputs, HEAD, staging, policy, stopped
 projects and closed sessions invalidate the review; request a fresh checkpoint.
 
+### Assembled candidate review
+
+Checkpoints carry version-2 review inputs and a version-1 result through this same
+terminal approval. The packet includes the full candidate tree identity, every scoped
+candidate text file (including unchanged files), policy and command authority,
+declared assumptions, required test receipts, original event references and
+coverage gaps. Unrelated tree entries remain opaque. The worker's message,
+source comments and test output are untrusted explanations; none supplies
+approval or a missing observation. The default reviewer is the operator, with
+no model calls or automatic semantic clearance.
+
+The reviewed checkpoint command's `git.review` configuration declares `version`,
+`assumptions`, `required_paths` (exact repository-relative files) and `tests`
+(ordinary reviewed command IDs). All command resources are required text context.
+Setup selects the generated test/syntax commands; check this selection during
+policy review. An explicitly empty test list means no automated test evidence
+was required, not that tests passed. Low-level policy users must declare their
+required tests/context before approval. Older checkpoint definitions without
+this configuration hold until an explicit policy revision; regenerate old
+packets. Required context outside the existing command read scope requires a
+separate policy review. Approval never expands file permissions.
+
+Run the required commands through the protected tools before preparing the
+checkpoint. The controller binds each command's definition, policy, input-file
+digests/modes, materialized directory layout, package sets and observed outcome.
+It selects the latest receipt for each required command. Every input file must match the assembled candidate,
+including the tests themselves. A successful test against an unselected edit or
+untracked helper does not qualify. Neither does a test using an empty directory
+absent from the Git candidate: directory existence can change application behavior.
+Ordinary parent directories implied by candidate files do qualify. Remove extra
+empty directories before rerunning tests; checkpoint approval cannot waive this
+mismatch. Receipts from before directory binding was introduced require a fresh
+run, and older review packets must be regenerated. Include the intended inputs
+in the candidate and rerun tests, or restore the intended inputs and rerun; then prepare a fresh
+checkpoint. Tests can be incomplete or wrong even when they pass. Review still
+needs the operator's judgment about behavior and test coverage.
+
+Command exit status is observed by the existing build wrapper outside the
+command's Landlock domain and inserted directly into its export stream. A result
+file written by the command and text claiming success cannot replace that
+observation. The bounded output tail remains untrusted text. Required finding
+capture uses durable intent before updating the packet; capture failure stops
+affected admission and retains uncertainty for operator recovery.
+
+Binary or oversized scoped text, missing required files, missing/failed tests,
+different tested bytes or directory layout, unknown history and lost original finding evidence hold
+acceptance. Text context is bounded to 256 KiB total and history to 2048 events.
+These limits do not imply complete dependency/context discovery. The operator
+must declare any additional required context. Event references identify original
+records; omitted payloads and hidden reasoning are not reconstructed. Required
+records and Git snapshots count toward the existing evidence quota.
+Preparation reserves the retained seed, export, temporary archive and file
+overhead before releasing the controller lock. Concurrent requests see that
+reservation; an export exceeding it fails before extraction. Completed requests
+release unused space. Failed/interrupted exports retain their reservation and
+original files for operator recovery; never delete evidence merely to retry.
+The quota can therefore hold a large or busy repository before its per-file
+limits are reached. Review the retained attempt and evidence budget first.
+
+To record a suspicion, run `ptw checkpoint ID --finding 'Describe the concern'`
+in the operator terminal. The concern changes the exact review digest and is
+retained as original controller evidence. Findings accumulate; another proposal
+cannot erase them. The terminal offers rejection or `resolve HASH: REASON` for
+that exact candidate, followed by the usual `approve HASH` prompt. Resolution
+is recorded separately from the review result. It never waives missing evidence,
+stale bindings, an unhealthy controller or a stopped project. A new candidate
+must review relevant earlier concerns again. Rejection/hold leaves WIP editing
+available under the existing policy. An interrupted publication retains the
+existing conservative stop and recovery procedure described below.
+
+This is local checkpoint control, not merge/deployment control or universal
+backdoor detection. Fixture reviewers used by tests make deterministic findings;
+they provide no evidence about LLM detection, false-alert rates or spontaneous
+model behavior. Native verification of this extension remains pending manager
+checks; see the [current safety checklist](SAFETY.md).
+
 The checkpoint creates `refs/ptw/checkpoints/ID` in the real repository, with
 the current HEAD as parent and only the selected changes. It preserves the
 current branch, index, unrelated staged work and working files. The operator
@@ -159,6 +235,15 @@ The Git gate uses deterministic synthetic fixtures and actual operator PTYs to
 test rejection, exact approval, real checkpoint refs and preservation of unrelated
 staging. Its offline tests execute real Git plumbing in temporary views while
 mocking supervision; they do not establish native confinement.
+`test_product_artifact_review.py` adds AT1 paired login fixes/bypasses under the
+same grants, an independent application oracle outside editable tests, and AT3
+helper/ordinary-work/resumed-session composition. It checks assembled content,
+original references, strict holds and explicit suspicion resolution. Its native
+cases cover both paired login changes and resumed helper composition, retaining
+private `ARTIFACT_EVIDENCE` directories with actual PTYs, source hashes and
+physical ref/process observations. Existing audit checkpoint tests
+retain quota and uncertain-publication recovery coverage; they are not imported
+again into the artifact suite.
 Physical assertions query supervisor state before cleanup. The controller's
 workload reconciliation flag alone is not proof that a process has exited.
 
@@ -207,6 +292,14 @@ initializes loopback when unsharing networking. The focused native probe establi
 this path on the supplied tools; documentation alone is not confinement evidence.
 Stable JSON validation, file locks and existing controller reuse need no new
 dependency or broader web research.
+
+The [Linux Landlock documentation](https://www.kernel.org/doc/html/latest/userspace-api/landlock.html#ptrace-restrictions)
+describes restrictions on inspecting less restricted processes, including their
+sensitive `/proc` descriptors. The command-result observer stays outside the
+child's domain and does not pass its export descriptor to the command.
+[Python's tar export interface](https://docs.python.org/3.12/library/tarfile.html#tarfile.TarFile.addfile)
+lets it append the observed result from memory, without trusting writable tree
+bytes. Native receipt-forgery and positive-control checks remain required.
 
 The [Git environment reference](https://git-scm.com/docs/git) informed the fixed,
 clean environment and disabled configuration/replacement/protocol surfaces.

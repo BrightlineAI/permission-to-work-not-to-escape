@@ -7,7 +7,7 @@ import secrets
 import sys
 import time
 
-from .execution import WRAPPER, prepare_command
+from .execution import prepare_command
 from .monitor import health
 from .policy import Invalid, OutsideScope, digest, save, validate
 from .supervisor import RUNTIME_HOST_PATHS, Supervisor
@@ -53,11 +53,8 @@ def preview_command(store, token, definition, before, settings, directory, *, bi
                                  '--size', str(512 * 1024 * 1024), '--tmpfs', '/target']
     worker = Path(__file__).with_name('preview_transport.py')
     namespace += ['--ro-bind', str(worker), '/preview-transport.py']
-    wrapper = payload.index(WRAPPER)
-    if payload[wrapper - 4:wrapper] != ['/usr/bin/python3', '-I', '-S', '-c']:
-        raise Invalid('Unexpected preview command wrapper')
     # Preserve package mounts, environment and the fixed reviewed argv.
-    app = payload[:wrapper - 4] + payload[wrapper + 3:]
+    app = payload
     env = app.index('/usr/bin/env')
     app[env + 1:env + 1] = ['HOST=127.0.0.1', 'PORT=' + str(definition['preview']['port'])]
     # nono 0.77.0's --block-net wins over --listen-port. Its manifest

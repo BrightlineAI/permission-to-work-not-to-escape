@@ -423,6 +423,15 @@ class Workspace:
                 actor, project, bundle, prior = self.inspect(db, token, event, req)
                 return prior or self.record(db, actor, event, req, "blocked", str(exc))
         with self.store.locked() as db:
+            from .artifact_review import input_directories, input_files
+            # These are controller snapshot facts, never fields supplied by the
+            # command's stdout or its writable result file.
+            outcome = {**outcome, 'test_binding': {
+                'schema': 2, 'policy_sha256': binding['approval'],
+                'definition_sha256': digest(definition), 'files': input_files(before),
+                'directories': input_directories(before,
+                    [p for p, entry in before.items() if entry['kind'] == 'dir']),
+                'package_sets': binding['package_sets']}}
             self.store.observe(db, actor['id'], event, 'execution',
                                {'allowed': True, 'level': 'allow', 'effect': 'run', **outcome})
             actor, project, bundle, prior = self.inspect(db, token, event, req)

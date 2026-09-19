@@ -125,6 +125,10 @@ def configuration(db, project):
     return json.loads(row[0]) if row else None
 
 
+def file_usage(folder):
+    return sum(p.stat().st_size + 4096 for p in folder.rglob('*') if p.is_file())
+
+
 def usage(db, project, *, excluding=None):
     from .store import LEASE_SLOTS
     # Charge the entire shared fixed lock pool conservatively to each project.
@@ -133,6 +137,17 @@ def usage(db, project, *, excluding=None):
     legacy = sum(1 for p in Path(database).parent.glob('operation-*.lock')
                  if len(p.name) == len('operation-') + 64 + len('.lock')) if database else 0
     total = ROW_OVERHEAD * (1 + LEASE_SLOTS + legacy)
+    # Git review retains real seeds/objects as well as the small JSON packet.
+    # Include failed attempts. Ownership comes from the controller request,
+    # never a worktree file. These files are not optional expiring payloads.
+    if database:
+        sessions = {r[0] for r in db.execute('SELECT id FROM sessions WHERE project=?', (project,))}
+        for folder in (Path(database).parent / 'git-requests').glob('*'):
+            request = folder / 'request.json'
+            if request.is_file():
+                record = json.loads(request.read_text())
+                if record.get('session') in sessions:
+                    total += max(file_usage(folder), record.get('reserved_bytes', 0))
     for row in db.execute('SELECT e.* FROM events e LEFT JOIN sessions s ON s.id=e.session '
                           'WHERE s.project=? OR e.session=?', (project, 'controller:' + project)):
         if excluding == (row['session'], row['event']):
