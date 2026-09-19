@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
+from contextvars import ContextVar
 import fcntl
 import hashlib
 import json
@@ -9,11 +10,19 @@ import os
 from pathlib import Path
 import secrets
 import sqlite3
+import subprocess
 import time
 
 from .policy import Invalid, canonical, check_approval, data_directory, digest, open_resource, scope, subset
 
 MAX_BYTES = 1_048_576
+LEASE_SLOTS = 64
+_operation = ContextVar('ptw_operation', default=None)
+
+
+def operation_lease(session, event):
+    # Fixed, never-unlinked inodes avoid both per-request growth and unlink races.
+    return 'slot-' + str(int(digest([session, event]), 16) % LEASE_SLOTS)
 
 
 class Store:
@@ -32,6 +41,12 @@ class Store:
         if self.db.is_symlink() or self.db.stat().st_mode & 0o077:
             raise Invalid("Database must be private and not a symlink")
         with self.locked() as db:
+            if db.execute('PRAGMA user_version').fetchone()[0] not in (0, 1, 2):
+                raise Invalid('Unsupported controller evidence schema; use the matching runtime')
+            if (db.execute('PRAGMA user_version').fetchone()[0] == 0 and
+                    db.execute("SELECT 1 FROM sqlite_master WHERE name='projects'").fetchone()):
+                from .evidence_storage import backup
+                backup(self, db)
             db.executescript("""
                 CREATE TABLE IF NOT EXISTS projects(
                   id TEXT PRIMARY KEY, bundle TEXT NOT NULL, stopped INTEGER DEFAULT 0,
@@ -66,6 +81,7 @@ class Store:
                 CREATE TABLE IF NOT EXISTS package_terminations(
                   unit TEXT, at REAL, outcome TEXT NOT NULL);
             """)
+            db.execute('BEGIN IMMEDIATE')
             columns = {r[1] for r in db.execute('PRAGMA table_info(package_sets)')}
             for name, declaration in [('evidence', 'TEXT'), ('assessment_state', "TEXT NOT NULL DEFAULT 'blocked'"),
                                       ('assessment_reason', 'TEXT'), ('assessment_generation', 'INTEGER NOT NULL DEFAULT 0')]:
@@ -85,17 +101,111 @@ class Store:
                 db.execute("ALTER TABLE sessions ADD COLUMN commands TEXT NOT NULL DEFAULT '[]'")
             if "closed" not in {r[1] for r in db.execute("PRAGMA table_info(sessions)")}:
                 db.execute("ALTER TABLE sessions ADD COLUMN closed INTEGER NOT NULL DEFAULT 0")
+            for name in ('conversation', 'resume_of'):
+                if name not in {r[1] for r in db.execute('PRAGMA table_info(sessions)')}:
+                    db.execute('ALTER TABLE sessions ADD COLUMN ' + name + ' TEXT')
             if 'preparation_source' not in {r[1] for r in db.execute('PRAGMA table_info(sessions)')}:
                 db.execute('ALTER TABLE sessions ADD COLUMN preparation_source TEXT')
             if "setup_pending" not in {r[1] for r in db.execute("PRAGMA table_info(projects)")}:
                 db.execute("ALTER TABLE projects ADD COLUMN setup_pending INTEGER NOT NULL DEFAULT 0")
+            from .evidence_storage import migrate
+            migrate(self, db)
+            db.commit()
             # Lock spans intent commit, effect and completion. A pending row visible after
             # acquiring it means the previous operator died before recording completion.
-            rows = db.execute("SELECT DISTINCT s.project FROM events e JOIN sessions s ON s.id=e.session WHERE e.state=?", ("pending",)).fetchall()
-            for row in rows:
-                db.execute("UPDATE projects SET stopped=1, reason=? WHERE id=?",
-                           ("uncertain effect after interrupted request; operator review required", row[0]))
-            db.execute("UPDATE events SET state=? WHERE state=?", ("uncertain", "pending"))
+            self.recover_pending(db)
+
+    def recover_pending(self, db):
+        for row in db.execute("SELECT e.*,coalesce(s.project,json_extract(e.request_meta,'$._audit.project')) AS project "
+                              "FROM events e LEFT JOIN sessions s ON s.id=e.session "
+                              "WHERE e.state='pending'").fetchall():
+            lease = json.loads(row['request_meta']).get('_audit', {}).get('lease')
+            fd = None
+            try:
+                if lease is not None:
+                    if lease not in (digest([row['session'], row['event']]),
+                                     operation_lease(row['session'], row['event'])):
+                        raise Invalid('Invalid operation lease')
+                    fd = os.open(self.directory / ('operation-' + lease + '.lock'),
+                                 os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+                    try:
+                        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    except BlockingIOError:
+                        continue  # The originating controller still owns this operation.
+                self.stop_from_db(db, row['project'], 'uncertain effect after interrupted request; operator review required')
+                self.complete(db, row['session'], row['event'], None, state='uncertain')
+            finally:
+                if fd is not None:
+                    os.close(fd)
+
+    @contextmanager
+    def operation(self, token, event, *, related_events=()):
+        """Lease a long operation across controller-lock releases, never its effects.
+
+        Reserve nested events together in slot order before any intent/effect.
+        Nested calls reuse these descriptors; acquiring another slot while one
+        is held could deadlock even when the two events hash to different slots.
+        A dead process releases flock, allowing recovery to retain uncertainty.
+        """
+        if not isinstance(event, str) or not 1 <= len(event) <= 128:
+            raise Invalid('Stable event ID required')
+        with self.locked() as db:
+            actor = self.session(db, token)
+        events = (event, *related_events)
+        if any(not isinstance(item, str) or not 1 <= len(item) <= 128 for item in events):
+            raise Invalid('Stable event ID required')
+        keys = {(actor['id'], item) for item in events}
+        parent = _operation.get()
+        if parent:
+            if parent['directory'] != self.directory or not keys <= parent['held']['events']:
+                raise Invalid('Nested operation must be reserved by its outer operation')
+            held = parent['held']
+        else:
+            held = {'events': keys, 'started': False}
+        fds = []
+        marker = None
+        context = {'directory': self.directory, 'session': actor['id'], 'event': event,
+                   'started': False, 'held': held}
+        try:
+            if parent is None:
+                for identity in sorted({operation_lease(*key) for key in keys}):
+                    fd = os.open(self.directory / ('operation-' + identity + '.lock'),
+                                 os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+                    fds.append(fd)
+                    fcntl.flock(fd, fcntl.LOCK_EX)
+            marker = _operation.set(context)
+            yield
+        finally:
+            if marker is not None:
+                _operation.reset(marker)
+            for fd in reversed(fds):
+                os.close(fd)
+            # Completion can fail after an effect. Never leave that project
+            # launchable until a later Store construction happens to recover it.
+            if parent is None and held['started']:
+                with self.locked() as db:
+                    self.recover_pending(db)
+
+    def owns_pending(self, session, event):
+        active = _operation.get()
+        return bool(active and active['directory'] == self.directory and
+                    (active['session'], active['event']) == (session, event) and active['started'])
+
+    def capture_fault(self, db, project):
+        """Authority reduction must not depend on successful evidence storage.
+
+        A failed durable update is not reported as closure or confirmation. The
+        existing supervisor still gets a best-effort physical stop request.
+        """
+        db.rollback()
+        try:
+            # Do not recursively require an event to reduce authority when the
+            # event writer itself failed. Missing capture remains an explicit gap.
+            db.execute('UPDATE projects SET stopped=1,reason=? WHERE id=?',
+                       ('required evidence capture failed; operator review required', project))
+        except (OSError, sqlite3.Error):
+            pass
+        self.terminate_workloads(db, project=project)
 
     @contextmanager
     def locked(self):
@@ -105,6 +215,7 @@ class Store:
         try:
             db = sqlite3.connect(self.db, timeout=30, isolation_level=None)
             db.row_factory = sqlite3.Row
+            db.create_function('ptw_evidence_runtime', 0, lambda: 1)
             db.execute("PRAGMA synchronous=FULL")
             yield db
         finally:
@@ -161,6 +272,11 @@ class Store:
                             raise Invalid('Static hook review cannot change its approved source binding')
             elif existing:
                 raise Invalid("Project identity already exists; approval cannot reset history")
+            if ('audit' in checked['policy']['project'] and
+                    db.execute('PRAGMA user_version').fetchone()[0] < 2 and
+                    db.execute('SELECT 1 FROM projects LIMIT 1').fetchone()):
+                from .evidence_storage import backup
+                backup(self, db)
             db.execute("BEGIN IMMEDIATE")
             if discovery_sha256 is not None:
                 db.execute('UPDATE projects SET bundle=? WHERE id=?', (canonical(bundle), project))
@@ -186,6 +302,15 @@ class Store:
             if checked["policy"]["version"] == 4:
                 info = root.stat()
                 db.execute("INSERT INTO bindings VALUES(?,?,?,?)", (project, "", info.st_dev, info.st_ino))
+            if 'audit' in checked['policy']['project']:
+                from .evidence_storage import guard_runtime, profile
+                value = profile(checked['policy']['project']['audit'], bundle)
+                guard_runtime(db)
+                db.execute('INSERT OR REPLACE INTO evidence_profiles VALUES(?,?,?)',
+                           (project, canonical(value), bundle['approval']['sha256']))
+            self.lifecycle(db, project, 'policy_activated' if discovery_sha256 is None else 'policy_revised',
+                           facts={'previous_policy_sha256': discovery_sha256},
+                           approval=bundle['approval']['sha256'])
             db.commit()
         return {"project": project, "policy_sha256": bundle["approval"]["sha256"]}
 
@@ -209,7 +334,10 @@ class Store:
                           'WHERE w.project=? AND s.preparation_source IS NOT NULL AND w.stopped=0',
                           (project,)).fetchone():
                 raise Invalid('Preparation termination must be confirmed before setup can commit')
+            db.execute('BEGIN IMMEDIATE')
             db.execute("UPDATE projects SET setup_pending=0 WHERE id=?", (project,))
+            self.lifecycle(db, project, 'setup_committed')
+            db.commit()
 
     @staticmethod
     def session(db, token, *, preparation=False):
@@ -259,10 +387,14 @@ class Store:
                 raise Invalid('Setup already has an active preparation session')
             sid, token = 'agent_' + secrets.token_hex(8), secrets.token_urlsafe(32)
             grants = [{'resource': r, 'actions': ['read']} for r in source['resources']]
+            db.execute('BEGIN IMMEDIATE')
             db.execute('INSERT INTO sessions(id,token_hash,project,task,parent,grants,depth,packages,commands,preparation_source) '
                        'VALUES(?,?,?,?,NULL,?,0,?,?,?)',
                        (sid, hashlib.sha256(token.encode()).hexdigest(), project, task,
                         canonical(grants), canonical(names), '[]', identity))
+            self.lifecycle(db, project, 'session_registered', session=sid,
+                           event='session_registered:' + sid, facts={'preparation_source': identity})
+            db.commit()
             return {'session': sid, 'token': token, 'project': project, 'task': task,
                     'parent': None, 'grants': grants, 'packages': names, 'commands': [],
                     'preparation_source': identity}
@@ -270,14 +402,39 @@ class Store:
     def close_session(self, token):
         """Revoke one session and its descendants without stopping other parents."""
         with self.locked() as db:
-            row = db.execute("SELECT id FROM sessions WHERE token_hash=?",
+            row = db.execute("SELECT * FROM sessions WHERE token_hash=?",
                              (hashlib.sha256(token.encode()).hexdigest(),)).fetchone()
             if row is None:
                 raise Invalid("Unknown session credential")
-            db.execute("""WITH RECURSIVE tree(id) AS (
+            if row['closed']:
+                return
+            # Revocation is durable before capture: failure must not reopen it.
+            tree = [r[0] for r in db.execute('''WITH RECURSIVE tree(id) AS (
                 SELECT id FROM sessions WHERE id=?
                 UNION ALL SELECT s.id FROM sessions s JOIN tree t ON s.parent=t.id
-                ) UPDATE sessions SET closed=1 WHERE id IN (SELECT id FROM tree)""", (row["id"],))
+                ) SELECT id FROM tree''', (row['id'],))]
+            try:
+                db.executemany('UPDATE sessions SET closed=1 WHERE id=?', [(sid,) for sid in tree])
+                captured = self.lifecycle(db, row['project'], 'session_closed', session=row['id'],
+                    facts={'closed_sessions': tree, 'termination': 'unconfirmed'}, reduction=True)
+            except (OSError, sqlite3.Error):
+                self.terminate_workloads(db, sessions=tree)
+                raise
+            if not captured:
+                self.terminate_workloads(db, sessions=tree)
+            return {'closed': True, 'confirmed_stopped': False,
+                    'evidence': 'recorded' if captured else 'unavailable'}
+
+    def terminate_workloads(self, db, *, sessions=None, project=None):
+        """Best effort only; no database success or physical cessation is inferred."""
+        from .supervisor import Supervisor
+        for row in db.execute('SELECT unit,session,project FROM workloads WHERE stopped=0').fetchall():
+            if row['project'] != project and row['session'] not in (sessions or []):
+                continue
+            try:
+                Supervisor(self).terminate(row['unit'])
+            except (Invalid, OSError, subprocess.SubprocessError):
+                pass
 
     @staticmethod
     def project(db, project):
@@ -286,7 +443,8 @@ class Store:
             raise Invalid("Unknown project")
         return row, json.loads(row["bundle"])
 
-    def register(self, project, task, *, parent_token=None, grants=None, packages=None, commands=None):
+    def register(self, project, task, *, parent_token=None, grants=None, packages=None, commands=None,
+                 conversation=None, resumed=False):
         """Trusted operator registers parents; authenticated delegation may only narrow."""
         with self.locked() as db:
             row, bundle = self.project(db, project)
@@ -313,6 +471,19 @@ class Store:
             if any("read" not in requested.get(r, set()) for c in command_names for r in definitions[c]["resources"]):
                 raise Invalid("Session command requires readable inputs")
             parent_id, depth = None, 0
+            previous = None
+            if conversation is not None:
+                from .conversation import native_id
+                native_id(conversation)
+                if parent_token:
+                    raise Invalid('Delegate cannot bind an operator conversation')
+                previous = db.execute('SELECT * FROM sessions WHERE conversation=? ORDER BY rowid DESC LIMIT 1',
+                                      (conversation,)).fetchone()
+                if previous is not None and (not resumed or not previous['closed'] or
+                        previous['project'] != project or previous['task'] != task):
+                    raise Invalid('Conversation requires the same closed project/task session')
+            elif resumed:
+                raise Invalid('Resume requires a protected conversation binding')
             if parent_token:
                 parent = self.session(db, parent_token)
                 if parent["project"] != project or not subset(requested, scope(json.loads(parent["grants"]))):
@@ -327,10 +498,16 @@ class Store:
             sid = "agent_" + secrets.token_hex(8)
             token = secrets.token_urlsafe(32)
             serialized = [{"resource": r, "actions": sorted(a)} for r, a in sorted(requested.items())]
-            db.execute("INSERT INTO sessions(id,token_hash,project,task,parent,grants,depth,packages,commands) VALUES(?,?,?,?,?,?,?,?,?)",
+            db.execute('BEGIN IMMEDIATE')
+            db.execute("INSERT INTO sessions(id,token_hash,project,task,parent,grants,depth,packages,commands,conversation,resume_of) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
                        (sid, hashlib.sha256(token.encode()).hexdigest(), project, task,
                         parent_id, canonical(serialized), depth, canonical(sorted(set(package_names))),
-                        canonical(sorted(set(command_names)))))
+                        canonical(sorted(set(command_names))), conversation, previous['id'] if previous else None))
+            self.lifecycle(db, project, 'session_registered', session=sid,
+                           event='session_registered:' + sid,
+                           facts={'resumed': resumed, 'resume_coverage':
+                                  'linked' if previous else 'legacy_unknown' if resumed else 'new'})
+            db.commit()
             return {"session": sid, "project": project, "task": task, "parent": parent_id,
                     "token": token, "grants": serialized, "packages": sorted(set(package_names)),
                     "commands": sorted(set(command_names))}
@@ -389,15 +566,13 @@ class Store:
             else:
                 # Intent is durable before an effect. Crash recovery stops this project,
                 # rather than silently duplicating an append with an uncertain outcome.
-                db.execute("INSERT INTO events VALUES(?,?,?,?,?,?,?)", (actor["id"], event, request_hash,
-                           self.metadata(request), None, "pending", time.time()))
+                self.begin(db, actor['id'], event, request_hash, request)
                 try:
                     response = self.effect(db, actor["project"], bundle["inventory"], request)
                 except (OSError, Invalid, UnicodeError) as exc:
                     response = {"allowed": False, "effect": "unknown", "level": "stop", "reason": "resource failure: " + type(exc).__name__}
-                    db.execute("UPDATE projects SET stopped=1, reason=? WHERE id=?", ("resource integrity or execution failure", actor["project"]))
-                db.execute("UPDATE events SET response=?,state=? WHERE session=? AND event=?",
-                           (canonical(response), "complete", actor["id"], event))
+                    self.stop_from_db(db, actor['project'], 'resource integrity or execution failure')
+                self.complete(db, actor['id'], event, response)
                 return response
             self.record(db, actor["id"], event, request_hash, request, response)
             return response
@@ -428,17 +603,247 @@ class Store:
         response = {"allowed": False, "effect": "none", "level": "stop" if stop else "warn" if warn else "deny",
                     "reason": reason, "project_violations": total, "task_violations": task_count}
         self.record(db, actor["id"], event, request_hash, request, response)
+        if stop and not project['stopped']:
+            self.lifecycle(db, actor['project'], 'admission_stopped', session=actor['id'],
+                           facts={'cause': digest([actor['id'], event]), 'termination': 'unconfirmed'})
         db.commit()
         return response
 
     @staticmethod
     def metadata(request):
-        return canonical({"action": request.get("action"), "resource": request.get("resource"),
-                          "content_sha256": digest(request.get("content"))}) if isinstance(request, dict) else "{}"
+        if not isinstance(request, dict):
+            return '{}'
+        return canonical({**{k: request[k] for k in ('action', 'resource', 'path', 'destination', 'expected')
+                             if k in request and isinstance(request[k], str)},
+                          'content_sha256': digest(request.get('content'))})
+
+    def begin(self, db, session, event, request_hash, request, *, response=None, authorization=None,
+              _control=None):
+        """Record authenticated provenance at admission, never from worker text.
+
+        Short effects hold the controller lock. Long operations additionally
+        hold their operation lease until their original response is recorded.
+        """
+        from .event_evidence import VERSION, outcome, seal, validate_response
+        if response is not None:
+            validate_response(response)
+        prior = db.execute('SELECT * FROM events WHERE session=? AND event=?', (session, event)).fetchone()
+        if prior is not None and self.owns_pending(session, event):
+            if prior['state'] != 'pending' or prior['request_hash'] != request_hash:
+                raise Invalid('Operation intent changed')
+            if response is not None:
+                self.complete(db, session, event, response)
+            else:
+                from .evidence_storage import admit
+                project = json.loads(prior['request_meta'])['_audit']['project']
+                try:
+                    admit(db, project, 0)
+                except OSError:
+                    self.capture_fault(db, project)
+                    raise
+            return
+        actor = (_control['actor'] if _control else
+                 db.execute('SELECT * FROM sessions WHERE id=?', (session,)).fetchone())
+        if actor is None:
+            raise Invalid('Event requires an authenticated session')
+        _, bundle = self.project(db, actor['project'])
+        observed = time.time()
+        meta = json.loads(self.metadata(request))
+        resource = bundle['inventory']['resources'].get(meta.get('resource'))
+        sequence = db.execute('SELECT coalesce(max(rowid),0)+1 FROM events').fetchone()[0]
+        state = 'pending' if response is None else 'complete'
+        authority = {'method': 'standing_policy', 'policy_sha256': bundle['approval']['sha256'],
+                     'grants_sha256': digest({'grants': json.loads(actor['grants']),
+                                             'commands': json.loads(actor['commands']),
+                                             'packages': json.loads(actor['packages'])}),
+                     'human_review_required': False, 'human_review_performed': False,
+                     'receipt_sha256': None, 'exception': None}
+        if authorization is not None:
+            # Only trusted controller call sites (e.g. publish_checkpoint) use
+            # this argument, after validating their exact operator receipt.
+            if (set(authorization) != {'method', 'receipt_sha256'} or
+                    authorization['method'] != 'exact_operator_approval' or
+                    not isinstance(authorization['receipt_sha256'], str) or
+                    len(authorization['receipt_sha256']) != 64):
+                raise Invalid('Unsupported controller authorization')
+            authority.update(authorization)
+            authority.update(human_review_required=True, human_review_performed=True)
+        elif response is not None and response.get('effect') == 'git_review':
+            authority['human_review_required'] = True
+        if _control and authorization is None:
+            authority['method'] = ('standing_policy' if _control['requester']['kind'] in
+                                   ('local_operator', 'authenticated_session') else 'controller_transition')
+            if request.get('action') == 'checkpoint_rejected':
+                authority.update(method='operator_rejection', human_review_required=True,
+                                 human_review_performed=True,
+                                 receipt_sha256=_control['facts']['review_sha256'])
+        causes = []
+        for source_session, source_event in ((actor['parent'], 'session_registered:' + str(actor['parent'])),
+                                              (session, 'session_registered:' + session)):
+            if source_session:
+                prior_registration = db.execute('SELECT session,event FROM events WHERE session=? AND event=?',
+                    ('controller:' + actor['project'], source_event)).fetchone()
+                if prior_registration:
+                    causes.append(digest(list(prior_registration)))
+        active = _operation.get()
+        if active and active['directory'] == self.directory and (active['session'], active['event']) != (session, event):
+            causes.append(digest([active['session'], active['event']]))
+        meta['_audit'] = {
+            'schema': VERSION, 'operation_id': digest([session, event]),
+            'sequence': sequence, 'project': actor['project'], 'task': actor['task'],
+            'session': actor['id'], 'parent_session': actor['parent'], 'resume_of': actor['resume_of'],
+            'conversation': actor['conversation'],
+            'route': 'controller_lifecycle' if _control else 'supported_action',
+            'requester': (_control['requester'] if _control else
+                          {'kind': 'local_operator', 'uid': os.getuid()} if authorization else
+                          {'kind': 'authenticated_session', 'id': session}),
+            'enforcer': {'kind': 'local_controller', 'uid': os.getuid()},
+            'policy_sha256': bundle['approval']['sha256'], 'authorization': authority,
+            'request_sha256': request_hash, 'resource_path': resource['path'] if resource else None,
+            'source_at': None, 'source_time_semantics': 'unknown',
+            'observed_at': observed, 'recorded_at': time.time(),
+            'completed_at': time.time() if response is not None else None,
+            'decision': response['level'] if response is not None else 'allow',
+            'outcome': outcome(response or {}, state), 'coverage': 'controller_metadata',
+            'content': 'omitted', 'causes': list(dict.fromkeys(causes)),
+        }
+        if _control:
+            meta['_audit']['details'] = _control['facts']
+            unit = _control['facts'].get('unit')
+            if unit and db.execute('SELECT 1 FROM events WHERE session=? AND event=?',
+                                   ('controller:' + actor['project'], 'workload_launch:' + unit)).fetchone():
+                meta['_audit']['causes'].append(digest(['controller:' + actor['project'], 'workload_launch:' + unit]))
+        if active and active['directory'] == self.directory and (active['session'], active['event']) == (session, event):
+            meta['_audit']['lease'] = operation_lease(session, event)
+        from .evidence_storage import admit, charge, event_charge, COMPLETION_BYTES, configuration, optional_payload
+        config = configuration(db, actor['project'])
+        if config:
+            meta['_audit']['profile_sha256'] = digest(config)
+            meta['_audit']['reserved_bytes'] = (COMPLETION_BYTES if response is None else 0) + charge(meta)
+        meta['_seal'] = seal(meta, response or {}, state)
+        try:
+            admit(db, actor['project'], max(event_charge(session, event, request_hash, meta, response, state, observed),
+                                           meta['_audit'].get('reserved_bytes', 0)))
+            db.execute('INSERT INTO events VALUES(?,?,?,?,?,?,?)',
+                       (session, event, request_hash, canonical(meta),
+                        canonical(response) if response is not None else None, state, observed))
+            if not _control:
+                meta['_audit']['content'] = optional_payload(db, actor, bundle, event, request, response)
+                meta['_seal'] = seal(meta, response or {}, state)
+                db.execute('UPDATE events SET request_meta=? WHERE session=? AND event=?',
+                           (canonical(meta), session, event))
+        except (OSError, sqlite3.Error):
+            if not (_control and _control.get('reduction')):
+                self.capture_fault(db, actor['project'])
+            raise
+        if active and meta['_audit'].get('lease') and response is None:
+            active['started'] = True
+            active['held']['started'] = True
+
+    def complete(self, db, session, event, response, *, state='complete'):
+        from .event_evidence import outcome, seal, validate_response
+        if state not in ('complete', 'uncertain') or (state == 'complete' and response is None):
+            raise Invalid('Unsupported event completion')
+        if response is not None:
+            validate_response(response)
+        row = db.execute('SELECT * FROM events WHERE session=? AND event=?', (session, event)).fetchone()
+        if row is None or row['state'] != 'pending':
+            raise Invalid('Event has no pending intent')
+        meta = json.loads(row['request_meta'])
+        if '_audit' in meta:
+            if meta.get('_seal') != seal(meta, json.loads(row['response'] or '{}'), row['state']):
+                raise Invalid('Pending event evidence changed')
+            meta['_audit'].update(completed_at=time.time(), outcome=outcome(response or {}, state))
+            if response and response.get('effect') == 'git_review':
+                meta['_audit']['authorization']['human_review_required'] = True
+            meta['_seal'] = seal(meta, response or {}, state)
+        try:
+            from .evidence_storage import admit, event_charge
+            project = meta.get('_audit', {}).get('project') or db.execute(
+                'SELECT project FROM sessions WHERE id=?', (session,)).fetchone()[0]
+            # Recovery may reduce a pending reservation even after quota loss.
+            # It cannot claim a completed physical effect or clear the stop.
+            if state != 'uncertain':
+                admit(db, project, event_charge(session, event, row['request_hash'], meta, response, state, row['at']),
+                      excluding=(session, event))
+            if (state == 'complete' and '_audit' in meta and
+                    meta['_audit']['route'] == 'supported_action' and meta.get('action') == 'read'):
+                from .evidence_storage import optional_payload
+                actor = db.execute('SELECT * FROM sessions WHERE id=?', (session,)).fetchone()
+                _, bundle = self.project(db, project)
+                meta['_audit']['content'] = optional_payload(db, actor, bundle, event, meta, response)
+                meta['_seal'] = seal(meta, response or {}, state)
+            db.execute('UPDATE events SET request_meta=?,response=?,state=? WHERE session=? AND event=?',
+                       (canonical(meta), canonical(response) if response is not None else None, state, session, event))
+        except (OSError, sqlite3.Error):
+            project = meta['_audit']['project'] if '_audit' in meta else db.execute(
+                'SELECT project FROM sessions WHERE id=?', (session,)).fetchone()[0]
+            self.capture_fault(db, project)
+            raise
+
+    def observe(self, db, session, event, phase, response):
+        """Attach a measured phase to existing intent; it is not authorization."""
+        from .event_evidence import outcome, result_metadata, seal, validate_response
+        if phase not in {'execution', 'preparation', 'termination'}:
+            raise Invalid('Unsupported operation observation')
+        validate_response(response)
+        row = db.execute('SELECT * FROM events WHERE session=? AND event=?', (session, event)).fetchone()
+        if row is None or row['state'] != 'pending' or not self.owns_pending(session, event):
+            raise Invalid('Observation requires the originating pending operation')
+        meta = json.loads(row['request_meta'])
+        if meta.get('_seal') != seal(meta, json.loads(row['response'] or '{}'), 'pending'):
+            raise Invalid('Pending event evidence changed')
+        phases = meta['_audit'].setdefault('phases', {})
+        if phase in phases:
+            raise Invalid('Operation phase already observed')
+        phases[phase] = {'observed_at': time.time(), 'outcome': outcome(response, 'complete'),
+                         'result': result_metadata(response), 'result_sha256': digest(response)}
+        meta['_seal'] = seal(meta, json.loads(row['response'] or '{}'), 'pending')
+        try:
+            db.execute('UPDATE events SET request_meta=? WHERE session=? AND event=?',
+                       (canonical(meta), session, event))
+        except (OSError, sqlite3.Error):
+            project = db.execute('SELECT project FROM sessions WHERE id=?', (session,)).fetchone()[0]
+            self.capture_fault(db, project)
+            raise
 
     def record(self, db, session, event, request_hash, request, response):
-        db.execute("INSERT INTO events VALUES(?,?,?,?,?,?,?)", (session, event, request_hash,
-                   self.metadata(request), canonical(response), "complete", time.time()))
+        self.begin(db, session, event, request_hash, request, response=response)
+
+    def lifecycle(self, db, project, action, *, session=None, event=None, facts=None,
+                  approval=None, response=None, reduction=False, pending=False):
+        """Trusted state transitions use the same event writer and export seal.
+
+        Controller event IDs have their own namespace, not a usable credential.
+        Callers transact admission-increasing changes together with this record.
+        Authority reduction must survive missing evidence and reports the gap.
+        """
+        actor = db.execute('SELECT * FROM sessions WHERE id=? AND project=?', (session, project)).fetchone()
+        if session is not None and actor is None:
+            raise Invalid('Lifecycle session does not belong to project')
+        if actor is None:
+            actor = {'id': None, 'project': project, 'task': None, 'parent': None,
+                     'grants': '[]', 'commands': '[]', 'packages': '[]',
+                     'conversation': None, 'resume_of': None}
+        event = event or action + ':' + secrets.token_hex(16)
+        request = {'action': action, 'resource': project, 'content': ''}
+        facts = facts or {}
+        control = {'actor': actor, 'facts': facts, 'reduction': reduction,
+                   'requester': {'kind': 'local_operator' if approval or action in ('stop_requested', 'checkpoint_rejected') else
+                                'local_controller', 'uid': os.getuid()}}
+        if action == 'session_registered':
+            control['requester'] = ({'kind': 'authenticated_session', 'id': actor['parent']} if actor['parent']
+                                    else {'kind': 'local_operator', 'uid': os.getuid()})
+        try:
+            self.begin(db, 'controller:' + project, event, digest([request, facts]), request,
+                       response=None if pending else response or {'allowed': True, 'level': 'allow', 'effect': action},
+                       authorization={'method': 'exact_operator_approval', 'receipt_sha256': approval}
+                                     if approval else None, _control=control)
+        except (OSError, sqlite3.Error):
+            if not reduction:
+                raise
+            return False
+        return True
 
     @staticmethod
     def effect(db, project, inv, request):
@@ -476,11 +881,24 @@ class Store:
     def stop(self, project, reason="operator stop"):
         with self.locked() as db:
             self.project(db, project)
-            db.execute("UPDATE projects SET stopped=1,reason=? WHERE id=?", (reason, project))
+            return self.stop_from_db(db, project, reason, operator=True)
 
-    @staticmethod
-    def stop_from_db(db, project, reason):
-        db.execute("UPDATE projects SET stopped=1,reason=? WHERE id=?", (reason, project))
+    def stop_from_db(self, db, project, reason, *, operator=False):
+        previous, _ = self.project(db, project)
+        try:
+            db.execute("UPDATE projects SET stopped=1,reason=? WHERE id=?", (reason, project))
+        except (OSError, sqlite3.Error):
+            self.terminate_workloads(db, project=project)
+            raise
+        # A repeated call cannot assert that an earlier failed write succeeded.
+        captured = False
+        if not previous['stopped']:
+            captured = self.lifecycle(db, project, 'stop_requested' if operator else 'admission_stopped',
+                                     facts={'reason_sha256': digest(reason), 'termination': 'unconfirmed'},
+                                     reduction=True)
+        if not captured and not previous['stopped']:
+            self.terminate_workloads(db, project=project)
+        return {'stopped': True, 'confirmed_stopped': False, 'evidence': 'recorded' if captured else 'unavailable'}
 
     def status(self, project):
         with self.locked() as db:
@@ -496,10 +914,59 @@ class Store:
                 'SELECT t.* FROM package_terminations t JOIN workloads w ON w.unit=t.unit WHERE w.project=?', (project,))]
             return result
 
-    def audit_events(self, project):
+    def audit_events(self, project, *, include_lifecycle=False):
         with self.locked() as db:
-            return [{"session": r["session"], "task": r["task"], "event": r["event"],
-                     "request": json.loads(r["request_meta"]), "state": r["state"],
-                     "result": {k: v for k, v in json.loads(r["response"] or "{}").items() if k != "content"},
-                     "at": r["at"]} for r in db.execute(
-                         "SELECT e.*,s.task FROM events e JOIN sessions s ON s.id=e.session WHERE s.project=? ORDER BY e.at", (project,))]
+            return self._audit_events(db, project, include_lifecycle=include_lifecycle)
+
+    def _audit_events(self, db, project, *, include_lifecycle=False):
+        from .event_evidence import export_row
+        self.project(db, project)
+        return [export_row(r) for r in db.execute(
+                'SELECT e.*,s.task FROM events e LEFT JOIN sessions s ON s.id=e.session '
+                'WHERE s.project=? OR (? AND e.session=?) ORDER BY e.rowid',
+                (project, include_lifecycle, 'controller:' + project))]
+
+    def audit_export(self, project):
+        with self.locked() as db:
+            return self._audit_export(db, project)
+
+    def _audit_export(self, db, project):
+        from .event_evidence import export_document, assessment_row
+        from .evidence_storage import configuration, usage
+        result = export_document(project, self._audit_events(db, project, include_lifecycle=True))
+        result['profile'] = configuration(db, project)
+        result['storage'] = {'accounted_bytes': usage(db, project), 'accounting': 'conservative_logical_with_journal_allowance'}
+        result['payloads'] = [dict(r) for r in db.execute('SELECT session,event,at,sha256,captured_sha256,original_bytes,status,expired_at '
+                                                       'FROM evidence_payloads WHERE project=? ORDER BY rowid', (project,))]
+        result['assessments'] = [assessment_row(r) for r in db.execute(
+            'SELECT a.* FROM package_assessments a JOIN package_sets p ON p.id=a.package_set '
+            'WHERE p.project=? ORDER BY a.rowid', (project,))]
+        result['manifest']['supporting_sha256'] = digest({k: result[k] for k in ('profile', 'payloads', 'assessments')})
+        return result
+
+    def evidence_review(self, project, profile):
+        from .evidence_storage import review
+        return review(self, project, profile)
+
+    def adopt_evidence(self, project, profile, expected_hash, reviewer):
+        from .evidence_storage import adopt
+        return adopt(self, project, profile, expected_hash, reviewer)
+
+    def expire_evidence(self, project):
+        from .evidence_storage import expire
+        return expire(self, project)
+
+    def archive_evidence(self, project, destination):
+        from .evidence_storage import archive
+        return archive(self, project, destination)
+
+    def evidence_content(self, project, operation_id):
+        """Operator-only bounded original bytes; never infer omitted/expired text."""
+        with self.locked() as db:
+            self.project(db, project)
+            for row in db.execute('SELECT * FROM evidence_payloads WHERE project=?', (project,)):
+                if digest([row['session'], row['event']]) == operation_id:
+                    if row['payload'] is not None and hashlib.sha256(row['payload']).hexdigest() != row['captured_sha256']:
+                        raise Invalid('Optional evidence payload changed')
+                    return dict(row)
+        return {'status': 'omitted', 'payload': None}

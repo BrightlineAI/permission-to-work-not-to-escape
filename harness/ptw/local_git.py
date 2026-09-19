@@ -265,6 +265,7 @@ def git_request(broker, token, event, req):
             return broker.deny(db, actor, project, bundle, event, req, str(exc))
         if not health(store, db=db)['healthy']:
             return broker.record(db, actor, event, req, 'blocked', 'Controller monitoring unavailable')
+        store.begin(db, actor['id'], event, digest(req), req)
         folder = store.directory / 'git-requests' / secrets.token_hex(16)
         folder.mkdir(parents=True, mode=0o700)
         save(folder / 'request.json', {'session': actor['id'], 'request': req})
@@ -305,6 +306,8 @@ def git_request(broker, token, event, req):
                       'ref': 'refs/ptw/checkpoints/' + folder.name}
             save(folder / 'review.json', review)
             save(folder / 'state.json', {'phase': 'review', 'sha256': digest(review)})
+            db.execute('INSERT OR IGNORE INTO evidence_pins VALUES(?,?)',
+                       (actor['project'], 'checkpoint:' + folder.name))
             return broker.record(db, actor, event, req, 'allow', 'Checkpoint prepared; no repository write',
                 effect='git_review', review_sha256=digest(review), checkpoint=folder.name,
                 next='Operator: run ptw checkpoint ' + folder.name + ' in a separate terminal in this repository')
@@ -362,9 +365,16 @@ def publish_checkpoint(store, identity, expected):
                     raise Invalid('Git HEAD or index changed since checkpoint review')
                 if exists_at(fd, review['ref']):
                     raise Invalid('Checkpoint ref already exists')
+                audit_event = 'checkpoint-publish-' + identity
+                audit_request = {'action': 'checkpoint_publish', 'resource': definition['id'],
+                                 'path': review['ref'], 'expected': expected, 'content': ''}
+                store.begin(db, actor['id'], audit_event, digest(audit_request), audit_request,
+                            authorization={'method': 'exact_operator_approval', 'receipt_sha256': expected})
                 # Durable fail-closed intent. A killed operator cannot leave a
                 # partly published checkpoint while existing agents keep working.
-                store.stop_from_db(db, review['project'], 'Git checkpoint publication in progress; interrupted work requires review')
+                held = store.stop_from_db(db, review['project'], 'Git checkpoint publication in progress; interrupted work requires review')
+                if held['evidence'] != 'recorded':
+                    raise Invalid('Required checkpoint hold evidence unavailable')
                 atomic(folder / 'state.json', {'phase': 'publishing', 'sha256': expected})
                 try:
                     for name in review['objects']:
@@ -388,7 +398,17 @@ def publish_checkpoint(store, identity, expected):
                         os.link(name + '.lock', name, src_dir_fd=refs, dst_dir_fd=refs, follow_symlinks=False)
                         os.fsync(refs)
                     atomic(folder / 'state.json', {'phase': 'published', 'sha256': expected})
+                    store.complete(db, actor['id'], audit_event, {
+                        'allowed': True, 'level': 'allow', 'effect': 'checkpoint_publish',
+                        'checkpoint': identity, 'commit': review['commit'], 'ref': review['ref'],
+                        'review_sha256': expected, 'published': True})
+                    db.execute('BEGIN IMMEDIATE')
+                    store.lifecycle(db, review['project'], 'checkpoint_hold_released',
+                                    facts={'publication': digest([actor['id'], audit_event])})
+                    db.execute('DELETE FROM evidence_pins WHERE project=? AND reference=?',
+                               (review['project'], 'checkpoint:' + identity))
                     db.execute('UPDATE projects SET stopped=0,reason=NULL WHERE id=?', (review['project'],))
+                    db.commit()
                 except BaseException:
                     store.stop_from_db(db, review['project'], 'Uncertain Git checkpoint publication; inspect private receipt')
                     raise
@@ -418,11 +438,20 @@ def review_checkpoint(args):
         '\nCreates the displayed ref in this repository. Branch, staging and working files stay unchanged.'), flush=True)
     expected = digest(review)
     if ask('Type approve ' + expected + ' to create this exact checkpoint', 'reject') != 'approve ' + expected:
-        with store.locked():
+        with store.locked() as db:
             state = load(folder / 'state.json')
             if state['phase'] == 'review':
                 atomic(folder / 'state.json', {**state, 'phase': 'rejected'})
-        return {'published': False, 'rejected': True}
+                captured = store.lifecycle(db, record['project'], 'checkpoint_rejected',
+                                session=review['session'], facts={'checkpoint': args.identity,
+                                'review_sha256': expected}, reduction=True,
+                                response={'allowed': False, 'level': 'blocked', 'effect': 'checkpoint_rejected'})
+                if captured:
+                    db.execute('DELETE FROM evidence_pins WHERE project=? AND reference=?',
+                               (record['project'], 'checkpoint:' + args.identity))
+            else:
+                captured = False  # No new review decision or durable capture is claimed.
+        return {'published': False, 'rejected': True, 'evidence': 'recorded' if captured else 'unavailable'}
     try:
         return publish_checkpoint(store, args.identity, expected)
     finally:

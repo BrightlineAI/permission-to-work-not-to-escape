@@ -192,6 +192,10 @@ class Workspace:
         if bundle["policy"]["version"] != 4:
             raise Invalid("Repository actions require a reviewed version 4 policy")
         prior = db.execute("SELECT * FROM events WHERE session=? AND event=?", (actor["id"], event)).fetchone()
+        if prior and prior['state'] == 'pending' and self.store.owns_pending(actor['id'], event):
+            if prior['request_hash'] != digest(req):
+                raise Invalid('Operation request changed')
+            prior = None
         if prior:
             if prior["request_hash"] != digest(req):
                 raise Invalid("Event ID reused with different request")
@@ -209,8 +213,7 @@ class Workspace:
 
     @staticmethod
     def meta(req):
-        return {"action": req.get("action") if isinstance(req, dict) else None,
-                "resource": req.get("resource") if isinstance(req, dict) else None, "content": canonical(req)}
+        return req if isinstance(req, dict) else {}
 
     def deny(self, db, actor, project, bundle, event, req, reason):
         return self.store.deny(db, actor, project, bundle, event, digest(req), self.meta(req), reason)
@@ -233,8 +236,7 @@ class Workspace:
                 raise Invalid("Resource identity changed outside the broker: " + resource)
 
     def commit(self, db, actor, bundle, event, req, before, after, **extra):
-        db.execute("INSERT INTO events VALUES(?,?,?,?,?,?,?)",
-                   (actor["id"], event, digest(req), self.store.metadata(self.meta(req)), None, "pending", time.time()))
+        self.store.begin(db, actor['id'], event, digest(req), self.meta(req))
         try:
             publish(bundle["inventory"], before, after)
             for resource, item in bundle["inventory"]["resources"].items():
@@ -249,13 +251,20 @@ class Workspace:
             db.execute("UPDATE projects SET stopped=1,reason=? WHERE id=?", ("uncertain workspace publication", actor["project"]))
             response = {"allowed": False, "effect": "unknown", "level": "stop",
                         "reason": "Publication interrupted; inspect files and review a new project version", "error": type(exc).__name__}
-        db.execute("UPDATE events SET state='complete',response=? WHERE session=? AND event=?",
-                   (canonical(response), actor["id"], event))
+        try:
+            self.store.complete(db, actor['id'], event, response)
+        except (OSError, Invalid):
+            self.store.capture_fault(db, actor['project'])
+            raise
         return response
 
     def request(self, token, event, req):
         from .supervisor import Supervisor
         try:
+            if isinstance(req, dict) and req.get('action') in (
+                    'run', 'git_status', 'git_diff', 'git_checkpoint', 'service_start'):
+                with self.store.operation(token, event):
+                    return self._request(token, event, req)
             return self._request(token, event, req)
         finally:
             Supervisor(self.store).reconcile()
@@ -400,6 +409,7 @@ class Workspace:
                 before = scan(bundle["inventory"], definition["resources"])
             except (Invalid, OSError) as exc:
                 return self.record(db, actor, event, req, "blocked", "Cannot snapshot command inputs: " + str(exc))
+            self.store.begin(db, actor['id'], event, digest(req), self.meta(req))
         binding = {'approval': bundle['approval']['sha256'], 'definition': definition,
                    'snapshot': before, 'package_sets': []}
         try:
@@ -413,6 +423,8 @@ class Workspace:
                 actor, project, bundle, prior = self.inspect(db, token, event, req)
                 return prior or self.record(db, actor, event, req, "blocked", str(exc))
         with self.store.locked() as db:
+            self.store.observe(db, actor['id'], event, 'execution',
+                               {'allowed': True, 'level': 'allow', 'effect': 'run', **outcome})
             actor, project, bundle, prior = self.inspect(db, token, event, req)
             if prior is not None:
                 return prior

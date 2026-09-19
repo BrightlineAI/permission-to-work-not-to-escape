@@ -165,6 +165,7 @@ def candidates(repo, language, editable, metadata, *, metadata_root=None, python
 def review_text(bundle):
     policy, inv = bundle["policy"], bundle["inventory"]
     lines = ["\nPROJECT POLICY REVIEW", "Goal: " + policy["project"]["description"]]
+    lines.append('Evidence profile: ' + json.dumps(policy['project'].get('audit', 'basic mode')))
     for task in policy["tasks"]:
         lines.append("Task " + task["id"] + ": " + task["description"])
         for grant in task["grants"]:
@@ -589,6 +590,8 @@ def setup(repo, directory, args, previous=None):
                     attempt=stage / ("model-" + str(revision) + ".json"))
             elif args.history:
                 print("Selected history is evidence only; use ptw audit after approval. No model call.", flush=True)
+            from .evidence_storage import DEFAULT
+            proposal['project']['audit'] = dict(DEFAULT)
             compiled = compile_policy(proposal, inv, planned_trees=trees)
             draft = stage / ("draft" if revision == 0 else "draft-" + str(revision))
             save(draft / "draft.json", proposal)
@@ -666,6 +669,8 @@ def short_review(bundle, generated, trees):
     rules = project["packages"]
     runtime = project.get('python_runtime')
     return "\n".join(["\nPROJECT POLICY REVIEW", "Goal: " + project["description"],
+        'Evidence: ' + json.dumps(project.get('audit', 'basic mode')) +
+        '; required private metadata/replay, optional content off by default; quota failure holds work',
         "Editable: " + ", ".join(writable), "Read only: " + (", ".join(readonly) or "none"),
         "Commands: " + (", ".join(c["id"] for c in project["commands"]) or "none"),
         'Local Git: ' + ('scoped status/diff; checkpoint refs after separate exact review; no branch/index changes'
@@ -757,7 +762,8 @@ def start(args):
                 "setup_only": True, "protected_terminal_ready": False}
     from .conversation import attach
     with attach(directory, record, args.task or record['task'], getattr(args, 'resume', None)) as (conversation, resume):
-        session = store.register(record["project"], args.task or record["task"])
+        session = store.register(record["project"], args.task or record["task"],
+                                 conversation=conversation.name, resumed=resume is not None)
         try:
             run_dir = directory / "sessions" / session["session"]
             save(run_dir / "session.json", session)

@@ -87,7 +87,8 @@ class PackageControl:
                    "content": canonical(request_lock if plan else {"pins": selected, "extras": extras} if extras else selected)}
         request_hash = digest(request)
         try:
-            return self._install(token, event, selected, request, request_hash, plan=plan, extras=extras)
+            with self.store.operation(token, event):
+                return self._install(token, event, selected, request, request_hash, plan=plan, extras=extras)
         finally:
             from .supervisor import Supervisor
             Supervisor(self.store).reconcile()
@@ -96,6 +97,10 @@ class PackageControl:
         actor = self.store.session(db, token)
         project, bundle = self.store.project(db, actor["project"])
         prior = db.execute("SELECT * FROM events WHERE session=? AND event=?", (actor["id"], event)).fetchone()
+        if prior and prior['state'] == 'pending' and self.store.owns_pending(actor['id'], event):
+            if prior['request_hash'] != request_hash:
+                raise Invalid('Package operation request changed')
+            prior = None
         if prior:
             if prior["request_hash"] != request_hash:
                 raise Invalid("Event ID reused with different request")
@@ -162,8 +167,13 @@ class PackageControl:
             from .registry import provider_for
             provider = self.provider or provider_for(self.store, bundle, 'pypi')
         evidence, reasons, error, target = [], [], None, None
-        # Slow, fallible preparation holds neither the project lock nor a pending
-        # effect. Concurrent stops can proceed, and no agent sees staging files.
+        # Durable preparation intent precedes registry/build effects. The lease
+        # spans preparation; the controller lock remains free for stops.
+        with self.store.locked() as db:
+            actor, _, _, result = self.inspect(db, token, event, selected, request, request_hash)
+            if result is not None:
+                return result
+            self.store.begin(db, actor['id'], event, request_hash, request)
         with tempfile.TemporaryDirectory(prefix="package-stage-", dir=self.store.directory) as temporary:
             staging = Path(temporary)
             try:
@@ -259,8 +269,7 @@ class PackageControl:
                 identity = "pkg_" + secrets.token_hex(12)
                 sets = self.store.directory / "package-sets"
                 sets.mkdir(mode=0o700, exist_ok=True)
-                db.execute("INSERT INTO events VALUES(?,?,?,?,?,?,?)",
-                           (actor["id"], event, request_hash, self.store.metadata(request), None, "pending", time.time()))
+                self.store.begin(db, actor['id'], event, request_hash, request)
                 try:
                     os.rename(target, sets / identity)
                     # Mounts are read only. Make accidental operator writes difficult too.
@@ -282,15 +291,14 @@ class PackageControl:
                                 canonical(sorted(self.scope_names(selected, ecosystem, current["policy"]["version"]))),
                                 canonical(manifest), time.time(), ecosystem, current['approval']['sha256']))
                     from .reassessment import seed
-                    seed(db, identity, evidence)
-                    db.execute("UPDATE events SET response=?,state='complete' WHERE session=? AND event=?",
-                               (canonical(response), actor["id"], event))
+                    seed(db, identity, evidence, actor=actor)
+                    self.store.complete(db, actor['id'], event, response)
                     db.commit()
                     return response
                 except Exception:
                     db.rollback()
                     db.execute("UPDATE projects SET stopped=1,reason=? WHERE id=?",
                                ("uncertain package publication; operator review required", actor["project"]))
-                    db.execute("UPDATE events SET state='uncertain' WHERE session=? AND event=?", (actor["id"], event))
+                    self.store.complete(db, actor['id'], event, None, state='uncertain')
                     return {"allowed": False, "effect": "unknown", "level": "stop",
                             "reason": "Package publication failed; project stopped for review"}

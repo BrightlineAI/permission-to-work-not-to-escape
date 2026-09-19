@@ -175,12 +175,13 @@ def launch(store, session, session_path, run_dir, *, prompt=None, conversation=N
         supervisor.terminate(unit)
         code = process.wait(timeout=10)
     finally:
-        store.close_session(session["token"])
+        closure = store.close_session(session["token"])
         supervisor.terminate(unit)
         supervisor.reconcile()
     status = store.status(session["project"])
     result = {"exit_code": code, "seconds": round(time.monotonic() - started, 3),
-              "stopped": bool(status["stopped"]), "reason": status["reason"], "unit": unit}
+              "stopped": bool(status["stopped"]), "reason": status["reason"], "unit": unit,
+              'closure': closure}
     if conversation is not None:
         from .conversation import remember
         try:
@@ -189,5 +190,11 @@ def launch(store, session, session_path, run_dir, *, prompt=None, conversation=N
                   ' --resume ' + result['conversation'], flush=True)
         except Invalid as exc:
             result['resume_unavailable'] = str(exc)
+    with store.locked() as db:
+        captured = store.lifecycle(db, session['project'], 'terminal_exited', session=session['session'],
+            facts={'unit': unit, 'conversation_binding': 'recorded' if result.get('conversation') else 'unavailable',
+                   'native_transcript': 'not_captured'}, reduction=True,
+            response={'allowed': True, 'level': 'allow', 'effect': 'terminal_exit', 'exit_code': code})
+        result['evidence'] = 'recorded' if captured else 'unavailable'
     save(run_dir / "result.json", result)
     return result

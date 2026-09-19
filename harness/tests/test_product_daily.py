@@ -564,7 +564,7 @@ class PreviewTransportTests(unittest.TestCase):
             connection.return_value.close.assert_called_once()
 
 
-class LocalGitTests(WorkspaceFixture):
+class LocalGitFixture(WorkspaceFixture):
     """Real Git plumbing over synthetic data; only the native runner is mocked."""
     def setUp(self):
         super().setUp()
@@ -631,6 +631,8 @@ class LocalGitTests(WorkspaceFixture):
         from ptw.local_git import publish_checkpoint
         return publish_checkpoint(self.store, result['checkpoint'], result['review_sha256'])
 
+
+class LocalGitTests(LocalGitFixture):
     def test_real_monitor_health_without_nested_lock_and_expired_approval(self):
         from ptw.monitor import health
         self.changed()

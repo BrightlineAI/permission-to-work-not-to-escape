@@ -118,6 +118,8 @@ def serve(directory):
                 identity_recorded = True
             outcomes = Supervisor(store).reconcile()
             error = "termination pending" if any(not r["confirmed_stopped"] for r in outcomes) else ""
+            if any(r.get('evidence') == 'unavailable' for r in outcomes):
+                error = 'termination evidence unavailable'
             with store.locked() as db:
                 db.execute("INSERT OR REPLACE INTO monitor_health VALUES(1,?,?)", (time.time(), error))
         except Exception as exc:

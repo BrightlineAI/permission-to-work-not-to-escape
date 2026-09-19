@@ -1,5 +1,10 @@
 # Roadmap
 
+For the authorized single-host extension, the [current contract page](../harness/SAFETY.md)
+and [reviewed section 11](PROJECT-SAFETY-EXTENSION-REVIEW.md#11-reviewed-disposition-and-minimum-implementation-contract)
+govern current work. The broader roadmap below remains research direction and
+does not replace those bounded requirements or claim completed verification.
+
 The first release is a research prototype and an inspectable experiment archive. The newer [local harness](../harness/README.md) implements reviewed policy proposals, scoped repository operations, checked Python/npm installations, a unified Codex runner, narrower tasks, durable shared counters, automatic local stopping and retrospective log review. Broader deliverables below remain research and extension work.
 
 | Stage | Deliverable | Acceptance evidence |

@@ -92,6 +92,9 @@ def recover(directory):
                     ','.join('?' for _ in previous['inventory']['resources']) + ')',
                     (journal['project'], *previous['inventory']['resources']))
                 db.execute('UPDATE projects SET bundle=? WHERE id=?', (canonical(previous), journal['project']))
+                store.lifecycle(db, journal['project'], 'policy_rolled_back',
+                                facts={'previous_policy_sha256': bundle['approval']['sha256'],
+                                       'restored_approval_sha256': previous['approval']['sha256']})
             elif bundle['approval']['sha256'] != journal['old_sha256']:
                 raise Invalid('Concurrent policy revision cannot be overwritten')
             # A real stop and all counters survive rollback. Revoked sessions
@@ -159,6 +162,9 @@ def publish(directory, stage, old, new, changes, expected, record):
             db.execute('UPDATE projects SET setup_pending=1,dependency_revision=? WHERE id=?',
                 (journal['new_sha256'], project))
             db.execute('UPDATE sessions SET closed=1 WHERE project=?', (project,))
+            store.lifecycle(db, project, 'dependency_revision_started',
+                            facts={'candidate_policy_sha256': journal['new_sha256'],
+                                   'all_sessions_closed': True}, approval=new['approval']['sha256'])
             db.commit()
         journal['phase'] = 'suspended'
         atomic(path, journal)
@@ -196,6 +202,9 @@ def publish(directory, stage, old, new, changes, expected, record):
             # Keep ordinary sessions closed until every reviewed local build
             # and its final source/artifact validation has succeeded.
             db.execute('UPDATE projects SET bundle=? WHERE id=?', (canonical(new), project))
+            store.lifecycle(db, project, 'policy_revised',
+                            facts={'previous_policy_sha256': old['approval']['sha256']},
+                            approval=new['approval']['sha256'])
             db.commit()
         from .python_local import prepare_setup, validate_prepared_setup
         receipts = prepare_setup(store, new, record['task'], stage)

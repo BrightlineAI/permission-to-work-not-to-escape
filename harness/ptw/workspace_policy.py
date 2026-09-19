@@ -9,6 +9,11 @@ from .policy import ECOSYSTEM_SCHEMA, ID, Invalid, obj, scope, validate
 FILE_ACTIONS = ["read", "write", "append", "create", "delete"]
 WORKSPACE_SCHEMA = copy.deepcopy(ECOSYSTEM_SCHEMA)
 WORKSPACE_SCHEMA["properties"]["version"]["const"] = 4
+WORKSPACE_SCHEMA['properties']['project']['properties']['audit'] = obj({
+    'version': {'type': 'integer', 'const': 1},
+    'project_bytes': {'type': 'integer', 'minimum': 65536},
+    'content_resources': {'type': 'array', 'maxItems': 128, 'uniqueItems': True, 'items': ID},
+})
 COMMAND = obj({
     "id": ID,
     "argv": {"type": "array", "minItems": 1, "maxItems": 64,

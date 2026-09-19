@@ -213,6 +213,9 @@ def compile_policy(proposal, inv, *, planned_trees=()):
         validate({1: POLICY_SCHEMA, 2: PACKAGE_SCHEMA, 3: ECOSYSTEM_SCHEMA}.get(version, POLICY_SCHEMA), proposal)
     inventory(inv, workspace=version == 4, planned_trees=planned_trees)
     project = proposal["project"]
+    if 'audit' in project:
+        from .evidence_storage import profile
+        profile(project['audit'], {'policy': proposal, 'inventory': inv})
     if version in (3, 4) and not set(project["packages"]["build_packages"]) <= set(project["packages"]["allowed_names"]):
         raise Invalid("Build authority expands project package scope")
     parent = scope(project["grants"])

@@ -17,10 +17,18 @@ def dispatch(store, session, event, req):
         return broker.request(session["token"], event, req)
     if req["action"] not in ("install", "delegate"):
         return broker.request(session["token"], event, req)
+    related = ('install-' + digest([event, req])[:48],) if req['action'] == 'install' else ()
+    with store.operation(session['token'], event, related_events=related):
+        return _dispatch(store, session, event, req)
+
+
+def _dispatch(store, session, event, req):
+    broker = Workspace(store)
     with store.locked() as db:
         actor, project, bundle, prior = broker.inspect(db, session["token"], event, req)
         if prior is not None:
             return prior
+        store.begin(db, actor['id'], event, digest(req), broker.meta(req))
     result = None
     if req["action"] == "install":
         # A model supplies a resource ID, never a host filename or registry URL.
@@ -81,7 +89,7 @@ def dispatch(store, session, event, req):
         # This outer record binds the model request to that exact receipt.
         actor = store.session(db, session["token"])
         prior = db.execute("SELECT response,request_hash FROM events WHERE session=? AND event=?", (actor["id"], event)).fetchone()
-        if prior:
+        if prior and not store.owns_pending(actor['id'], event):
             if prior["request_hash"] != digest(req):
                 raise Invalid("Event ID reused with different request")
             return {**json.loads(prior["response"]), "replayed": True}

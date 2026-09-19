@@ -40,6 +40,10 @@ Run fresh benchmark workloads on an isolated Linux VPS using the [reproduction i
 
 ## Build on the work
 
+The [current harness safety contracts](harness/SAFETY.md) identify the reviewed
+extension, supported-route audit coverage and implementation limits separately
+from the frozen paper and historical evidence.
+
 The [project safety harness](harness/README.md) adds reviewed policies, narrower tasks,
 shared controls across agents, and auditing of selected Codex logs.
 Use the [recoverable Linux installer](harness/INSTALL.md) from a compact, verified

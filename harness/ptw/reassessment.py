@@ -1,12 +1,15 @@
 """On-use advisory refresh. The existing package evaluator is the sole policy."""
 import concurrent.futures
 import json
+import os
 import re
 import secrets
+import sqlite3
 import time
 
 from .package_evidence import EvidenceError, evaluate
-from .policy import Invalid, canonical
+from .policy import Invalid, canonical, digest
+from .evidence_storage import QuotaError, admit, charge
 
 PUBLIC = {'pypi': 'https://pypi.org', 'npm': 'https://registry.npmjs.org'}
 BUDGET_SECONDS = 30
@@ -35,12 +38,12 @@ def records(row):
         raise EvidenceError('Installed set lacks trustworthy assessment provenance; review and install again') from None
 
 
-def seed(db, package_set, evidence):
+def seed(db, package_set, evidence, *, actor=None):
     # Full install records retain artifact, registry and build provenance. Local
     # sources have separate reviewed receipts and are never queried as PyPI names.
     db.execute("UPDATE package_sets SET evidence=?,assessment_state='current',assessment_reason=NULL,"
                'assessment_generation=assessment_generation+1 WHERE id=?', (canonical(evidence), package_set))
-    attempt(db, package_set, 'current', {'source': 'installation', 'evidence': evidence})
+    attempt(db, package_set, 'current', {'source': 'installation', 'evidence': evidence}, actor=actor)
 
 
 def validate_publication(db, project, ecosystem, evidence):
@@ -58,9 +61,26 @@ def validate_publication(db, project, ecosystem, evidence):
                 raise EvidenceError('Dependency was quarantined during installation; collect new evidence and retry')
 
 
-def attempt(db, package_set, outcome, detail):
+def attempt(db, package_set, outcome, detail, *, actor=None):
+    from .store import _operation
+    active = _operation.get()
+    row = db.execute('SELECT project FROM package_sets WHERE id=?', (package_set,)).fetchone()
+    bundle = json.loads(db.execute('SELECT bundle FROM projects WHERE id=?', (row['project'],)).fetchone()[0])
+    observed = time.time()
+    detail = {**detail, '_audit': {'schema': 1, 'source_at': None, 'observed_at': observed,
+              'recorded_at': time.time(), 'policy_sha256': bundle['approval']['sha256'],
+              'resource': package_set, 'action': 'package_assessment',
+              'requester': {'kind': 'authenticated_session', 'id': actor['id']} if actor else
+                           {'kind': 'local_controller', 'uid': os.getuid()},
+              'enforcer': {'kind': 'local_controller', 'uid': os.getuid()},
+              'authorization': {'method': 'standing_policy', 'rule_sha256': digest(bundle['policy']['project']['packages']),
+                                'human_review_required': False, 'human_review_performed': False},
+              'cause': digest([active['session'], active['event']]) if active else None,
+              'outcome': outcome}}
+    detail['_seal'] = digest(detail)
+    admit(db, row['project'], charge(detail))
     db.execute('INSERT INTO package_assessments VALUES(?,?,?,?,?)',
-               (secrets.token_hex(16), package_set, time.time(), outcome, canonical(detail)))
+               (secrets.token_hex(16), package_set, observed, outcome, canonical(detail)))
 
 
 def cached(row, rules):
@@ -99,7 +119,7 @@ def refresh(store, token, package_set, *, definition=None, snapshot=None, provid
             except EvidenceError as exc:
                 db.execute("UPDATE package_sets SET assessment_state='blocked',assessment_reason=?,"
                            'assessment_generation=assessment_generation+1 WHERE id=?', (str(exc), package_set))
-                attempt(db, package_set, 'blocked', {'reason': str(exc)})
+                attempt(db, package_set, 'blocked', {'reason': str(exc)}, actor=actor)
                 raise
             generation = row['assessment_generation']
             approval = bundle['approval']['sha256']
@@ -144,7 +164,7 @@ def refresh(store, token, package_set, *, definition=None, snapshot=None, provid
                     raise Invalid('Project or policy changed during reassessment')
                 mounted_set(store, db, actor, package_set, definition=definition, snapshot=snapshot, assessment=False)
             except Invalid as exc:
-                attempt(db, package_set, 'discarded', {'reason': str(exc), 'evidence': updated, 'errors': errors})
+                attempt(db, package_set, 'discarded', {'reason': str(exc), 'evidence': updated, 'errors': errors}, actor=actor)
                 raise
             latest = db.execute('SELECT * FROM package_sets WHERE id=?', (package_set,)).fetchone()
             if forbidden:
@@ -162,11 +182,11 @@ def refresh(store, token, package_set, *, definition=None, snapshot=None, provid
                         db.execute("UPDATE package_sets SET assessment_state='quarantined',assessment_reason=?,"
                                    'assessment_generation=assessment_generation+1 WHERE id=?', (reason, other['id']))
                         attempt(db, other['id'], 'quarantined', {'source_set': package_set,
-                                'forbidden': forbidden, 'evidence': updated, 'errors': errors})
+                                'forbidden': forbidden, 'evidence': updated, 'errors': errors}, actor=actor)
                 db.commit()
                 raise EvidenceError('Package set quarantined: ' + reason)
             if latest['assessment_generation'] != generation or latest['assessment_state'] == 'quarantined':
-                attempt(db, package_set, 'discarded', {'reason': 'Concurrent assessment changed', 'evidence': updated, 'errors': errors})
+                attempt(db, package_set, 'discarded', {'reason': 'Concurrent assessment changed', 'evidence': updated, 'errors': errors}, actor=actor)
                 cached(latest, rules)
                 return
             if len(updated) != len(previous):
@@ -183,9 +203,14 @@ def refresh(store, token, package_set, *, definition=None, snapshot=None, provid
             db.execute('UPDATE package_sets SET assessment_state=?,assessment_reason=?,evidence=?, '
                        'assessment_generation=assessment_generation+1 WHERE id=?',
                        (state, reason, row['evidence'] if errors else canonical(updated), package_set))
-            attempt(db, package_set, state, {'evidence': updated, 'errors': errors})
+            attempt(db, package_set, state, {'evidence': updated, 'errors': errors}, actor=actor)
             if errors:
                 raise EvidenceError('Package reassessment unavailable: ' + reason)
+    except (QuotaError, sqlite3.Error):
+        if 'actor' in locals():
+            with store.locked() as db:
+                store.capture_fault(db, actor['project'])
+        raise
     finally:
         Supervisor(store).reconcile()
 

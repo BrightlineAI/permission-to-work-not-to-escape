@@ -1,6 +1,7 @@
 """Reuse Linux namespaces, nono and systemd instead of implementing a sandbox."""
 from __future__ import annotations
 
+from contextlib import contextmanager
 import json
 import os
 from pathlib import Path
@@ -8,11 +9,12 @@ import pwd
 import re
 import secrets
 import shutil
+import sqlite3
 import subprocess
 import sys
 import time
 
-from .policy import Invalid, scope
+from .policy import Invalid, digest, scope
 
 
 RUNTIME_HOST_PATHS = ("/usr", "/bin", "/lib", "/lib64", "/sbin")
@@ -96,6 +98,25 @@ class Supervisor:
     def __init__(self, store, nono=None):
         self.store, self.nono = store, nono
 
+    @contextmanager
+    def admission(self, db, actor, unit, command):
+        """A short locked intent covers creation of each actual native unit."""
+        event = 'workload_launch:' + unit
+        self.store.lifecycle(db, actor['project'], 'workload_launch', session=actor['id'],
+                             event=event, facts={'unit': unit, 'command_sha256': digest(command)}, pending=True)
+        try:
+            yield
+            self.store.complete(db, 'controller:' + actor['project'], event,
+                                {'allowed': True, 'level': 'allow', 'effect': 'workload_started', 'unit': unit})
+        except BaseException:
+            # A failed completion may follow a successful launch. Preserve the
+            # pending intent and stop the unit; recovery must not relaunch it.
+            try:
+                self.terminate(unit)
+            finally:
+                self.store.capture_fault(db, actor['project'])
+            raise
+
     def launch(self, token, argv, package_set=None):
         """Operator API for local workloads, not an unrestricted model tool."""
         if package_set:
@@ -130,14 +151,14 @@ class Supervisor:
             db.execute("INSERT INTO workloads(unit,project,session) VALUES(?,?,?)", (unit, actor["project"], actor["id"]))
             if package_set:
                 db.execute('INSERT INTO workload_packages VALUES(?,?)', (unit, package_set))
-            result = run(manager("systemd-run") + ["--quiet", "--collect", "--unit=" + unit, *service_identity(),
-                          "--property=KillMode=control-group", "--property=NoNewPrivileges=yes",
-                          "--property=ProtectControlGroups=yes",
-                          "--property=MemoryMax=256M", "--property=CPUQuota=50%", "--property=TasksMax=64",
-                          "--property=RuntimeMaxSec=300", "--property=TimeoutStopSec=2", "--", *command])
-            if result.returncode:
-                db.execute("UPDATE workloads SET stopped=1 WHERE unit=?", (unit,))
-                raise Invalid("Sandbox launch failed: " + result.stderr[:500])
+            with self.admission(db, actor, unit, command):
+                result = run(manager("systemd-run") + ["--quiet", "--collect", "--unit=" + unit, *service_identity(),
+                              "--property=KillMode=control-group", "--property=NoNewPrivileges=yes",
+                              "--property=ProtectControlGroups=yes",
+                              "--property=MemoryMax=256M", "--property=CPUQuota=50%", "--property=TasksMax=64",
+                              "--property=RuntimeMaxSec=300", "--property=TimeoutStopSec=2", "--", *command])
+                if result.returncode:
+                    raise Invalid("Sandbox launch failed: " + result.stderr[:500])
             return unit
 
     def engine(self, token, command, *, stderr=None, terminal=False, service_seconds=200, preparation=False, binding=None):
@@ -160,25 +181,26 @@ class Supervisor:
             unit = "ptw-" + secrets.token_hex(12) + ".service"
             db.execute("INSERT INTO workloads(unit,project,session) VALUES(?,?,?)", (unit, actor["project"], actor["id"]))
             bind_workload(db, unit, binding)
-            process = subprocess.Popen(manager("systemd-run") + ["--quiet", "--collect", "--pty" if terminal else "--pipe", "--wait", "--unit=" + unit,
-                *service_identity(), "--property=KillMode=control-group",
-                "--property=MemoryMax=768M", "--property=CPUQuota=100%", "--property=TasksMax=128",
-                "--property=NoNewPrivileges=yes", "--property=LimitFSIZE=536870912",
-                "--property=RuntimeMaxSec=" + ("28800" if terminal else str(service_seconds)), "--property=TimeoutStopSec=2", "--", *command],
-                stdin=None if terminal else subprocess.PIPE, stdout=None if terminal else subprocess.PIPE,
-                stderr=None if terminal else (stderr or subprocess.PIPE), text=stderr is None)
-            # Do not release the admission lock until systemd has created the unit.
-            # Otherwise a concurrent stop could miss a launch still in flight.
-            for _ in range(100):
-                if self.state(unit).get("LoadState") == "loaded":
-                    return process, unit
-                if process.poll() is not None:
-                    break
-                time.sleep(.02)
-            self.terminate(unit)
-            process.kill()
-            process.communicate(timeout=5)
-            raise Invalid("Codex supervised launch did not become ready")
+            with self.admission(db, actor, unit, command):
+                process = subprocess.Popen(manager("systemd-run") + ["--quiet", "--collect", "--pty" if terminal else "--pipe", "--wait", "--unit=" + unit,
+                    *service_identity(), "--property=KillMode=control-group",
+                    "--property=MemoryMax=768M", "--property=CPUQuota=100%", "--property=TasksMax=128",
+                    "--property=NoNewPrivileges=yes", "--property=LimitFSIZE=536870912",
+                    "--property=RuntimeMaxSec=" + ("28800" if terminal else str(service_seconds)), "--property=TimeoutStopSec=2", "--", *command],
+                    stdin=None if terminal else subprocess.PIPE, stdout=None if terminal else subprocess.PIPE,
+                    stderr=None if terminal else (stderr or subprocess.PIPE), text=stderr is None)
+                # Hold admission until systemd creates the unit so a concurrent
+                # stop cannot miss a launch still in flight.
+                for _ in range(100):
+                    if self.state(unit).get("LoadState") == "loaded":
+                        return process, unit
+                    if process.poll() is not None:
+                        break
+                    time.sleep(.02)
+                self.terminate(unit)
+                process.kill()
+                process.communicate(timeout=5)
+                raise Invalid("Codex supervised launch did not become ready")
 
     def background(self, token, command, *, service_seconds, binding=None):
         """Trusted bounded preview worker; all descendants share its cgroup."""
@@ -195,21 +217,19 @@ class Supervisor:
             db.execute('INSERT INTO workloads(unit,project,session) VALUES(?,?,?)',
                        (unit, actor['project'], actor['id']))
             bind_workload(db, unit, binding)
-            try:
-                result = run(manager('systemd-run') + ['--quiet', '--collect', '--unit=' + unit,
-                    *service_identity(), '--property=KillMode=control-group',
-                    '--property=NoNewPrivileges=yes', '--property=ProtectControlGroups=yes',
-                    '--property=MemoryMax=768M', '--property=CPUQuota=100%', '--property=TasksMax=128',
-                    '--property=LimitFSIZE=536870912', '--property=StandardOutput=null',
-                    '--property=StandardError=null', '--property=RuntimeMaxSec=' + str(service_seconds),
-                    '--property=TimeoutStopSec=2', '--', *command])
-            except (OSError, subprocess.SubprocessError) as exc:
-                self.terminate(unit)
-                raise Invalid('Preview supervisor launch interrupted') from exc
-            if result.returncode:
-                # A launch timeout/failure must still be reconciled physically.
-                self.terminate(unit)
-                raise Invalid('Preview supervisor launch failed')
+            with self.admission(db, actor, unit, command):
+                try:
+                    result = run(manager('systemd-run') + ['--quiet', '--collect', '--unit=' + unit,
+                        *service_identity(), '--property=KillMode=control-group',
+                        '--property=NoNewPrivileges=yes', '--property=ProtectControlGroups=yes',
+                        '--property=MemoryMax=768M', '--property=CPUQuota=100%', '--property=TasksMax=128',
+                        '--property=LimitFSIZE=536870912', '--property=StandardOutput=null',
+                        '--property=StandardError=null', '--property=RuntimeMaxSec=' + str(service_seconds),
+                        '--property=TimeoutStopSec=2', '--', *command])
+                except (OSError, subprocess.SubprocessError) as exc:
+                    raise Invalid('Preview supervisor launch interrupted') from exc
+                if result.returncode:
+                    raise Invalid('Preview supervisor launch failed')
             return unit
 
     @staticmethod
@@ -232,22 +252,67 @@ class Supervisor:
         run(manager("systemctl") + ["stop", unit])
         return self.state(unit)
 
+    def terminate_recorded(self, unit, *, db=None, reduce_on_failure=True):
+        """Reduce authority first, then retain the same observation as reconcile.
+
+        A capture fault must not prevent the physical attempt or claim durable
+        closure. The raw terminate method remains available to fault recovery.
+        """
+        try:
+            state = self.terminate(unit)
+        except (Invalid, OSError, subprocess.SubprocessError):
+            state = {'confirmed_stopped': False, 'error': 'Supervisor termination unavailable'}
+        if db is not None:
+            return self._record_termination(db, unit, state, reduce_on_failure)
+        try:
+            with self.store.locked() as connection:
+                return self._record_termination(connection, unit, state, reduce_on_failure)
+        except (OSError, sqlite3.Error):
+            return {**state, 'evidence': 'unavailable'}
+
+    def _record_termination(self, db, unit, state, reduce_on_failure):
+        row = db.execute('SELECT unit,project,session FROM workloads WHERE unit=?', (unit,)).fetchone()
+        if row is None:
+            return {**state, 'evidence': 'unavailable'}
+        try:
+            db.execute('BEGIN IMMEDIATE')
+            event = 'workload_termination:' + unit + ':' + str(state['confirmed_stopped'])
+            if not db.execute('SELECT 1 FROM events WHERE session=? AND event=?',
+                              ('controller:' + row['project'], event)).fetchone():
+                if db.execute("SELECT 1 FROM workload_packages wp JOIN package_sets ps ON ps.id=wp.package_set "
+                              "WHERE wp.unit=? AND ps.assessment_state='quarantined'", (unit,)).fetchone():
+                    from .policy import canonical
+                    db.execute('INSERT INTO package_terminations VALUES(?,?,?)',
+                               (unit, time.time(), canonical(state)))
+                captured = self.store.lifecycle(db, row['project'], 'workload_termination',
+                    session=row['session'], event=event, facts={'unit': unit}, reduction=True,
+                    response={'allowed': True, 'level': 'allow', 'effect': 'termination',
+                              'unit': unit, 'confirmed_stopped': state['confirmed_stopped']})
+                if not captured:
+                    raise sqlite3.OperationalError('Required termination capture unavailable')
+            if state['confirmed_stopped']:
+                db.execute('UPDATE workloads SET stopped=1 WHERE unit=?', (unit,))
+            db.commit()
+            if reduce_on_failure and not state['confirmed_stopped']:
+                self.store.stop_from_db(db, row['project'], 'Workload termination uncertain')
+            return {**state, 'evidence': 'recorded'}
+        except (OSError, sqlite3.Error):
+            db.rollback()
+            if reduce_on_failure:
+                self.store.capture_fault(db, row['project'])
+            return {**state, 'evidence': 'unavailable'}
+
     def reconcile(self):
         outcomes = []
         with self.store.locked() as db:
-            rows = db.execute("""SELECT w.unit FROM workloads w
+            rows = db.execute("""SELECT w.unit,w.project,w.session FROM workloads w
                 JOIN projects p ON p.id=w.project JOIN sessions s ON s.id=w.session
                 WHERE (p.stopped=1 OR s.closed=1 OR EXISTS (
                     SELECT 1 FROM workload_packages wp JOIN package_sets ps ON ps.id=wp.package_set
                     WHERE wp.unit=w.unit AND ps.assessment_state='quarantined')) AND w.stopped=0""").fetchall()
             for row in rows:
-                state = self.terminate(row["unit"])
-                if db.execute("SELECT 1 FROM workload_packages wp JOIN package_sets ps ON ps.id=wp.package_set "
-                              "WHERE wp.unit=? AND ps.assessment_state='quarantined'", (row['unit'],)).fetchone():
-                    from .policy import canonical
-                    db.execute('INSERT INTO package_terminations VALUES(?,?,?)',
-                               (row['unit'], time.time(), canonical(state)))
-                if state["confirmed_stopped"]:
-                    db.execute("UPDATE workloads SET stopped=1 WHERE unit=?", (row["unit"],))
+                # Reconciliation already targets revoked authority. Do not
+                # widen a closed session or quarantined set into a project stop.
+                state = self.terminate_recorded(row['unit'], db=db, reduce_on_failure=False)
                 outcomes.append({"unit": row["unit"], **state})
         return outcomes

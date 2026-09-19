@@ -58,6 +58,24 @@ def main(argv=None):
     checkpoint = commands.add_parser('checkpoint', help='Review and explicitly approve one local checkpoint requested by protected Codex')
     checkpoint.add_argument('identity')
     checkpoint.add_argument('--repo', default=str(Path.cwd()))
+    evidence = commands.add_parser('evidence', help='Export versioned metadata; no transcripts or tool output')
+    evidence.add_argument('--state', required=True)
+    evidence.add_argument('--project', required=True)
+    evidence.add_argument('--out', required=True, help='Private operator export path')
+    evidence_config = commands.add_parser('evidence-config', help='Review/adopt bounded evidence without clearing project history')
+    evidence_config.add_argument('--state', required=True)
+    evidence_config.add_argument('--project', required=True)
+    evidence_config.add_argument('--project-bytes', type=int, default=1073741824)
+    evidence_config.add_argument('--content-resource', action='append', default=[])
+    evidence_config.add_argument('--approve', help='Exact displayed review hash; omit to review')
+    evidence_config.add_argument('--reviewer', default='')
+    retention = commands.add_parser('evidence-expire', help='Expire only eligible optional content, keeping tombstones')
+    retention.add_argument('--state', required=True)
+    retention.add_argument('--project', required=True)
+    archive = commands.add_parser('evidence-archive', help='Explicit metadata export of closed history; no deletion')
+    archive.add_argument('--state', required=True)
+    archive.add_argument('--project', required=True)
+    archive.add_argument('--out', required=True)
     dependencies = commands.add_parser('deps', help='Review an add/remove/update while preserving project history')
     dependencies.add_argument('operation', choices=['add', 'remove', 'update'])
     dependencies.add_argument('specs', nargs='+')
@@ -200,6 +218,22 @@ def main(argv=None):
 
 
 def execute(args):
+    if args.command == 'evidence-config':
+        store = Store(args.state)
+        profile = {'version': 1, 'project_bytes': args.project_bytes, 'content_resources': args.content_resource}
+        if args.approve:
+            return store.adopt_evidence(args.project, profile, args.approve, args.reviewer)
+        packet = store.evidence_review(args.project, profile)
+        return {'review': packet, 'review_sha256': digest(packet)}
+    if args.command == 'evidence-expire':
+        return Store(args.state).expire_evidence(args.project)
+    if args.command == 'evidence-archive':
+        return Store(args.state).archive_evidence(args.project, args.out)
+    if args.command == 'evidence':
+        from .evidence_storage import private_export
+        result = Store(args.state).audit_export(args.project)
+        private_export(args.out, result)
+        return {'export_sha256': digest(result), 'events': result['manifest']['count']}
     if args.command == 'checkpoint':
         from .local_git import review_checkpoint
         return review_checkpoint(args)

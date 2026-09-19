@@ -9,7 +9,7 @@ import time
 
 from .execution import WRAPPER, prepare_command
 from .monitor import health
-from .policy import Invalid, OutsideScope, save, validate
+from .policy import Invalid, OutsideScope, digest, save, validate
 from .supervisor import RUNTIME_HOST_PATHS, Supervisor
 from .workspace import REQUEST_SCHEMA, scan, stamp
 
@@ -120,7 +120,7 @@ def _service_request(broker, supervisor, token, event, req):
         state = supervisor.state(row['unit']) if row else {'confirmed_stopped': True}
         if req['action'] == 'service_stop':
             if row:
-                state = supervisor.terminate(row['unit'])
+                state = supervisor.terminate_recorded(row['unit'], db=db)
             return broker.record(db, actor, event, req, 'allow' if state['confirmed_stopped'] else 'blocked',
                                  'Preview termination checked', effect='service_stop', **state)
         if req['action'] == 'service_status' or (row and not state['confirmed_stopped']):
@@ -135,6 +135,7 @@ def _service_request(broker, supervisor, token, event, req):
         except (Invalid, OSError) as exc:
             return broker.record(db, actor, event, req, 'blocked', 'Cannot snapshot preview inputs: ' + str(exc))
         approval = bundle['approval']['sha256']
+        store.begin(db, actor['id'], event, digest(req), req)
     directory = store.directory / 'previews' / secrets.token_hex(16)
     directory.mkdir(mode=0o700, parents=True)
     unit = None
@@ -176,7 +177,7 @@ def _service_request(broker, supervisor, token, event, req):
         save(directory / 'result.json', result)
         return result
     except (Invalid, OSError) as exc:
-        state = supervisor.terminate(unit) if unit else {'confirmed_stopped': True}
+        state = supervisor.terminate_recorded(unit) if unit else {'confirmed_stopped': True}
         save(directory / 'failure.json', {'error': str(exc), 'termination': state})
         with store.locked() as db:
             actor, project, bundle, prior = broker.inspect(db, token, event, req)
@@ -185,4 +186,6 @@ def _service_request(broker, supervisor, token, event, req):
             if isinstance(exc, OutsideScope):
                 return prior or broker.deny(db, actor, project, bundle, event, req, str(exc))
             return prior or broker.record(db, actor, event, req, 'blocked', str(exc),
-                                          violation_counted=False, termination=state)
+                violation_counted=False, termination=state,
+                **({'effect': 'service_start_failed', 'unit': unit,
+                    'confirmed_stopped': state['confirmed_stopped']} if unit else {}))

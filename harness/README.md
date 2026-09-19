@@ -1,5 +1,9 @@
 # Project safety harness
 
+The [current safety contracts](SAFETY.md) distinguish original product acceptance
+from the versioned extension. Its [audit guide](AUDIT.md) documents the partial
+implementation and remaining native verification; it is not a completion claim.
+
 [Installed dependency reassessment](REASSESSMENT.md) checks freshness before reuse,
 blocks uncertain evidence without misconduct counts, and quarantines confirmed
 forbidden dependencies. Read its caching, running-work and recovery semantics.

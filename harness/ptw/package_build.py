@@ -129,13 +129,15 @@ def run_build(store, token, command, target, *, preparation=False, binding=None)
         except (OSError, subprocess.SubprocessError) as exc:
             raise EvidenceError("Build supervision failed") from exc
         finally:
-            state = supervisor.terminate(unit)
+            state = supervisor.terminate_recorded(unit)
             if process.poll() is None:
                 process.kill()
             process.wait(timeout=10)
             process.stdout.close()
             if not state["confirmed_stopped"]:
                 raise EvidenceError("Build process termination could not be confirmed")
+            if state['evidence'] != 'recorded':
+                raise EvidenceError('Build termination evidence unavailable; publication blocked')
         archive.seek(0)
         # A new empty directory avoids letting an export overwrite trusted seeds.
         output = target.with_name(target.name + "-export")
