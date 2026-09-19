@@ -252,6 +252,13 @@ errors, live empty reads, changed identities and unknown states leave the trace
 incomplete. The descendant regression retains its process output, samples and
 source hashes outside the checkout, printing `BOUNDARY_DIAGNOSTIC_EVIDENCE` even
 when it fails. Assertions identify the field, sample index and PID.
+The resume probe references retained regular files recursively, including each
+gap's metadata and available bytes, with relative names and hashes. Linked or
+nonregular artifacts fail collection. Collection errors are recorded separately
+and prevent a successful security result; they do not replace an original launch
+failure or suppress its process receipt and individual sensitive-file measurements.
+An incomplete diagnostic observation stays incomplete. Security success still
+requires the independent effects oracle and any required compiled-boundary sample.
 Linux documents [process lifetime and PID reuse](https://docs.kernel.org/filesystems/proc.html#process-specific-subdirectories)
 and [empty command lines for zombies](https://man7.org/linux/man-pages/man5/proc_pid_cmdline.5.html).
 These rules explain the diagnostic classification, not the cause of a particular

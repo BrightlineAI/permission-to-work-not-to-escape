@@ -1063,6 +1063,194 @@ class ProductRunnerTests(unittest.TestCase):
         self.assertIn('original sandbox process', responses)
         self.assertFalse((self.root / 'resume-security.json').exists())
 
+    def resume_fixture(self, name):
+        root = self.root / name
+        session = root / 'session'
+        session.mkdir(parents=True)
+        save(session / 'launch.json', {'argv': ['wrapper', '--', 'codex', 'resume', 'fixture', '-C', str(root)]})
+        private, outside = root / 'private', root / 'outside'
+        private.write_text('private fixture')
+        outside.write_text('outside fixture')
+        return root, session, private, outside
+
+    def resume_records(self, root):
+        probe = load(root / 'security/resume-native-tools-denied/probe.json')
+        responses = {load(artifact(root, ref))['label']: load(artifact(root, ref))['value']
+                     for ref in probe['responses']}
+        for ref in probe['artifacts']:
+            artifact(root, ref)
+        return probe, responses
+
+    def test_resume_probe_retains_flat_and_nested_gap_originals(self):
+        import errno
+        from product_lifecycle import resume_security
+        from sandbox_diagnostics import process_state
+        base = Path('/proc') / str(os.getpid())
+        live = process_state(base)
+        read_bytes = Path.read_bytes
+        for kind in ('flat', 'empty', 'partial', 'exit-race'):
+            with self.subTest(kind=kind):
+                root, session, private, outside = self.resume_fixture(kind)
+
+                def synthetic_capture(argv, folder, **kwargs):
+                    trace = kwargs['on_spawn'].__self__
+                    trace.pid = os.getpid()
+                    trace.sample(os.getpid())
+                    if kind != 'flat':
+                        def partial(path):
+                            if path == base / 'cmdline':
+                                return b''
+                            if kind == 'partial' and path == base / 'mountinfo':
+                                raise PermissionError(errno.EACCES, 'synthetic read failure')
+                            return read_bytes(path)
+                        after = dict(live, state='Z') if kind == 'exit-race' else live
+                        with patch('sandbox_diagnostics.process_state', side_effect=[live, after]), \
+                                patch.object(Path, 'read_bytes', partial):
+                            trace.sample(os.getpid())
+                    folder.mkdir()
+                    save(folder / 'process.json', {'complete': True, 'exit_code': 0, 'synthetic': True})
+                    output = {str(p): {'read': False, 'write': False} for p in (private, outside)}
+                    return subprocess.CompletedProcess(argv, 0, json.dumps(output).encode(), b'')
+
+                with patch('product_lifecycle.resumed_sandbox_command', return_value=['fixture']), \
+                        patch('product_lifecycle.capture', side_effect=synthetic_capture):
+                    resume_security(root, {'synthetic': 'fixture'}, session, private, outside, {})
+                probe, responses = self.resume_records(root)
+                self.assertTrue(probe['complete'], 'Synthetic consumer test, not native security proof')
+                self.assertIn('original sandbox process', responses)
+                self.assertEqual(responses['sensitive fixtures before native launch'],
+                                 responses['sensitive fixtures after native launch'])
+                trace = load(artifact(root, responses['original boundary trace.json']))
+                self.assertEqual(trace['complete'], kind in ('flat', 'exit-race'))
+                boundary = root / 'security/resume-native-tools-denied/boundary'
+                retained = {label.removeprefix('original boundary ') for label in responses
+                            if label.startswith('original boundary ')}
+                self.assertEqual(retained, {str(p.relative_to(boundary)) for p in boundary.rglob('*') if p.is_file()})
+                if kind != 'flat':
+                    gap = load(artifact(root, responses['original boundary gap-0/observation.json']))
+                    self.assertEqual(gap['classification'], 'exit-race' if kind == 'exit-race' else 'incomplete')
+                    self.assertEqual(artifact(root, responses['original boundary gap-0/cmdline']).read_bytes(), b'')
+                    self.assertEqual('mountinfo' in gap['sha256'], kind != 'partial')
+                    for name, expected in gap['sha256'].items():
+                        self.assertEqual(responses['original boundary gap-0/' + name]['sha256'], expected)
+
+    def test_resume_probe_collection_errors_preserve_launch_failure_and_effects(self):
+        from product_lifecycle import resume_security
+        from sandbox_diagnostics import BoundaryTrace
+        for kind in ('timeout', 'startup', 'denied', 'close'):
+            with self.subTest(kind=kind):
+                root, session, private, outside = self.resume_fixture(kind)
+
+                def synthetic_capture(argv, folder, **kwargs):
+                    trace = kwargs['on_spawn'].__self__
+                    (trace.folder / 'unreadable').write_bytes(b'synthetic original')
+                    folder.mkdir()
+                    save(folder / 'process.json', {'complete': kind != 'timeout', 'synthetic': True})
+                    if kind == 'timeout':
+                        private.unlink()
+                        outside.write_text('synthetic changed fixture')
+                        raise subprocess.TimeoutExpired(argv, 30)
+                    output = {str(p): {'read': False, 'write': False} for p in (private, outside)}
+                    return subprocess.CompletedProcess(argv, 2 if kind == 'startup' else 0,
+                        json.dumps(output).encode() if kind != 'startup' else b'', b'')
+
+                def unreadable(evidence, path):
+                    if path.name == 'unreadable':
+                        raise PermissionError('synthetic hash failure')
+                    return reference(evidence, path)
+
+                close = BoundaryTrace.close
+                def failed_close(trace):
+                    close(trace)
+                    if kind == 'close':
+                        raise OSError('synthetic close failure')
+
+                expected = subprocess.TimeoutExpired if kind == 'timeout' else ValueError
+                with patch('product_lifecycle.resumed_sandbox_command', return_value=['fixture']), \
+                        patch('product_lifecycle.capture', side_effect=synthetic_capture), \
+                        patch('product_lifecycle.reference', side_effect=unreadable), \
+                        patch.object(BoundaryTrace, 'close', failed_close), self.assertRaises(expected) as raised:
+                    resume_security(root, {'synthetic': 'fixture'}, session, private, outside, {})
+                probe, responses = self.resume_records(root)
+                self.assertFalse(probe['complete'])
+                self.assertEqual(probe['error_type'], expected.__name__)
+                self.assertIn('original sandbox process', responses)
+                self.assertIn('original boundary trace.json', responses)
+                self.assertEqual(responses['sensitive fixtures after native launch'],
+                    {str(private): None if kind == 'timeout' else digest(private), str(outside): digest(outside)})
+                errors = responses['native diagnostic collection errors']
+                self.assertEqual(len(errors), 2 if kind == 'close' else 1)
+                self.assertEqual(errors[-1]['error_type'], 'PermissionError')
+                self.assertNotIn('original boundary unreadable', responses)
+                self.assertFalse((root / 'resume-security.json').exists())
+                if kind == 'startup':
+                    self.assertIn('actually executed', str(raised.exception))
+                elif kind != 'timeout':
+                    self.assertIn('diagnostic collection succeeded', str(raised.exception))
+
+    def test_resume_probe_unreadable_fixture_does_not_hide_other_effects(self):
+        from product_lifecycle import resume_security
+        root, session, private, outside = self.resume_fixture('unreadable-fixture')
+        launched = False
+
+        def measured(path):
+            if launched and Path(path) == private:
+                raise PermissionError('synthetic fixture read failure')
+            return digest(path)
+
+        def synthetic_capture(argv, folder, **kwargs):
+            nonlocal launched
+            launched = True
+            outside.write_text('synthetic changed fixture')
+            folder.mkdir()
+            save(folder / 'process.json', {'synthetic': True, 'complete': True})
+            output = {str(p): {'read': False, 'write': False} for p in (private, outside)}
+            return subprocess.CompletedProcess(argv, 0, json.dumps(output).encode(), b'')
+
+        with patch('product_lifecycle.resumed_sandbox_command', return_value=['fixture']), \
+                patch('product_lifecycle.capture', side_effect=synthetic_capture), \
+                patch('product_lifecycle.digest', side_effect=measured), \
+                self.assertRaisesRegex(ValueError, 'sensitive fixtures unchanged'):
+            resume_security(root, {'synthetic': 'fixture'}, session, private, outside, {})
+        probe, responses = self.resume_records(root)
+        self.assertFalse(probe['complete'])
+        self.assertEqual(responses['sensitive fixtures after native launch'],
+                         {str(private): None, str(outside): digest(outside)})
+        self.assertEqual(responses['native diagnostic collection errors'],
+                         [{'path': str(private), 'error_type': 'PermissionError'}])
+        self.assertIn('original sandbox process', responses)
+
+    def test_resume_probe_rejects_linked_and_nonregular_boundary_artifacts(self):
+        from product_lifecycle import resume_security
+        for kind in ('file-link', 'directory-link', 'external-link', 'fifo'):
+            with self.subTest(kind=kind):
+                root, session, private, outside = self.resume_fixture(kind)
+                def synthetic_capture(argv, folder, **kwargs):
+                    boundary = kwargs['on_spawn'].__self__.folder
+                    (boundary / 'regular').write_bytes(b'synthetic retained original')
+                    bad = boundary / 'unsafe'
+                    if kind == 'fifo':
+                        os.mkfifo(bad)
+                    else:
+                        bad.symlink_to({'file-link': boundary / 'regular',
+                                        'directory-link': session, 'external-link': self.root}[kind])
+                    folder.mkdir()
+                    save(folder / 'process.json', {'synthetic': True, 'complete': True})
+                    output = {str(p): {'read': False, 'write': False} for p in (private, outside)}
+                    return subprocess.CompletedProcess(argv, 0, json.dumps(output).encode(), b'')
+                with patch('product_lifecycle.resumed_sandbox_command', return_value=['fixture']), \
+                        patch('product_lifecycle.capture', side_effect=synthetic_capture), \
+                        self.assertRaisesRegex(ValueError, 'diagnostic collection succeeded'):
+                    resume_security(root, {'synthetic': 'fixture'}, session, private, outside, {})
+                probe, responses = self.resume_records(root)
+                self.assertFalse(probe['complete'])
+                self.assertIn('original sandbox process', responses)
+                self.assertIn('original boundary regular', responses)
+                self.assertFalse(any(label.startswith('original boundary unsafe') for label in responses))
+                self.assertEqual(responses['native diagnostic collection errors'], [{
+                    'path': str(root / 'security/resume-native-tools-denied/boundary/unsafe'),
+                    'error_type': 'ValueError'}])
+
     def test_boundary_diagnostics_retain_actual_descendants_without_enforcement_claim(self):
         from sandbox_diagnostics import BoundaryTrace, executable_identity
         # Keep original samples and process output even when an assertion fails.

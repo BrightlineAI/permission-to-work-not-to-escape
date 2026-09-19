@@ -7,6 +7,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import stat
 import time
 
 from evidence_io import capture, digest, load, reference, require, save
@@ -164,6 +165,32 @@ def resumed_sandbox_command(launch, payload):
     return command + ['--', '/usr/bin/python3', '-I', '-B', '-c', payload]
 
 
+def retain_boundary(probe, folder):
+    """Retain all available originals, without following links or hiding gaps."""
+    errors = []
+
+    def visit(path):
+        try:
+            relative = path.relative_to(probe.evidence)
+            require('..' not in relative.parts and
+                    not any(p.is_symlink() for p in (path, *path.parents)) and
+                    path.resolve().is_relative_to(probe.evidence.resolve()),
+                    'Linked or escaping boundary artifact')
+            mode = path.lstat().st_mode
+            if stat.S_ISDIR(mode):
+                for child in sorted(path.iterdir()):
+                    visit(child)
+            else:
+                require(stat.S_ISREG(mode), 'Nonregular boundary artifact')
+                probe.response('original boundary ' + str(path.relative_to(folder)),
+                               reference(probe.evidence, path))
+        except (OSError, ValueError) as exc:
+            errors.append({'path': str(path), 'error_type': type(exc).__name__})
+
+    visit(folder)
+    return errors
+
+
 def resume_security(evidence, source, session_root, private, outside, env):
     probe = Probe(evidence, Path(evidence) / 'security/resume-native-tools-denied',
                   'resume-native-tools-denied', source,
@@ -199,16 +226,32 @@ print(json.dumps(result, sort_keys=True))
             result = capture(command, probe.folder / 'native-command', env=env, cwd=cwd,
                              timeout=30, on_spawn=trace.start)
         finally:
-            trace.close()
-            for path in sorted(trace.folder.iterdir()):
-                probe.response('original boundary ' + path.name, reference(evidence, path))
+            # Collection failures are secondary. Preserve the launch exception,
+            # process receipt and each fixture measurement independently.
+            collection_errors = []
+            try:
+                trace.close()
+            except (OSError, ValueError) as exc:
+                collection_errors.append({'path': str(trace.folder), 'error_type': type(exc).__name__})
             process = probe.folder / 'native-command/process.json'
-            if process.is_file():
-                probe.response('original sandbox process', reference(evidence, process))
+            try:
+                if process.is_file():
+                    probe.response('original sandbox process', reference(evidence, process))
+            except (OSError, ValueError) as exc:
+                collection_errors.append({'path': str(process), 'error_type': type(exc).__name__})
             # Record effects before any exit/output assertion, including timeout
             # and deletion. A missing fixture must not suppress the other hash.
-            after = {p: digest(p) if Path(p).is_file() else None for p in targets}
+            after = {}
+            for p in targets:
+                try:
+                    after[p] = digest(p) if Path(p).is_file() else None
+                except OSError as exc:
+                    after[p] = None
+                    collection_errors.append({'path': p, 'error_type': type(exc).__name__})
             probe.response('sensitive fixtures after native launch', after)
+            collection_errors.extend(retain_boundary(probe, trace.folder))
+            if collection_errors:
+                probe.response('native diagnostic collection errors', collection_errors)
         if result.returncode:
             from native_boundary import compiled_command, namespace_probe
             try:
@@ -242,6 +285,7 @@ print(json.dumps(result, sort_keys=True))
             probe.check('private and outside reads/writes denied',
                         {p: {'read': False, 'write': False} for p in targets}, observed)
         probe.check('sensitive fixtures unchanged', before, after)
+        probe.check('native diagnostic collection succeeded', [], collection_errors)
         row = probe.finish()
         save(Path(evidence) / 'resume-security.json', {'security_checks': [row], 'source_sha256': source,
             'ended_epoch': time.time(), 'complete': True})
