@@ -54,6 +54,9 @@ the normal Codex terminal. First setup uses typed templates without a model
 roundtrip. For root files, use `ptw codex --editable src,tests --files README.md,app.py`.
 Continue a protected conversation through
 `ptw codex --resume ID`; see [current daily-work limits](harness/DAILY.md).
+Agents can explicitly [surrender their own session](harness/INTERACTIVE.md) when
+blocked. Surrender closes descendant admission and requests physical stopping;
+it is distinct from task completion. Native qualification is pending.
 The review shows warn1/stop3 and package restrictions before explicit approval;
 generated files are published recoverably afterward. Edits, packages, builds, tests and delegates use
 shared controls underneath. [Python and npm package checks](harness/ECOSYSTEMS.md)

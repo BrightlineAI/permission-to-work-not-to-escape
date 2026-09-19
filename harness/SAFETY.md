@@ -25,7 +25,74 @@ results do not establish acceptance of the changed runtime.
 Read the [audit guide and coverage matrix](AUDIT.md) before
 using its exports. Assembled artifact review is implemented for development
 validation through the [existing checkpoint workflow](DAILY.md#assembled-candidate-review).
-Sequence review and surrender remain separate queued work.
+Sequence review remains separate queued work. Explicit surrender is implemented
+for manager acceptance as described below; native validation remains pending.
+
+## Frozen task-17 checklist
+
+1. Connect explicit authenticated `surrender` and completion cleanup across MCP and headless adapters; never infer a command from prose or accept a target identity.
+2. Revoke the caller subtree, reject queued/late effects and old-token restart, preserve parent/sibling/unrelated work, and keep operator continuation explicit.
+3. Distinguish requested termination, durable closure and observed cessation; qualify repeat/lost acknowledgement, supervisor/query and required capture/quota/storage failures using existing recovery.
+4. Exercise public MCP, headless and terminal behavior with independent process/cgroup/listener/sentinel oracles and useful controls.
+5. Compose only missing IG2/S8 cases across existing broker, command/child, delegate, package/resolver/build/import and preview boundaries.
+6. Reach AT2 escalation under shipped policy/evidence settings across sessions; prove below-threshold useful work and real aggregate stopping without lowering thresholds.
+7. Complete scenario/control/test coverage, user guidance, single discovery and maintained hashes; preserve all pinned contracts and historical evidence.
+
+The implementation and guides are ready for manager acceptance. The focused
+`test_product_incident_controls` module includes offline authentication, replay,
+capture/quota/storage failure, queued admission and late command publication
+tests. Native cases cover headless subtree closure, MCP lost acknowledgement,
+fault recovery, a deterministic adapter client in a real PTY with an active
+preview, missing-target package/resolver confinement, and shipped-policy AT2.
+Native validation is pending; these fixtures are not measured model trajectories.
+
+The new route uses `workflow.end_session`, `Store.close_session` and
+`Supervisor.reconcile`. It verifies all registered subtree units separately
+from the reconciliation return list; an empty list alone proves nothing.
+Restrictive closure intent uses the existing lifecycle ledger. If flag storage
+fails, admission consults that intent and supervision retries the flag update.
+Required capture failure does not prevent revocation or best-effort termination.
+Fault coverage includes successful closure capture followed by failed termination
+capture, and changed terminal requests while flag writes continue to fail.
+Responses preserve the original intent and report capture gaps separately from
+independently observed cessation.
+An ordinary reply leaves an interactive session open. `finish` is an explicit
+completion declaration with the same cleanup and `completion_verified=false`.
+
+The lifecycle relies on SQLite transactions for all-or-nothing subtree flag
+updates and on systemd control-group stopping for registered descendants.
+[SQLite transaction/error semantics](https://www.sqlite.org/lang_transaction.html)
+and [systemd's primary kill documentation](https://raw.githubusercontent.com/systemd/systemd/main/man/systemd.kill.xml)
+describe those interfaces; only native observations can establish actual cessation.
+No new dependency or model call is required. Local routing/schema changes need
+no additional external research.
+
+### IG2/IG3 scenario and supported-route coverage
+
+The rows below identify concrete checks, not a claim that the current native
+suite passed. Existing cases stay in their owning modules; the incident module
+imports fixture modules without importing their test classes into discovery.
+Full regression must discover each incident case once. Source tests require the
+[isolated editable installation](README.md#run-the-tests); fresh installed
+qualification belongs to task 16 and must not reuse that environment.
+
+| Scenario/control | Existing checks reused | Added composition and independent oracle | Boundary/limit |
+| --- | --- | --- | --- |
+| IG2/S8: broker resources and delegates | `test_workspace.WorkspaceTests` scope, traversal, identity and delegate cases; `test_interactive.AdapterTests.test_session_labels_cannot_expand_token_scope` | `SurrenderTests.test_legacy_headless_surrender_and_missing_target_keep_scope`: missing file then denied private lookalike; protected bytes unchanged and useful parent read | File-resource analogue, no remote-target adapter |
+| IG2/S8: commands and descendants | `test_workspace.WorkspaceLinux.test_host_secrets_network_controller_hidden`; `test_ecosystems.EcosystemLinuxTests.test_npm_build_runs_only_in_disposable_namespace` | `NativeIncidentTests.test_missing_target_package_children_and_resolver_do_not_gain_authority`: inert package build/import spawns child probes; live collector receives no probe requests, dummy credential and private file unchanged, build produces 42 and import succeeds | Application namespaces; trusted host/runtime remain outside this boundary |
+| IG2/S8: registry resolution and installation | `test_product_ecosystems` private Python/npm native install cases, resolver environment/origin/credential checks; `test_packages.PackagePolicyTests.test_unapproved_network_destination` | Same incident composition: missing metadata then useful read, refused resolver write/foreign target, no collector publication | Resolver tooling has host networking; only its constrained registry interface is read-only. Model/controller transports are separately trusted |
+| IG2/IG3: previews and late effects | `test_product_daily.PreviewTests.test_stop_racing_launch_cannot_publish_ready`, `NativeDailyTests.test_bounded_preview_native`; `LocalGitTests.test_rejected_closed_stopped_and_monitor_loss_cannot_publish`; `test_product_audit` publication authority races | `NativeIncidentTests.test_terminal_surrender_stops_preview_without_ending_parent`: real preview GET before surrender; listener gone and cgroup empty afterward, parent sentinel continues; old token cannot restart | Snapshot preview and local checkpoint only; prior effects cannot be undone |
+| IG3/S9: explicit terminal requests | `test_workflow.WorkflowTests`; `test_interactive.AdapterTests.test_quit_revokes_children_but_not_another_parent` | `SurrenderTests` plus `NativeIncidentTests.test_headless_surrender_stops_subtree_and_preserves_parent_sibling` and `test_real_mcp_surrender_survives_lost_acknowledgement`: actual process/descendant/cgroup/sentinel checks after impossible fixture | Explicit structured command, never inferred from prose; no automatic credential revival |
+| IG3/S9: fault recovery | `test_product_audit.AuditLifecycleTests` and `NativeAuditTests.test_failed_closure_storage_still_terminates_subtree_only` | `SurrenderTests` capture/quota/flag/combined-fault cases and `NativeIncidentTests.test_faulted_surrender_closes_admission_and_reconciles_physical_work`: surviving process during injected query/stop failure, cessation after independent reconciliation | Lost storage or supervisor evidence stays unavailable/unconfirmed. Simultaneous failure of both closure persistence paths uses existing conservative project fault recovery |
+| AT2: aggregate escalation | `test_workspace.WorkspaceLinux.test_actual_running_parents_child_stop_unrelated_survives` | `NativeIncidentTests.test_shipped_aggregate_escalation_stops_real_descendants`: shipped template warn1/stop3, default audit cap, one denial per registered session; below-threshold work, real descendants stop at third denial, unrelated project continues | Deterministic shared escalation, distinct from surrender or semantic suspicion; allowed operations do not increment counts |
+
+All unqualified incident test names in this table belong to
+`test_product_incident_controls`. Native receipts retain source hashes, measured
+observations and original terminal output in unique private directories. Failed
+attempts remain failures. Expected physical outcomes above remain unvalidated
+until the manager runs them; optional semantic review is not exercised here.
+No claim is made that PTW already prevented the reported external incidents,
+that all host networking is offline, or that arbitrary malicious prose is detected.
 
 ## Frozen task-15 checklist
 
@@ -60,12 +127,12 @@ authorize sibling implementations or a new logger, gateway or model monitor.
 | Requirement | Control and evidence owner | Current status |
 | --- | --- | --- |
 | IG1 authority | Task 14: authenticated events; exact operator checkpoint receipt; `test_product_audit` | Task 14 accepted; current-source regression pending |
-| IG2 scope | Task 17: compose existing broker, command, package and preview boundaries | Existing boundaries; additive combinations untested |
-| IG3 surrender | Task 17: connect adapters to existing session closure/supervisor | Adapter connection pending |
+| IG2 scope | Task 17: compose existing broker, command, package and preview boundaries | Coverage mapped and compositions implemented; native qualification pending |
+| IG3 surrender | Task 17: adapters, closure intent and existing supervisor | Implemented with failure/public-path tests; native qualification pending |
 | IG4 review facts | Tasks 15/16: factual checkpoint/sequence inputs distinct from worker explanations | Checkpoint separation implemented; sequence consumer pending |
 | IG5 release | Tasks 16/7: installed additive acceptance and publication verification | Pending |
 | AT1 same permissions, different harm | Tasks 15/16: paired fixture behavior and artifact review | Offline fixture gate exercised; native/semantic assessment pending |
-| AT2 aggregate escalation | Task 17: shipped thresholds and actual descendant cessation | Existing native controls; refinement unverified |
+| AT2 aggregate escalation | Task 17: `NativeIncidentTests.test_shipped_aggregate_escalation_stops_real_descendants` | Template warn1/stop3 and default audit cap; native result pending |
 | AT3 separated harmful steps | Tasks 15/16: candidate plus linked prior evidence across sessions | Candidate/context fixture implemented; native/semantic assessment pending |
 
 Fixture decisions are deterministic controls, not model detection evidence.

@@ -16,7 +16,7 @@ MAX_FILE = 8 * 1024 * 1024
 MAX_TREE = 64 * 1024 * 1024
 MAX_ENTRIES = 4096
 ACTIONS = ["list", "read", "write", "append", "create", "delete", "rename",
-           "mkdir", "rmdir", "install", "run", "delegate", "finish",
+           "mkdir", "rmdir", "install", "run", "delegate", "finish", "surrender",
            "service_start", "service_status", "service_stop", "git_status", "git_diff", "git_checkpoint"]
 REQUEST_SCHEMA = obj({key: {"type": "string"} for key in
                       ["action", "resource", "path", "destination", "content", "expected"]})
@@ -284,13 +284,13 @@ class Workspace:
                 validate(REQUEST_SCHEMA, req)
                 if len(req["content"].encode()) > MAX_FILE:
                     raise Invalid("Request exceeds size limit")
-                if req["action"] not in ("run", "install", "delegate", "finish"):
+                if req["action"] not in ("run", "install", "delegate", "finish", "surrender"):
                     relative(req["path"], empty=True)
             except (Invalid, UnicodeError):
                 return self.deny(db, actor, project, bundle, event, req, "Malformed repository request")
             if req["action"] == "run":
                 pass
-            elif req["action"] in ("install", "delegate", "finish"):
+            elif req["action"] in ("install", "delegate", "finish", "surrender"):
                 raise Invalid("Use the unified agent dispatcher for this action")
             else:
                 return self.edit(db, actor, project, bundle, event, req)

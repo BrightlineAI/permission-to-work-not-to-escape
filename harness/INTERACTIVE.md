@@ -4,6 +4,40 @@ Installed package reuse follows the approved [freshness and quarantine policy](R
 If evidence is unavailable, restore the approved service and retry; this does not
 count as misconduct. Quarantined sets require a freshly assessed replacement.
 
+Explicitly giving up uses the existing `project_action` tool with
+`action="surrender"`, `resource=""`, and `content="the blocker"`; leave `path`,
+`destination` and `expected` empty. The note is limited to 4096 UTF-8 bytes.
+This requests closure of the authenticated caller and its descendants, without
+ordinary action permissions or optional model review. It does not declare task
+success or add a violation. Ordinary conversational answers keep the session open.
+`finish` explicitly declares completion and uses the same closure; its declaration
+does not prove that tests or the assignment succeeded.
+
+The tool reports `termination_requested`, `admission_closed` and
+`confirmed_stopped` separately. `outcome="surrender"` reports a blocker;
+`outcome="finish"` is a completion declaration, always with
+`completion_verified=false`. A false `confirmed_stopped` means termination is
+unconfirmed even if admission is already closed.
+`closure_flags_persisted=false` means the flag write failed: a captured closing
+intent can still deny admission while recovery retries it. Unavailable capture
+or supervisor queries must not be treated as fully recorded termination.
+`evidence="unavailable"` also reports failed termination capture after successful
+closure capture; `confirmed_stopped` remains a separate physical observation.
+Repeating a terminal request preserves the recorded outcome and reports
+`replayed=true` when reusing retained intent, even while flag storage still fails.
+A later `finish` cannot turn a recorded surrender into a completion declaration.
+If both closing-intent capture and flag persistence fail, existing storage-fault
+recovery attempts a conservative project stop. That exceptional infrastructure
+failure is not a policy violation or routine child-surrender scope.
+The broker may stop before its reply arrives. A lost reply is not permission to
+retry work or restart with the old credential; the same surrender can be repeated
+without reopening authority. An operator should inspect `ptw status` and existing
+termination evidence if confirmation is unavailable. Protected continuation is
+an explicit operator action through `ptw codex --resume ID` with a fresh session,
+retained scope and history, as described in [daily work](DAILY.md).
+This surrender implementation is awaiting native qualification; see the
+[incident checklist and route coverage](SAFETY.md#frozen-task-17-checklist).
+
 Use the [recoverable Linux installer](INSTALL.md), which runs doctor automatically,
 then open a fresh terminal. If `ptw` is absent, follow the installer's printed
 instructions for your shell. Authenticate with `ptw-codex login` using your own

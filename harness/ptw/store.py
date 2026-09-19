@@ -132,7 +132,13 @@ class Store:
                         fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
                     except BlockingIOError:
                         continue  # The originating controller still owns this operation.
-                self.stop_from_db(db, row['project'], 'uncertain effect after interrupted request; operator review required')
+                meta = json.loads(row['request_meta'])
+                sid = meta.get('_audit', {}).get('session') or row['session']
+                session = db.execute('SELECT closed FROM sessions WHERE id=?', (sid,)).fetchone()
+                # A surrendered operation still has an uncertain outcome, but
+                # its authority is already revoked. Do not stop its siblings.
+                if not (session and (session['closed'] or sid in self.closing_sessions(db))):
+                    self.stop_from_db(db, row['project'], 'uncertain effect after interrupted request; operator review required')
                 self.complete(db, row['session'], row['event'], None, state='uncertain')
             finally:
                 if fd is not None:
@@ -346,7 +352,7 @@ class Store:
         row = db.execute("SELECT * FROM sessions WHERE token_hash=?", (hashlib.sha256(token.encode()).hexdigest(),)).fetchone()
         if row is None:
             raise Invalid("Unknown session credential")
-        if row["closed"]:
+        if row["closed"] or row['id'] in Store.closing_sessions(db):
             raise Invalid("Session ended; its credential and descendants are no longer active")
         if row['preparation_source'] is not None:
             if not preparation:
@@ -399,30 +405,70 @@ class Store:
                     'parent': None, 'grants': grants, 'packages': names, 'commands': [],
                     'preparation_source': identity}
 
-    def close_session(self, token):
+    @staticmethod
+    def closing_sessions(db):
+        """Existing lifecycle intent remains restrictive if flag storage fails."""
+        return [r[0] for r in db.execute('''WITH RECURSIVE closing(id) AS (
+            SELECT s.id FROM sessions s JOIN events e
+              ON e.session='controller:' || s.project AND e.event='session_closing:' || s.id
+              WHERE s.closed=0
+            UNION SELECT s.id FROM sessions s JOIN closing c ON s.parent=c.id
+            ) SELECT id FROM closing''')]
+
+    def close_session(self, token, *, outcome='closed', note=''):
         """Revoke one session and its descendants without stopping other parents."""
+        if not isinstance(token, str) or len(token) < 20:
+            raise Invalid('Unknown session credential')
         with self.locked() as db:
             row = db.execute("SELECT * FROM sessions WHERE token_hash=?",
                              (hashlib.sha256(token.encode()).hexdigest(),)).fetchone()
             if row is None:
                 raise Invalid("Unknown session credential")
-            if row['closed']:
-                return
             # Revocation is durable before capture: failure must not reopen it.
             tree = [r[0] for r in db.execute('''WITH RECURSIVE tree(id) AS (
                 SELECT id FROM sessions WHERE id=?
                 UNION ALL SELECT s.id FROM sessions s JOIN tree t ON s.parent=t.id
                 ) SELECT id FROM tree''', (row['id'],))]
+            if row['closed']:
+                prior = db.execute("SELECT request_meta FROM events WHERE session=? AND "
+                    "json_extract(request_meta,'$.action') IN ('session_closed','session_closing') AND "
+                    "json_extract(request_meta,'$._audit.session')=? "
+                    "ORDER BY json_extract(request_meta,'$.action')='session_closed' DESC,rowid LIMIT 1",
+                    ('controller:' + row['project'], row['id'])).fetchone()
+                facts = json.loads(prior[0])['_audit']['details'] if prior else {}
+                return {'closed': True, 'confirmed_stopped': False, 'sessions': tree,
+                        'outcome': facts.get('outcome', 'closed'), 'replayed': True,
+                        'evidence': 'recorded' if prior and json.loads(prior[0])['action'] == 'session_closed' else 'unavailable'}
+            event = 'session_closing:' + row['id']
+            intent = db.execute('SELECT request_meta FROM events WHERE session=? AND event=?',
+                                ('controller:' + row['project'], event)).fetchone()
+            if intent:
+                outcome = json.loads(intent[0])['_audit']['details']['outcome']
+            else:
+                # Reuse lifecycle storage, not an emergency journal. Even when
+                # capture/quota fails, still attempt the authority reduction.
+                self.lifecycle(db, row['project'], 'session_closing', session=row['id'], event=event,
+                    facts={'outcome': outcome, 'note_sha256': digest(note),
+                           'termination': 'unconfirmed'}, reduction=True)
             try:
+                db.execute('BEGIN IMMEDIATE')
                 db.executemany('UPDATE sessions SET closed=1 WHERE id=?', [(sid,) for sid in tree])
+                db.commit()
                 captured = self.lifecycle(db, row['project'], 'session_closed', session=row['id'],
-                    facts={'closed_sessions': tree, 'termination': 'unconfirmed'}, reduction=True)
+                    facts={'closed_sessions': tree, 'termination': 'unconfirmed',
+                           'outcome': outcome, 'note_sha256': digest(note)}, reduction=True)
             except (OSError, sqlite3.Error):
+                db.rollback()
+                if row['id'] not in self.closing_sessions(db):
+                    # Both forms of subtree persistence failed. Existing capture
+                    # recovery is conservative; never claim durable revocation.
+                    self.capture_fault(db, row['project'])
                 self.terminate_workloads(db, sessions=tree)
                 raise
             if not captured:
                 self.terminate_workloads(db, sessions=tree)
-            return {'closed': True, 'confirmed_stopped': False,
+            return {'closed': True, 'confirmed_stopped': False, 'sessions': tree,
+                    'outcome': outcome, 'replayed': bool(intent),
                     'evidence': 'recorded' if captured else 'unavailable'}
 
     def terminate_workloads(self, db, *, sessions=None, project=None):
@@ -851,6 +897,8 @@ class Store:
         if action == 'session_registered':
             control['requester'] = ({'kind': 'authenticated_session', 'id': actor['parent']} if actor['parent']
                                     else {'kind': 'local_operator', 'uid': os.getuid()})
+        elif action in ('session_closing', 'session_closed'):
+            control['requester'] = {'kind': 'authenticated_session', 'id': actor['id']}
         try:
             self.begin(db, 'controller:' + project, event, digest([request, facts]), request,
                        response=None if pending else response or {'allowed': True, 'level': 'allow', 'effect': action},

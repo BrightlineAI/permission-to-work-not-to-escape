@@ -24,6 +24,15 @@ until the first exits. Resume never reactivates an old broker credential or
 clears a project stop. Dependency reviews preserve the binding; full policy
 replacement does not. Conversation history is untrusted context, not authority.
 
+An agent can explicitly [surrender its own session](INTERACTIVE.md) when blocked.
+This revokes its descendants and stops their registered commands/previews;
+ordinary replies leave the conversation active. Treat a missing reply or
+`confirmed_stopped=false` as unconfirmed termination, not successful completion.
+Inspect `ptw status` and the existing monitor/reconciliation evidence before
+continuing. Only the operator starts a new protected attachment with the commands
+above; old surrendered credentials remain invalid. A stopped project cannot be
+revived by resume. Native qualification of the new surrender route is pending.
+
 The trusted pinned client stores each conversation's rollouts and SQLite state
 under private operator state. Authentication remains in its existing location
 and is neither copied nor read by the resume adapter. Each attachment atomically

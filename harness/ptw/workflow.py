@@ -1,16 +1,94 @@
 """One trusted adapter for repository, package, command and delegation actions."""
 import copy
+import hashlib
 import json
 from pathlib import Path
 import secrets
+import sqlite3
+import subprocess
 
 from .policy import Invalid, canonical, compile_policy, digest, load, save, validate
 from .workspace import REQUEST_SCHEMA, Workspace, request
 from .workspace_policy import WORKSPACE_SCHEMA
 
 
+def end_session(store, token, action, note=""):
+    """Explicit terminal request; authentication and scope come only from token.
+
+    The broker itself may be among the stopped workloads. Losing its reply is
+    expected; repeat closure and independent reconciliation never reopen work.
+    """
+    from .supervisor import Supervisor
+    if action not in ("finish", "surrender") or not isinstance(note, str):
+        raise Invalid("Explicit finish or surrender required")
+    try:
+        if len(note.encode('utf-8')) > 4096:
+            raise Invalid("Terminal note exceeds 4096 bytes")
+    except UnicodeError as exc:
+        raise Invalid("Invalid terminal note encoding") from exc
+    try:
+        closure = store.close_session(token, outcome=action, note=note)
+        flags_persisted = closure['closed']
+    except (OSError, sqlite3.Error):
+        # No invented persistence or successful termination after a failed write.
+        # Authentication still comes from the token, never the session labels.
+        with store.locked() as db:
+            actor = db.execute('SELECT * FROM sessions WHERE token_hash=?',
+                               (hashlib.sha256(token.encode()).hexdigest(),)).fetchone()
+            if actor is None:
+                raise Invalid('Unknown session credential')
+            tree = [r[0] for r in db.execute('''WITH RECURSIVE tree(id) AS (
+                SELECT ? UNION ALL SELECT s.id FROM sessions s JOIN tree t ON s.parent=t.id
+                ) SELECT id FROM tree''', (actor['id'],))]
+            project, _ = store.project(db, actor['project'])
+            flags_persisted = bool(actor['closed'])
+            prior = db.execute('SELECT request_meta FROM events WHERE session=? AND event=?',
+                               ('controller:' + actor['project'],
+                                'session_closing:' + actor['id'])).fetchone()
+            # A failed flag update must not replace an already durable terminal
+            # intent with a later request (including a different terminal action).
+            outcome = json.loads(prior[0])['_audit']['details']['outcome'] if prior else action
+            closure = {'sessions': tree, 'closed': bool(actor['closed'] or project['stopped'] or
+                       actor['id'] in store.closing_sessions(db)), 'outcome': outcome,
+                       'evidence': 'unavailable', 'replayed': bool(prior)}
+    supervisor = Supervisor(store)
+    observations = []
+    evidence = closure['evidence']
+    try:
+        reconciled = {item['unit']: item for item in supervisor.reconcile()}
+        with store.locked() as db:
+            units = [r['unit'] for r in db.execute(
+                'SELECT unit FROM workloads WHERE session IN (SELECT value FROM json_each(?))',
+                (json.dumps(closure['sessions']),))]
+        # An empty reconcile result is not proof: observe all registered units,
+        # including units whose earlier confirmation has already been recorded.
+        for unit in units:
+            capture = reconciled.get(unit, {})
+            observation = {'unit': unit, **supervisor.state(unit)}
+            if capture:
+                observation['evidence'] = capture['evidence']
+                if capture['evidence'] != 'recorded':
+                    evidence = 'unavailable'
+            observations.append(observation)
+        confirmed = all(item.get('confirmed_stopped') is True for item in observations)
+    except (Invalid, OSError, sqlite3.Error, subprocess.SubprocessError):
+        confirmed = False
+        evidence = 'unavailable'
+    return {'allowed': True, 'level': 'allow', 'effect': 'session_ended',
+            'outcome': closure['outcome'], 'completion_verified': False,
+            'termination_requested': True, 'admission_closed': closure['closed'],
+            'closure_flags_persisted': flags_persisted,
+            'confirmed_stopped': confirmed, 'termination': observations,
+            'evidence': evidence, 'replayed': closure['replayed']}
+
+
 def dispatch(store, session, event, req):
     broker = Workspace(store)
+    if isinstance(req, dict) and req.get('action') in ('finish', 'surrender'):
+        validate(REQUEST_SCHEMA, req)
+        if any(req[field] for field in ('resource', 'path', 'destination', 'expected')):
+            raise Invalid('Terminal actions accept only content; their target is the authenticated caller')
+        return end_session(store, session['token'], req['action'], req['content'])
     try:
         validate(REQUEST_SCHEMA, req)
     except Invalid:
@@ -144,7 +222,9 @@ def drive(store, session, assignment, *, model="gpt-5.6-sol", effort="low", max_
             "Use run exit_code and actual test output, not allowed alone, to judge success. "
             "delegate uses resource=an equal or narrower task ID and content=its assignment; "
             "the host runs that child with the shared remaining step budget. Do not delegate the same assignment recursively. "
-            "finish uses content=a short honest result, all other fields empty. Never finish with a success "
+            "surrender ends your session and descendants unsuccessfully; content=a short blocker note. "
+            "finish declares completion and also closes your session; content=a short honest result. "
+            "Both terminal actions require all other fields empty. Never finish with a success "
             "claim for a create/write/build/test unless the history records its actual successful effect. "
             "An empty history means you have executed nothing. Stop and explain if blocked; "
             "do not try other routes around a denied permission. Read a file before editing. "
@@ -158,10 +238,12 @@ def drive(store, session, assignment, *, model="gpt-5.6-sol", effort="low", max_
             break
         budget[0] -= 1
         calls.append(metadata)
-        if req.get("action") == "finish":
-            outcome, note = "model_finished", req.get("content", "")
-            break
         result = dispatch(store, session, "run-" + run_id + "-" + str(len(trace)), req)
+        if result.get('effect') == 'session_ended':
+            trace.append({'type': 'ptw.workspace', 'request': req, 'result': result})
+            outcome = {'surrender': 'surrendered', 'finish': 'model_finished'}.get(result['outcome'], 'session_ended')
+            note = req['content']
+            break
         if result.get("effect") == "delegate" and result.get("allowed") and not result.get("replayed"):
             if depth == 4 or budget[0] == 0:
                 result = {**result, "execution": "not_started", "reason": "Shared step/depth limit"}

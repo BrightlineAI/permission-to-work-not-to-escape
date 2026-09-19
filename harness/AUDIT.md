@@ -128,11 +128,22 @@ result hash, never command output.
 Required event-write failure attempts durable project stopping and best-effort
 termination through the existing supervisor. Physical termination is attempted
 even if the stop-state write fails. That attempt does not establish durable
-closure or confirmed termination. Session revocation precedes its evidence write;
-capture failure still attempts to terminate that session's subtree without
-revoking another parent. Reconciliation records physical confirmation separately
+closure or confirmed termination. Session closure first records restrictive
+`session_closing` intent in the existing lifecycle ledger, then atomically revokes
+the subtree and records `session_closed`. If flag storage fails, captured intent
+still rejects subtree admission; reconciliation retries the flags and termination.
+If capture fails, flag revocation and best-effort termination still proceed.
+If both persistence paths fail, existing capture-fault recovery attempts a
+conservative project stop; no durable success is inferred from the attempt.
+Interrupted actions of an already revoked session retain uncertain outcomes
+without stopping its siblings. Reconciliation records physical confirmation separately
 from durable capture. If capture fails, it returns `evidence: unavailable`, leaves
 the workload pending reconciliation and reports the gap in monitor health.
+The terminal response preserves each attempted unit's capture status and reports
+aggregate `evidence: unavailable` if closure or affected termination capture is
+missing. Independently observed cessation can still be confirmed; it does not
+erase the capture gap. Retries reuse the recorded terminal outcome, including
+when a continuing flag-write failure leaves only `session_closing` intent.
 Repeated unchanged unconfirmed observations do not add duplicate audit events.
 Ordinary command/build cleanup and explicit or failed-preview cleanup use the
 same termination writer as reconciliation. Confirmed, captured cleanup marks the

@@ -13,6 +13,17 @@ then run agents through ptw run. The agent uses the shared controller for edits,
 package installation, commands and delegation. This is a controlled runner, not
 an interceptor for an already running unrestricted coding session.
 
+The structured headless terminal request is
+`{"action":"surrender","resource":"","path":"","destination":"","content":"approved fixture unavailable","expected":""}`.
+It ends the authenticated session subtree unsuccessfully and stops further model
+steps. `finish` uses the same empty targeting fields and cleanup but declares
+completion; `completion_verified` remains false. Use physical changes and test
+receipts to assess success. A missing fixture does not authorize a substitute
+destination, credential or package publication. The legacy exact-file runner
+also accepts `surrender` with its existing three fields: action, resource, content.
+Read the [interactive surrender and continuation guidance](INTERACTIVE.md) and
+[current qualification status](SAFETY.md#frozen-task-17-checklist).
+
 ## Try a new Python project
 
 Use fresh directories outside your source checkout:

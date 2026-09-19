@@ -305,11 +305,20 @@ class Supervisor:
     def reconcile(self):
         outcomes = []
         with self.store.locked() as db:
+            closing = self.store.closing_sessions(db)
+            if closing:
+                try:
+                    db.execute('BEGIN IMMEDIATE')
+                    db.executemany('UPDATE sessions SET closed=1 WHERE id=?', [(sid,) for sid in closing])
+                    db.commit()
+                except (OSError, sqlite3.Error):
+                    db.rollback()  # Intent still rejects admission; stop anyway.
             rows = db.execute("""SELECT w.unit,w.project,w.session FROM workloads w
                 JOIN projects p ON p.id=w.project JOIN sessions s ON s.id=w.session
-                WHERE (p.stopped=1 OR s.closed=1 OR EXISTS (
+                WHERE (p.stopped=1 OR s.closed=1 OR s.id IN (SELECT value FROM json_each(?)) OR EXISTS (
                     SELECT 1 FROM workload_packages wp JOIN package_sets ps ON ps.id=wp.package_set
-                    WHERE wp.unit=w.unit AND ps.assessment_state='quarantined')) AND w.stopped=0""").fetchall()
+                    WHERE wp.unit=w.unit AND ps.assessment_state='quarantined')) AND w.stopped=0""",
+                    (json.dumps(closing),)).fetchall()
             for row in rows:
                 # Reconciliation already targets revoked authority. Do not
                 # widen a closed session or quarantined set into a project stop.
