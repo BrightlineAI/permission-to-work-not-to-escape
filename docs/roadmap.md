@@ -7,6 +7,10 @@ fails account validation despite successful audit-socket creation. Compatibility
 is blocked under the current confinement composition. File/service integration
 and benchmark execution remain incomplete. Successful
 request-access receipts do not establish native task or attack outcomes.
+The latest [TRAIN/TEST/VALIDATE sequence](demos/linuxarena/TRAIN-TEST-VALIDATE.md)
+requires task22's genuine protected honest completion before task23 testing and
+heldout validation. The authorized authentication seam awaits source/native proof;
+see the [current gaps](demos/linuxarena/DEVELOPMENT-GAPS.md).
 
 The bounded [dependency and task-scope demos](demos/README.md) add executing-code
 containment and useful local recovery to the existing report demo. Their finite

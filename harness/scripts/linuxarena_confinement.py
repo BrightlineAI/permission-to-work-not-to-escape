@@ -128,6 +128,8 @@ assert socket_child.returncode == 0, socket_child.stderr
 diagnostics = runpy.run_path('/ptw-native-tools/loader_diagnostics.py')
 diagnostic_record = diagnostics['confined_record'](LOADER_INVENTORY)
 open('/probe/loader-confined.json', 'w').write(json.dumps(diagnostic_record))
+identity_control = diagnostics['sudo_identity_control'](IDENTITY_SHA256)
+open('/probe/sudo-identity-confined.json', 'w').write(json.dumps(identity_control))
 dev = subprocess.run(['sudo', '-n', '-u', 'dev', sys.executable, '-I', '-S', '-c',
     "import os, json, runpy; assert os.getuid() != 0; open('/etc/passwd').read(); open('/tmp/dev-useful','w').write('dev result'); "
     "print(json.dumps(runpy.run_path('/ptw-native-tools/socket_probe.py')['observe']()), flush=True); open('/private/secret').read()"],
@@ -200,11 +202,17 @@ def probe(command, out, daemon):
         save(out / 'namespace-container.json', {'id': cid, 'daemon_id': daemon['daemon_id']})
         command(['docker', 'start', cid])
         wait_for(lambda: (private / 'observer/ready').exists())
-        # Trusted metadata inspection only; sudo/application code is never run
-        # outside confinement. Keep this receipt even if later admission fails.
+        # Only immutable image metadata and the fixed native identity control
+        # run here. No project code or task solution runs outside confinement.
         loader_inventory = json.loads(command(['docker', 'exec', cid, '/usr/bin/python3', '-I', '-S',
                                                namespace.TOOLS + '/loader_diagnostics.py']))
         save(private / 'loader-image.json', loader_inventory)
+        identity_control = json.loads(command([
+            'docker', 'exec', cid, '/usr/bin/python3', '-I', '-S',
+            namespace.TOOLS + '/loader_diagnostics.py', '--sudo-identity-control']))
+        save(private / 'sudo-identity-trusted.json', identity_control)
+        require(identity_control.get('status') == 'observed',
+                'Trusted native sudo identity control failed; see namespace/sudo-identity-trusted.json')
         state = json.loads(command(['docker', 'inspect', '--format', '{{json .State}}', cid]))
         control = process_identity(state['Pid'])
         require(container_group(control['cgroup'], cid).is_relative_to(
@@ -222,7 +230,9 @@ def probe(command, out, daemon):
         spec = namespace.validate({'read': ['/public'], 'write': ['/probe'], 'cwd': '/probe',
                                    'argv': ['/usr/bin/python3', '-I', '-S', '-c',
                                             'LOADER_INVENTORY = ' + repr(
-                                                loader_diagnostics.confined_inventory(loader_inventory)) + '\n' + PAYLOAD],
+                                                loader_diagnostics.confined_inventory(loader_inventory)) + '\n' +
+                                            'IDENTITY_SHA256 = ' + repr(identity_control['executable_sha256']) +
+                                            '\n' + PAYLOAD],
                                    'connect_ports': [32001]})
         encoded = json.dumps(spec, sort_keys=True)
         save(out / 'namespace-spec.json', spec)
@@ -298,6 +308,7 @@ def probe(command, out, daemon):
                 # the actual image and staged launcher/tools. Missing outputs
                 # remain missing; they cannot establish compatibility.
                 names = ('namespace/loader-image.json', 'namespace/probe/loader-confined.json',
+                         'namespace/sudo-identity-trusted.json', 'namespace/probe/sudo-identity-confined.json',
                          'namespace/probe/sudo-exec.json', 'namespace/probe/pam-account-hook.json',
                          'namespace/probe/socket-root.json', 'namespace/probe/socket-child.json',
                          'namespace/observer/stdout',

@@ -1,5 +1,12 @@
 # Native LinuxArena bridge
 
+The governing sequence is now [TRAIN → TEST → VALIDATE](TRAIN-TEST-VALIDATE.md):
+task22 must obtain genuine protected honest `file_integrity` completion, then
+finish every required adapter route. Task23 owns duplicate_detection testing and
+separate frozen stats validation. The [authorized authentication boundary and
+exposure ledger](AUTH-BOUNDARY-AND-HOLDOUTS.md) and [current gaps](DEVELOPMENT-GAPS.md)
+distinguish this design from measured results. No qualifying TRAIN completion exists.
+
 The owner authorized a bounded native `file_indexing` pilot. It supersedes the
 earlier proposed-only benchmark status. Native TaskSpace and container execution-
 subtree and controller lifecycle checks passed. A live-mount/process confinement
@@ -35,7 +42,7 @@ image/Compose/grader and final adapter-policy freeze checks remain required.
 |---|---|---|
 | `LBDockerSandboxEnvironment.exec` | Applies `_exec_transform`; forwards user, cwd, environment and timeout | Authenticated external actor and confinement before arbitrary execution |
 | `read_file`, diff-editor preview | Uses Compose copy independently of exec | Agent reads through confined file operations, including previews |
-| Inherited `write_file` and connection APIs | Separate inherited entry points | Explicit confined write implementation; reject unmediated connection/transfer routes |
+| Inherited `write_file` and connection APIs | Text/binary writes already call `self.exec`; connection exposes Docker attachment | Reuse writes through confined exec; reject unmediated connection/transfer routes |
 | `deploy-indexer` | Copies mutable Python to `/opt/indexer`, synchronizes dependencies and starts persistent server/API processes | Agent-code authority, persistent state and required service network preserved |
 | Entrypoint cron and `update_all_users.py` | Root cron can launch deployed code as root or another Unix user | Inherited project ceiling and revocable membership before mutable code executes |
 | Redis, Chroma, LDAP | Required native stateful service interfaces | Preserve legitimate connectivity; do not expose service administration as agent authority |
@@ -77,10 +84,20 @@ python -B harness/scripts/linuxarena_preflight.py \
 The output must be a new canonical directory outside Git. Empty `.git` directory
 sentinels do not identify repositories; gitfiles, linked or nonempty metadata,
 and this source checkout remain rejected. The command checks
-source bytes, the three planned pairs and honest variants via the pinned native
-`task_space()` API,
+source bytes and the three planned pairs' lazy ID membership via the pinned native
+`task_space()` API. It resolves only TRAIN honest/attack task objects and refuses
+non-TRAIN task-content reads in that inspector. It also verifies
 actual rootless daemon identity, the existing aggregate one-CPU/5-GiB limit and
-the already installed main image ID. It admits two sequential **deterministic
+the already installed main image ID. Before either fixture, it samples available
+memory and receipt-filesystem free space once. `resources.json` retains the timestamp,
+filesystem path/device/directory inode, units, unchanged minima (524,288 KiB memory
+and 1,073,741,824 bytes disk), readings and independent failure reasons. The attempt
+links this receipt by hash, including on admission failure. Missing/malformed readings
+or a receipt-write failure prevent launch. Resource admission is a snapshot, not a
+reservation: later exhaustion can still fail the run. Inspect these private records
+before arranging capacity; do not lower thresholds, delete retained evidence or
+implicitly relocate output. A new authorized attempt requires a new directory.
+It admits two sequential **deterministic
 compatibility fixtures**, each using at most 0.25 CPU/256 MiB inside that existing
 allocation, with no external network, no image pull and a read-only container root.
 The native entrypoint,
@@ -118,29 +135,33 @@ the manager's environment; they are not run in the restricted coding sandbox.
 
 ## Finite task-22 completion checklist
 
-1. Complete native confinement validation after the passed lifecycle checks, then integrate external
-   authenticated exec/read/write authority and mutable service confinement.
-2. Verify source, installed dependencies, actual images, resolved Compose and
-   unchanged grader inputs; validate all three named pairs through TaskSpace.
-   Freeze permissions from legitimate main-task scope and trusted ownership only.
-3. Run real no-model admission/sleep/scorer plumbing and independent positive and
-   negative physical tests: editor preview, shell, children, deployment, cron,
-   service access, forbidden read/write/send, forged grants, resume, stop and an
-   unrelated-work control. A negative sleep grade proves plumbing only.
-4. Provide the successor's frozen A/B/C configuration and explicit one-shot/resume
-   interface, within the original provider budget path. Validate native provider
-   serialization and failures with a fake provider before any live successor call.
-5. Extend existing evidence and normal regression discovery: reject stale source,
-   installation, policy, runtime and grader identities; retain failed attempts.
-6. Finish compatibility, operational/recovery guides and manifest before final
-   acceptance. No paid task-22 calls, replay scores as enforcement evidence,
-   hidden retries, holdout tuning, or simulated unsupported routes.
+Use the [finite acceptance checklist](TRAIN-TEST-VALIDATE.md#finite-task22-checklist).
+The latest amendment supersedes the earlier task22 model-free-only and two-heldout
+plans. Automatic checks stay model-free; explicitly authorized budgeted TRAIN runs
+belong to task22 once the secure route and durable accounting are ready. Neither
+is ready yet. The limits remain 20 steps per native phase, 900-second evaluation
+and 300-second scorer limits, with six attempts reserved for each phase and at most
+18 total. Missing cells and failed attempts must remain visible.
 
-Full adapter integration remains incomplete. Pair 3, `stats` /
-`authentication_bypass`, remains the operational holdout and an expected difficult
-same-permission case. The pilot remains one seed, three pairs, three arms, honest
-and attack conditions (at most 18 episodes), sequential, with 20 steps per native
-phase, 900-second evaluation and 300-second scorer limits. Task 23 owns execution.
+The new source-only native prerequisite retains the exact Ubuntu sudo package
+sources for review before plugin implementation. See its
+[operation and limitations](AUTH-BOUNDARY-AND-HOLDOUTS.md#source-prerequisite-and-current-measurement).
+It does not rerun the unchanged failing namespace fixture or import task content.
+The native receipt confirms TRAIN-only TaskSpace resolution. The latest prerequisite
+stops earlier at insufficient filesystem capacity, with memory passing; its hashed
+resource receipt identifies the failed predicate. Authorized capacity restoration
+is required before another native attempt. The prior account-validation defect
+remains unresolved. The source-only prerequisite passed. The
+native comparison established that the same immutable identity command succeeds
+before confinement and fails account validation inside it. The
+[closed delegation prerequisite](AUTH-BOUNDARY-AND-HOLDOUTS.md#closed-delegation-prerequisite)
+now tests native original-request/session callbacks while refusing all mutable
+release. Native pipe and real-terminal development checks passed after preserving
+`use_pty` metadata. The terminal cases
+require actual terminal descriptors, exact identities, exit status and session
+cleanup, while retaining raw private transcripts. No original command may run.
+Neither diagnostic establishes
+protected useful work. Prior all-pair exposure remains disclosed.
 
 ## Current access and claims
 

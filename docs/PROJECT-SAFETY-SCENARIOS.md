@@ -6,6 +6,10 @@ seam completed root/child socket and capability probes, but native user switchin
 fails account validation despite successful audit-socket creation. Compatibility
 is blocked under the current confinement composition.
 File/service integration remains incomplete.
+The [authorized authentication boundary](demos/linuxarena/AUTH-BOUNDARY-AND-HOLDOUTS.md)
+must preserve native original-command decisions; the
+[current phase protocol](demos/linuxarena/TRAIN-TEST-VALIDATE.md) requires genuine
+protected honest completion before transfer testing and frozen heldout validation.
 The [46-record source index](demos/linuxarena/INCIDENTS.md) is background research;
 no historical incident is credited as prevented by the unfinished bridge.
 

@@ -167,6 +167,43 @@ def wait_for(predicate, timeout=8):
     raise TimeoutError('Native prerequisite observation timed out')
 
 
+def resource_snapshot(out):
+    """Sample both admission predicates once, retaining independent failures."""
+    memory = {'source': '/proc/meminfo:MemAvailable', 'unit': 'KiB',
+              'minimum': 512 * 1024, 'observed': None}
+    disk = {'path': str(out), 'unit': 'bytes', 'minimum': 1024 ** 3,
+            'observed': None, 'device': None, 'directory_inode': None}
+    result = {'schema': 1, 'sampled_epoch': time.time(), 'memory': memory,
+              'filesystem': disk, 'failure_reasons': []}
+    try:
+        lines = Path('/proc/meminfo').read_text().splitlines()
+        rows = [line for line in lines if line.split(':', 1)[0] == 'MemAvailable']
+        require(len(rows) == 1, 'Missing or duplicate MemAvailable')
+        match = re.fullmatch(r'MemAvailable:\s*([0-9]+)\s+kB\s*', rows[0])
+        require(match is not None, 'Malformed MemAvailable')
+        memory['observed'] = int(match[1])
+    except (OSError, ValueError) as exc:
+        memory['error_type'] = type(exc).__name__
+        result['failure_reasons'].append('memory_reading_invalid')
+    else:
+        if memory['observed'] < memory['minimum']:
+            result['failure_reasons'].append('memory_below_minimum')
+    try:
+        info = out.stat()
+        disk.update(device=info.st_dev, directory_inode=info.st_ino)
+        free = shutil.disk_usage(out).free
+        require(type(free) is int and free >= 0, 'Malformed filesystem free space')
+        disk['observed'] = free
+    except (OSError, ValueError, AttributeError) as exc:
+        disk['error_type'] = type(exc).__name__
+        result['failure_reasons'].append('filesystem_reading_invalid')
+    else:
+        if disk['observed'] < disk['minimum']:
+            result['failure_reasons'].append('filesystem_below_minimum')
+    result['admitted'] = not result['failure_reasons']
+    return result
+
+
 # Trusted deterministic compatibility payload. SIGSTOP is before fork/effects.
 # It is NOT a LinuxArena agent, scorer or confinement demonstration.
 HEARTBEAT = '''import os, signal, sys, time
@@ -345,10 +382,13 @@ def run(runtime, output):
         command.env, receipt = daemon_environment(runtime, env)
         daemon = verify_daemon(command, receipt)
         save(out / 'daemon.json', daemon)
-        # A conservative no-download gate; this fixture uses only 256 MiB.
-        memory = dict(line.split(':', 1) for line in Path('/proc/meminfo').read_text().splitlines())
-        require(int(memory['MemAvailable'].split()[0]) >= 512 * 1024 and
-                shutil.disk_usage(out).free >= 1024 ** 3, 'Insufficient free resources for prerequisite fixture')
+        # A conservative no-download gate; persist evidence before either fixture.
+        resources = resource_snapshot(out)
+        save(out / 'resources.json', resources)
+        attempt['resources'] = reference(out, out / 'resources.json')
+        save(out / 'attempt.json', attempt)
+        require(resources['admitted'], 'Prerequisite resource admission failed: ' +
+                ', '.join(resources['failure_reasons']) + '; see resources.json')
         subtree_probe(command, out, daemon)
         from linuxarena_confinement import probe as namespace_probe
         namespace_probe(command, out, daemon)

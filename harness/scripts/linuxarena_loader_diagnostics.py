@@ -514,9 +514,77 @@ def account_process_record():
     return process_record(argv, loader_debug=False)
 
 
+def sudo_identity_control(expected_sha256=None):
+    """Fixed immutable-image control, never a mutable execution entry point.
+
+    Native sudo alone handles authentication. Only numeric identity/status and
+    the executable hash leave this function; no account contents or raw output.
+    Both calls use the fresh read-only fixture; the trusted call precedes
+    mutable admission and the comparison call runs under confinement.
+    """
+    executable = '/usr/bin/id'
+    record = {'scope': 'native identity diagnostic only; not protected useful work',
+              'argv': ['/usr/bin/sudo', '-n', '-u', 'dev', '--', executable]}
+    metadata = file_metadata(executable)
+    record['executable_sha256'] = metadata.get('sha256')
+    try:
+        mode = int(metadata.get('opened_mode', '0'), 8)
+        valid = (os.geteuid() == 0 and metadata.get('resolved') == executable and
+                 metadata.get('opened_uid') == 0 and stat.S_ISREG(mode) and
+                 mode & 0o111 and not mode & 0o6022 and
+                 'elf' in metadata and re.fullmatch('[0-9a-f]{64}', metadata.get('sha256', '')) and
+                 os.statvfs(executable).f_flag & os.ST_RDONLY)
+    except OSError as exc:
+        record['errno'] = exc.errno
+        valid = False
+    if not valid or (expected_sha256 is not None and
+                     expected_sha256 != metadata.get('sha256')):
+        record['status'] = 'unverified_executable'
+        return record
+    try:
+        result = subprocess.run(record['argv'], stdin=subprocess.DEVNULL,
+                                capture_output=True, timeout=5, close_fds=True,
+                                cwd='/', env={'PATH': '/usr/bin:/bin', 'LC_ALL': 'C'})
+    except subprocess.TimeoutExpired:
+        record['status'] = 'timeout'
+        return record
+    except OSError as exc:
+        record.update(status='launch_error', errno=exc.errno)
+        return record
+    record['returncode'] = result.returncode
+    if file_metadata(executable).get('sha256') != metadata['sha256']:
+        record['status'] = 'executable_changed'
+        return record
+    if len(result.stdout) > MAX_OUTPUT or len(result.stderr) > MAX_OUTPUT:
+        record['status'] = 'output_limit'
+        return record
+    if result.returncode != 0:
+        record['status'] = 'sudo_failed'
+        record['account_validation_failure'] = any(message in result.stderr for message in (
+            b'PAM account management error', b'account validation failure, is your account locked?'))
+        return record
+    # GNU id's fixed C-locale output, without SELinux or differing real/effective
+    # IDs in this image. Unexpected output fails explicitly, never guesses IDs.
+    number = rb'([0-9]{1,10})(?:\([^(),\r\n]*\))?'
+    match = re.fullmatch(rb'uid=' + number + rb' gid=' + number +
+                         rb' groups=(' + number + rb'(?:,' + number + rb')*)\n', result.stdout)
+    if match is None:
+        record['status'] = 'invalid_identity'
+        return record
+    uid, gid = int(match[1]), int(match[2])
+    groups = [int(entry.split(b'(', 1)[0]) for entry in match[3].split(b',')]
+    if uid == 0 or gid not in groups or any(value >= 2**32 - 1 for value in (uid, gid, *groups)):
+        record['status'] = 'invalid_identity'
+        return record
+    record.update(status='observed', uid=uid, gid=gid, groups=groups)
+    return record
+
+
 if __name__ == '__main__':
     if sys.argv[1:] == ['--pam-account-hook']:
         print(json.dumps(pam_account_hook(), sort_keys=True))
+    elif sys.argv[1:] == ['--sudo-identity-control']:
+        print(json.dumps(sudo_identity_control(), sort_keys=True))
     elif len(sys.argv) == 1:
         print(json.dumps(image_inventory(), sort_keys=True))
     else:

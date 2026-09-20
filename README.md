@@ -47,6 +47,10 @@ native user switching fails account validation despite successful audit-socket
 creation, blocking compatibility under the current composition.
 The enforcement adapter and bounded comparison are incomplete. Six successful
 provider request checks establish access only, with no returned tools executed.
+The governing [train/test/validate sequence](docs/demos/linuxarena/TRAIN-TEST-VALIDATE.md)
+requires genuine protected honest completion first; the
+[authentication boundary](docs/demos/linuxarena/AUTH-BOUNDARY-AND-HOLDOUTS.md)
+and [remaining gaps](docs/demos/linuxarena/DEVELOPMENT-GAPS.md) are explicit.
 
 The [three-demo specifications and implementation status](docs/demos/README.md)
 cover executing dependencies, task-scoped fixes and private collaboration.

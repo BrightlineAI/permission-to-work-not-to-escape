@@ -13,10 +13,13 @@ from pathlib import Path
 import sys
 import tempfile
 import concurrent.futures
+from contextlib import ExitStack
+from types import SimpleNamespace
 import threading
 import unittest
 import struct
 import subprocess
+import tarfile
 from unittest.mock import patch
 
 SCRIPTS = Path(__file__).resolve().parents[1] / 'scripts'
@@ -36,9 +39,376 @@ from ptw import linuxarena_namespace as namespace
 import linuxarena_confinement as confinement
 import linuxarena_loader_diagnostics as loader_diagnostics
 import linuxarena_socket_probe as socket_probe
+import linuxarena_sudo_source as sudo_source
+import linuxarena_sudo_gate as sudo_gate
+import linuxarena_taskspace as taskspace
+
+
+class BridgeTrainInspectionTests(unittest.TestCase):
+    def test_only_train_objects_resolved_and_all_pair_ids_checked(self):
+        from types import SimpleNamespace
+        class Space:
+            def __init__(self):
+                self.lookups = []
+            def mains(self):
+                return {main for main, side in taskspace.PAIRS}
+            def sides(self):
+                return {side for main, side in taskspace.PAIRS}
+            def get(self, *, main_id, side_id):
+                self.lookups.append((main_id, side_id))
+                if main_id != 'file_integrity' or side_id not in (None, taskspace.PAIRS[0][1]):
+                    raise AssertionError('Non-TRAIN task loaded')
+                return SimpleNamespace(main_ids=frozenset([main_id]),
+                                       side_ids=frozenset([side_id] if side_id else []),
+                                       mode='attack' if side_id else 'honest')
+            def __contains__(self, combo):
+                return True
+        space = Space()
+        ids, combos = taskspace.inspect_combinations(space)
+        self.assertEqual(len(ids), 3)
+        self.assertEqual([x['mode'] for x in combos], ['honest', 'attack'])
+        self.assertEqual(space.lookups, [('file_integrity', None), taskspace.PAIRS[0]])
+        with patch.object(space, 'sides', return_value={taskspace.PAIRS[0][1]}):
+            with self.assertRaisesRegex(ValueError, 'missing a planned'):
+                taskspace.inspect_combinations(space)
+        with patch.object(Space, '__contains__', return_value=False):
+            with self.assertRaisesRegex(ValueError, 'exact TRAIN'):
+                taskspace.inspect_combinations(space)
+
+    def test_non_train_content_guard_covers_bytes_links_and_bytecode(self):
+        with tempfile.TemporaryDirectory(dir='/tmp') as directory:
+            root = Path(directory)
+            taskspace.guard_task_content('open', (root / 'main_tasks/file_integrity/info.yml',))
+            taskspace.guard_task_content('open', (root / 'side_tasks/access_secret_files_you_dont_own/scorer.py',))
+            taskspace.guard_task_content('open', (4,))
+            taskspace.guard_task_content('os.listdir', (root / 'main_tasks/stats',))
+            heldout = root / 'main_tasks/stats'
+            heldout.mkdir(parents=True)
+            (root / 'alias').symlink_to(heldout, target_is_directory=True)
+            for path in (heldout / 'info.yml', root / 'alias/scorer.py',
+                         root / 'main_tasks/duplicate_detection/__pycache__/scorer.pyc',
+                         root / 'side_tasks/authentication_bypass/instructions.md'):
+                for name in (str(path), os.fsencode(path)):
+                    with self.subTest(path=name), self.assertRaisesRegex(PermissionError, 'Non-TRAIN'):
+                        taskspace.guard_task_content('open', (name,))
+
+
+class BridgeSudoSourceTests(unittest.TestCase):
+    """Archive validation only; no substitute for native authentication."""
+    @staticmethod
+    def archive(rows):
+        output = io.BytesIO()
+        with tarfile.open(fileobj=output, mode='w:gz') as archive:
+            for name, value, kind in rows:
+                entry = tarfile.TarInfo(name)
+                entry.type = kind
+                entry.size = len(value)
+                archive.addfile(entry, io.BytesIO(value))
+        return output.getvalue()
+
+    def upstream(self):
+        return [('sudo-1.9.9/' + name, b'fixture source', tarfile.REGTYPE)
+                for name in sudo_source.EXECUTION_FILES]
+
+    def inspect(self, rows, *, debian=False):
+        data = self.archive(rows)
+        return sudo_source.source_members(data, hashlib.sha256(data).hexdigest(), debian=debian)
+
+    def test_verified_sources_and_complete_distribution_series(self):
+        self.assertEqual(len(self.inspect(self.upstream())), len(sudo_source.EXECUTION_FILES))
+        rows = [('debian/changelog', ('sudo (' + sudo_source.VERSION + ') jammy; urgency=medium\n').encode(),
+                 tarfile.REGTYPE), ('debian/rules', b'not executed', tarfile.REGTYPE),
+                ('debian/patches/series', b'# retained\nfix.patch\n', tarfile.REGTYPE),
+                ('debian/patches/fix.patch', b'not applied', tarfile.REGTYPE)]
+        self.assertEqual(set(self.inspect(rows, debian=True)), {row[0] for row in rows})
+        with self.assertRaisesRegex(ValueError, 'Missing or unsupported'):
+            self.inspect(rows[:-1], debian=True)
+        with self.assertRaisesRegex(ValueError, 'version mismatch'):
+            self.inspect([('debian/changelog', b'sudo (wrong)\n', tarfile.REGTYPE), *rows[1:]], debian=True)
+
+    def test_wrong_hash_missing_links_duplicates_and_traversal_rejected(self):
+        rows = self.upstream()
+        data = self.archive(rows)
+        with self.assertRaisesRegex(ValueError, 'hash mismatch'):
+            sudo_source.source_members(data, '0' * 64, debian=False)
+        for changed in (rows[:-1], rows + [rows[0]],
+                        rows + [('../escape', b'data', tarfile.REGTYPE)],
+                        [(rows[0][0], b'', tarfile.SYMTYPE), *rows[1:]]):
+            with self.subTest(names=[row[0] for row in changed]), self.assertRaises(ValueError):
+                self.inspect(changed)
+        with patch.object(sudo_source, 'MAX_MEMBER', 4), self.assertRaisesRegex(ValueError, 'bounded'):
+            self.inspect(rows)
+
+    def test_download_has_no_retry_proxy_redirect_or_unverified_output(self):
+        name = next(iter(sudo_source.ARCHIVES))
+        with tempfile.TemporaryDirectory(dir='/tmp') as directory:
+            target = Path(directory) / name
+            response = unittest.mock.MagicMock()
+            response.__enter__.return_value = response
+            response.status = 200
+            response.geturl.return_value = sudo_source.SOURCE_URL + name
+            response.read.side_effect = [b'corrupted archive', b'']
+            opener = unittest.mock.Mock()
+            opener.open.return_value = response
+            with patch.object(sudo_source.urllib.request, 'build_opener', return_value=opener) as build:
+                with self.assertRaisesRegex(ValueError, 'hash mismatch'):
+                    sudo_source.download(name, target)
+                self.assertEqual(opener.open.call_args.args[0].full_url,
+                    'https://snapshot.ubuntu.com/ubuntu/20250701T000000Z/pool/main/s/sudo/' + name)
+                self.assertEqual(build.call_args.args[0].proxies, {})
+                self.assertIsInstance(build.call_args.args[1], sudo_source.NoRedirect)
+                self.assertEqual(opener.open.call_count, 1)
+            self.assertEqual(target.read_bytes(), b'corrupted archive')
+            with self.assertRaisesRegex(ValueError, 'redirect refused'):
+                sudo_source.NoRedirect().redirect_request(None, None, 302, '', {}, 'http://invalid/')
+            with self.assertRaisesRegex(ValueError, 'Unapproved'):
+                sudo_source.download('other.tar.gz', Path(directory) / 'other')
+            self.assertFalse((Path(directory) / 'other').exists())
+
+    def test_download_success_size_limit_and_transport_failure_preserve_bytes(self):
+        name = next(iter(sudo_source.ARCHIVES))
+        body = b'synthetic source bytes'
+        for chunks, limit, failure in (([body, b''], 100, None),
+                                       ([body, body], len(body), ValueError),
+                                       ([body, OSError('disconnected')], 100, OSError)):
+            with self.subTest(failure=failure), tempfile.TemporaryDirectory(dir='/tmp') as directory:
+                target = Path(directory) / name
+                response = unittest.mock.MagicMock()
+                response.__enter__.return_value = response
+                response.status = 200
+                response.geturl.return_value = sudo_source.SOURCE_URL + name
+                response.read.side_effect = chunks
+                opener = unittest.mock.Mock()
+                opener.open.return_value = response
+                with patch.object(sudo_source.urllib.request, 'build_opener', return_value=opener), \
+                        patch.dict(sudo_source.ARCHIVES, {name: hashlib.sha256(body).hexdigest()}), \
+                        patch.object(sudo_source, 'MAX_ARCHIVE', limit):
+                    if failure:
+                        with self.assertRaises(failure):
+                            sudo_source.download(name, target)
+                    else:
+                        sudo_source.download(name, target)
+                    self.assertEqual(opener.open.call_count, 1)
+                self.assertEqual(target.read_bytes(), body)
+
+    def test_unexpected_response_and_http_failure_do_not_retry_or_read_body(self):
+        name = 'sudo_1.9.9-1ubuntu2.5.debian.tar.xz'
+        url = sudo_source.SOURCE_URL + name
+        for status, final_url in ((206, url), (200, 'https://unapproved.invalid/' + name),
+                                  (404, url)):
+            with self.subTest(status=status, url=final_url), tempfile.TemporaryDirectory(dir='/tmp') as directory:
+                response = unittest.mock.MagicMock()
+                response.__enter__.return_value = response
+                response.status = status
+                response.geturl.return_value = final_url
+                opener = unittest.mock.Mock()
+                opener.open.return_value = response
+                error = ValueError
+                if status == 404:
+                    error = sudo_source.urllib.error.HTTPError
+                    opener.open.side_effect = error(url, 404, 'Not Found', {}, None)
+                target = Path(directory) / name
+                with patch.object(sudo_source.urllib.request, 'build_opener', return_value=opener):
+                    with self.assertRaises(error):
+                        sudo_source.download(name, target)
+                self.assertEqual(opener.open.call_count, 1)
+                self.assertEqual(opener.open.call_args.args[0].full_url, url)
+                response.read.assert_not_called()
+                self.assertEqual(target.read_bytes(), b'')
+
+    def test_http_failure_retains_archive_request_and_stops_downloads(self):
+        names = list(sudo_source.ARCHIVES)
+        for failed_name in names:
+            with self.subTest(archive=failed_name), tempfile.TemporaryDirectory(dir='/tmp') as directory:
+                root = Path(directory)
+                runtime = root / 'runtime'
+                runtime.mkdir()
+                cid = 'a' * 64
+                identity = {'version': sudo_source.VERSION, 'files_sha256': {
+                    '/usr/bin/sudo': 'b' * 64, '/usr/libexec/sudo/sudoers.so': 'c' * 64}}
+                command = unittest.mock.Mock(side_effect=[cid.encode(), json.dumps(identity).encode(), b''])
+                def download(name, target):
+                    target.write_bytes(b'' if name == failed_name else b'synthetic verified source')
+                    if name == failed_name:
+                        # The actual transport rejection is covered above; this
+                        # double tests receipt/cleanup orchestration, not Docker.
+                        raise sudo_source.urllib.error.HTTPError(
+                            sudo_source.SOURCE_URL + name, 404, 'Not Found', {}, None)
+                with patch.object(sudo_source, 'daemon_environment', return_value=({}, {})), \
+                        patch.object(sudo_source, 'verify_daemon', return_value={
+                            'cgroup': '/fixture.slice', 'image_id': 'sha256:' + 'd' * 64}), \
+                        patch.object(sudo_source, 'Commands', return_value=command), \
+                        patch.object(sudo_source, 'download', side_effect=download) as downloaded, \
+                        patch.object(sudo_source, 'source_members', return_value={}):
+                    with self.assertRaises(sudo_source.urllib.error.HTTPError):
+                        sudo_source.run(runtime, root / 'attempt')
+                receipt = load(root / 'attempt/attempt.json')
+                self.assertEqual(receipt['status'], 'failed')
+                self.assertEqual(receipt['error_type'], 'HTTPError')
+                self.assertEqual(receipt['paid_calls'], 0)
+                self.assertEqual(list(receipt['downloads']), sorted(names[:names.index(failed_name) + 1]))
+                self.assertEqual(receipt['downloads'][failed_name], {
+                    'url': sudo_source.SOURCE_URL + failed_name,
+                    'expected_sha256': sudo_source.ARCHIVES[failed_name],
+                    'status': 'failed', 'error_type': 'HTTPError', 'http_status': 404})
+                for name in names[:names.index(failed_name)]:
+                    self.assertEqual(receipt['downloads'][name]['status'], 'verified')
+                self.assertEqual(downloaded.call_count, names.index(failed_name) + 1)
+                self.assertEqual(receipt['records'][failed_name]['sha256'], hashlib.sha256(b'').hexdigest())
+                self.assertFalse((root / 'attempt/source.json').exists())
+                self.assertEqual(command.call_args.args[0], ['docker', 'rm', '--force', cid])
+
+    def test_native_metadata_failure_retains_attempt_without_download(self):
+        with tempfile.TemporaryDirectory(dir='/tmp') as directory:
+            root = Path(directory)
+            runtime = root / 'runtime'
+            runtime.mkdir()
+            with patch.object(sudo_source, 'daemon_environment', side_effect=ValueError('missing daemon')), \
+                    patch.object(sudo_source, 'download') as download:
+                with self.assertRaisesRegex(ValueError, 'missing daemon'):
+                    sudo_source.run(runtime, root / 'attempt')
+            download.assert_not_called()
+            receipt = load(root / 'attempt/attempt.json')
+            self.assertEqual(receipt['status'], 'failed')
+            self.assertEqual(receipt['paid_calls'], 0)
+            self.assertEqual(receipt['error_type'], 'ValueError')
+            self.assertIn('ended_epoch', receipt)
 
 
 class BridgePrerequisiteTests(unittest.TestCase):
+    def resource_run(self, root, memory, disk, *, write_failure=None):
+        """Real receipt/admission flow, synthetic readings and no native work."""
+        runtime, out = root / 'runtime', root / 'run'
+        runtime.mkdir()
+        read_text, save = Path.read_text, preflight.save
+
+        def reading(path, *args, **kwargs):
+            if path == Path('/proc/meminfo'):
+                if isinstance(memory, Exception):
+                    raise memory
+                return memory
+            return read_text(path, *args, **kwargs)
+
+        def write(path, value):
+            if (path.name == write_failure or
+                    (write_failure == 'reference' and path.name == 'attempt.json' and
+                     value['status'] == 'incomplete' and 'resources' in value)):
+                raise OSError('synthetic receipt write failure')
+            save(path, value)
+
+        def fixture(command, output, daemon):
+            # Both fixtures must see the durable, hash-bound admission first.
+            attempt = load(output / 'attempt.json')
+            self.assertEqual(attempt['resources'], preflight.reference(output, output / 'resources.json'))
+            self.assertTrue(load(output / 'resources.json')['admitted'])
+            for name in ('subtree', 'lifecycle', 'namespace', 'namespace-spec',
+                         'namespace-lifecycle', 'tools', 'namespace-diagnostics'):
+                save(output / (name + '.json'), {'synthetic': True})
+
+        with ExitStack() as stack:
+            stack.enter_context(patch.object(preflight, 'source_tree', return_value={'synthetic': True}))
+            stack.enter_context(patch.object(preflight.Commands, '__call__', return_value=json.dumps({
+                'sandbox_module': str(runtime / 'control-tower/src/control_tower/sandbox/docker.py')
+            }).encode()))
+            stack.enter_context(patch.object(preflight, 'daemon_environment', return_value=({}, {})))
+            stack.enter_context(patch.object(preflight, 'verify_daemon', return_value={'synthetic': True}))
+            mem = stack.enter_context(patch.object(Path, 'read_text', autospec=True, side_effect=reading))
+            usage = stack.enter_context(patch.object(preflight.shutil, 'disk_usage',
+                **({'side_effect': disk} if isinstance(disk, Exception) else {'return_value': disk})))
+            stack.enter_context(patch.object(preflight, 'save', side_effect=write))
+            subtree = stack.enter_context(patch.object(preflight, 'subtree_probe', side_effect=fixture))
+            namespace_probe = stack.enter_context(patch.object(confinement, 'probe', side_effect=fixture))
+            error = None
+            try:
+                preflight.run(runtime, out)
+            except (ValueError, OSError) as exc:
+                error = exc
+            self.assertEqual(sum(call.args[0] == Path('/proc/meminfo') for call in mem.call_args_list), 1)
+            usage.assert_called_once_with(out)
+            if error:
+                subtree.assert_not_called()
+                namespace_probe.assert_not_called()
+            else:
+                subtree.assert_called_once()
+                namespace_probe.assert_called_once()
+        attempt = load(out / 'attempt.json')
+        self.assertEqual(attempt['status'], 'failed' if error else 'complete')
+        self.assertEqual(attempt['paid_calls'], 0)
+        return out, attempt, error
+
+    def test_resource_admission_thresholds_and_independent_shortages(self):
+        for memory, free in ((524289, 1073741825), (524288, 1073741824),
+                             (524287, 1073741824), (524288, 1073741823),
+                             (524287, 1073741823), (0, 0)):
+            with self.subTest(memory=memory, free=free), tempfile.TemporaryDirectory(dir='/tmp') as directory:
+                out, attempt, error = self.resource_run(Path(directory),
+                    f'MemAvailable: {memory} kB\n', SimpleNamespace(free=free))
+                resources = load(out / 'resources.json')
+                expected = ([] if memory >= 524288 else ['memory_below_minimum']) + (
+                    [] if free >= 1073741824 else ['filesystem_below_minimum'])
+                self.assertEqual(resources['failure_reasons'], expected)
+                self.assertEqual(resources['admitted'], not expected)
+                self.assertEqual(error is not None, bool(expected))
+                self.assertEqual(resources['memory']['observed'], memory)
+                self.assertEqual(resources['memory']['minimum'], 524288)
+                self.assertEqual(resources['memory']['unit'], 'KiB')
+                self.assertEqual(resources['filesystem']['observed'], free)
+                self.assertEqual(resources['filesystem']['minimum'], 1073741824)
+                self.assertEqual(resources['filesystem']['unit'], 'bytes')
+                self.assertEqual(resources['filesystem']['device'], out.stat().st_dev)
+                self.assertEqual(resources['filesystem']['directory_inode'], out.stat().st_ino)
+                self.assertEqual(resources['filesystem']['path'], str(out))
+                self.assertLessEqual(attempt['started_epoch'], resources['sampled_epoch'])
+                self.assertLessEqual(resources['sampled_epoch'], attempt['ended_epoch'])
+                self.assertEqual(attempt['resources'], preflight.reference(out, out / 'resources.json'))
+                if error:
+                    for reason in expected:
+                        self.assertIn(reason, str(error))
+
+    def test_resource_invalid_or_missing_memory_retains_disk_measurement(self):
+        for memory in ('', 'MemTotal: 999999 kB\n', 'MemAvailable: -1 kB\n',
+                       'MemAvailable: 999999 bytes\n', 'MemAvailable: nan kB\n',
+                       'MemAvailable: 999999 kB\nMemAvailable: 999999 kB\n',
+                       OSError('synthetic unreadable meminfo')):
+            with self.subTest(memory=memory), tempfile.TemporaryDirectory(dir='/tmp') as directory:
+                out, attempt, error = self.resource_run(Path(directory), memory, SimpleNamespace(free=1))
+                self.assertIsInstance(error, ValueError)
+                resources = load(out / 'resources.json')
+                self.assertEqual(resources['failure_reasons'],
+                                 ['memory_reading_invalid', 'filesystem_below_minimum'])
+                self.assertIsNone(resources['memory']['observed'])
+                self.assertIn('error_type', resources['memory'])
+                self.assertEqual(resources['filesystem']['observed'], 1)
+                self.assertEqual(attempt['resources'], preflight.reference(out, out / 'resources.json'))
+
+    def test_resource_invalid_or_missing_disk_retains_memory_measurement(self):
+        for disk in (SimpleNamespace(free=-1), SimpleNamespace(free='1073741824'),
+                     SimpleNamespace(free=True), SimpleNamespace(free=None),
+                     SimpleNamespace(), OSError('synthetic unreadable filesystem')):
+            with self.subTest(disk=disk), tempfile.TemporaryDirectory(dir='/tmp') as directory:
+                out, attempt, error = self.resource_run(Path(directory), 'MemAvailable: 0 kB\n', disk)
+                self.assertIsInstance(error, ValueError)
+                resources = load(out / 'resources.json')
+                self.assertEqual(resources['failure_reasons'],
+                                 ['memory_below_minimum', 'filesystem_reading_invalid'])
+                self.assertIsNone(resources['filesystem']['observed'])
+                self.assertIn('error_type', resources['filesystem'])
+                self.assertEqual(resources['memory']['observed'], 0)
+                self.assertEqual(attempt['resources'], preflight.reference(out, out / 'resources.json'))
+
+    def test_resource_receipt_or_reference_write_failure_prevents_both_fixtures(self):
+        for failed in ('resources.json', 'reference'):
+            with self.subTest(failed=failed), tempfile.TemporaryDirectory(dir='/tmp') as directory:
+                out, attempt, error = self.resource_run(Path(directory), 'MemAvailable: 524288 kB\n',
+                    SimpleNamespace(free=1073741824), write_failure=failed)
+                self.assertIsInstance(error, OSError)
+                self.assertEqual(attempt['error_type'], 'OSError')
+                if failed == 'resources.json':
+                    self.assertNotIn('resources', attempt)
+                    self.assertFalse((out / 'resources.json').exists())
+                else:
+                    self.assertEqual(attempt['resources'], preflight.reference(out, out / 'resources.json'))
+
     def test_reopen_requires_original_inode_and_never_removes_a_replacement(self):
         import ptw.linuxarena_cgroup as cgroups
         with tempfile.TemporaryDirectory(dir='/tmp') as directory:
@@ -973,6 +1343,8 @@ class BridgeNamespaceTests(unittest.TestCase):
             if argv[:3] == ['docker', 'exec', '--detach']:
                 launched.append(json.loads(argv[-1]))
                 raise LaunchBoundary()
+            if argv[-1] == '--sudo-identity-control':
+                return json.dumps({'status': 'observed', 'executable_sha256': 'c' * 64}).encode()
             self.assertEqual(argv[-1], namespace.TOOLS + '/loader_diagnostics.py')
             return json.dumps(inventory).encode()
         with tempfile.TemporaryDirectory(dir='/tmp') as directory:
@@ -992,6 +1364,8 @@ class BridgeNamespaceTests(unittest.TestCase):
                 'files': inventory['files'], 'pam': inventory['pam'],
                 'pam_libraries': {'files': [{'path': '/lib/security/pam_unix.so'}]}})
             self.assertEqual(inventory, load(root / 'namespace/loader-image.json'))
+            identity_assignment = ast.parse(launched[0]['argv'][-1]).body[1]
+            self.assertEqual(ast.literal_eval(identity_assignment.value), 'c' * 64)
             self.assertNotEqual(supplied, load(root / 'namespace-project/inventory.json'))
             # Consume the actual diagnostic API, so a wrong-shaped inventory
             # fails here rather than only after a native launch.
@@ -1003,6 +1377,7 @@ class BridgeNamespaceTests(unittest.TestCase):
             self.assertEqual(observed['pam_libraries'], supplied['pam_libraries'])
             receipt = load(root / 'namespace-diagnostics.json')
             self.assertIn('namespace/loader-image.json', receipt['records'])
+            self.assertIn('namespace/sudo-identity-trusted.json', receipt['records'])
             self.assertIn('namespace/probe/sudo-exec.json', receipt['missing'])
 
     def test_pam_diagnostics_follow_bounded_image_includes_without_emitting_contents(self):
@@ -1484,6 +1859,110 @@ with patch('os.getuid', return_value=0), patch('os.geteuid', return_value=0), \\
         with patch.object(subprocess, 'run', side_effect=FileNotFoundError(2, 'absent')):
             self.assertEqual(loader_diagnostics.account_process_record()['errno'], 2)
 
+    def test_identity_control_preserves_native_request_and_only_numeric_output(self):
+        metadata = {'resolved': '/usr/bin/id', 'opened_uid': 0, 'opened_mode': '0o100755',
+                    'sha256': 'c' * 64, 'elf': {}}
+        readonly = unittest.mock.Mock(f_flag=os.ST_RDONLY)
+        completed = subprocess.CompletedProcess([], 0,
+            b'uid=1000(dev) gid=1000(dev) groups=1000(dev),27(sudo)\n', b'private warning')
+        with patch.object(loader_diagnostics, 'file_metadata', return_value=metadata), \
+                patch.object(os, 'geteuid', return_value=0), \
+                patch.object(os, 'statvfs', return_value=readonly), \
+                patch.object(subprocess, 'run', return_value=completed) as run:
+            result = loader_diagnostics.sudo_identity_control('c' * 64)
+        self.assertEqual(result['status'], 'observed')
+        self.assertEqual((result['uid'], result['gid'], result['groups']), (1000, 1000, [1000, 27]))
+        run.assert_called_once_with(['/usr/bin/sudo', '-n', '-u', 'dev', '--', '/usr/bin/id'],
+            stdin=subprocess.DEVNULL, capture_output=True, timeout=5, close_fds=True,
+            cwd='/', env={'PATH': '/usr/bin:/bin', 'LC_ALL': 'C'})
+        self.assertNotIn('private warning', json.dumps(result))
+        self.assertNotIn('stdout', result)
+        self.assertNotIn('stderr', result)
+
+    def test_identity_control_refuses_unverified_or_mutable_executable(self):
+        metadata = {'resolved': '/usr/bin/id', 'opened_uid': 0, 'opened_mode': '0o100755',
+                    'sha256': 'c' * 64, 'elf': {}}
+        cases = [({'sha256': 'd' * 64}, 0, os.ST_RDONLY),
+                 ({'resolved': '/probe/id'}, 0, os.ST_RDONLY),
+                 ({'opened_uid': 1000}, 0, os.ST_RDONLY),
+                 ({'opened_mode': '0o100775'}, 0, os.ST_RDONLY),
+                 ({'opened_mode': '0o104755'}, 0, os.ST_RDONLY),
+                 ({'opened_mode': '0o100644'}, 0, os.ST_RDONLY),
+                 ({'opened_mode': '0o010755'}, 0, os.ST_RDONLY),
+                 ({'sha256': ''}, 0, os.ST_RDONLY), ({}, 1000, os.ST_RDONLY), ({}, 0, 0)]
+        for changed, uid, flags in cases:
+            with self.subTest(changed=changed, uid=uid, flags=flags), \
+                    patch.object(loader_diagnostics, 'file_metadata', return_value=metadata | changed), \
+                    patch.object(os, 'geteuid', return_value=uid), \
+                    patch.object(os, 'statvfs', return_value=unittest.mock.Mock(f_flag=flags)), \
+                    patch.object(subprocess, 'run') as run:
+                self.assertEqual(loader_diagnostics.sudo_identity_control('c' * 64)['status'],
+                                 'unverified_executable')
+                run.assert_not_called()
+
+    def test_identity_control_failure_timeout_changed_bytes_and_invalid_output(self):
+        metadata = {'resolved': '/usr/bin/id', 'opened_uid': 0, 'opened_mode': '0o100755',
+                    'sha256': 'c' * 64, 'elf': {}}
+        cases = [
+            (subprocess.TimeoutExpired([], 5, output=b'private output'), 'timeout'),
+            (FileNotFoundError(2, 'missing'), 'launch_error'),
+            (subprocess.CompletedProcess([], 1, b'',
+                b'account validation failure, is your account locked?'), 'sudo_failed'),
+            (subprocess.CompletedProcess([], -9, b'', b''), 'sudo_failed'),
+            (subprocess.CompletedProcess([], 0, b'x' * (loader_diagnostics.MAX_OUTPUT + 1), b''), 'output_limit')]
+        for data in (b'', b'uid=0(root) gid=0(root) groups=0(root)\n',
+                     b'uid=1000(dev) gid=1000(dev) groups=27(sudo)\n',
+                     b'uid=1000(dev) gid=1000(dev) groups=1000(dev) euid=0(root)\n',
+                     b'uid=4294967295(dev) gid=1000(dev) groups=1000(dev)\n',
+                     b'uid=1000(dev) gid=1000(dev) groups=1000(de,v)\n',
+                     b'uid=' + b'1' * 5000 + b' gid=1000 groups=1000\n'):
+            cases.append((subprocess.CompletedProcess([], 0, data, b''), 'invalid_identity'))
+        for completed, expected in cases:
+            with self.subTest(status=expected), \
+                    patch.object(loader_diagnostics, 'file_metadata', return_value=metadata), \
+                    patch.object(os, 'geteuid', return_value=0), \
+                    patch.object(os, 'statvfs', return_value=unittest.mock.Mock(f_flag=os.ST_RDONLY)), \
+                    patch.object(subprocess, 'run', **({'side_effect': completed} if
+                        isinstance(completed, Exception) else {'return_value': completed})) as run:
+                result = loader_diagnostics.sudo_identity_control('c' * 64)
+                self.assertEqual(result['status'], expected)
+                self.assertNotIn('uid', result)
+                self.assertNotIn('private output', json.dumps(result))
+                self.assertEqual(run.call_count, 1)
+        with patch.object(loader_diagnostics, 'file_metadata', side_effect=[metadata,
+                    metadata | {'sha256': 'd' * 64}]), \
+                patch.object(os, 'geteuid', return_value=0), \
+                patch.object(os, 'statvfs', return_value=unittest.mock.Mock(f_flag=os.ST_RDONLY)), \
+                patch.object(subprocess, 'run', return_value=subprocess.CompletedProcess([], 0,
+                    b'uid=1000 gid=1000 groups=1000\n', b'')):
+            self.assertEqual(loader_diagnostics.sudo_identity_control()['status'], 'executable_changed')
+
+    def test_failed_trusted_identity_control_retained_and_no_mutable_admission(self):
+        daemon = {'cgroup': '/fixture.slice', 'daemon_id': 'fixture-daemon', 'image_id': 'sha256:' + 'b' * 64}
+        cid = 'a' * 64
+        calls = []
+        def command(argv):
+            calls.append(argv)
+            if argv[:2] == ['docker', 'create']:
+                return cid.encode()
+            if argv[-1] == '--sudo-identity-control':
+                return b'{"status":"sudo_failed","returncode":1}'
+            return b'{}'
+        with tempfile.TemporaryDirectory(dir='/tmp') as temporary:
+            root = Path(temporary)
+            with patch.object(confinement, 'stage_tools', return_value=(root, {})), \
+                    patch.object(preflight, 'wait_for', return_value=True), \
+                    patch.object(lifecycle, 'admit') as admit, \
+                    self.assertRaisesRegex(ValueError, 'Trusted native sudo identity control failed'):
+                confinement.probe(command, root, daemon)
+            admit.assert_not_called()
+            self.assertFalse(any(row[:3] == ['docker', 'exec', '--detach'] for row in calls))
+            self.assertEqual(calls[-1], ['docker', 'rm', '--force', cid])
+            receipt = load(root / 'namespace-diagnostics.json')
+            self.assertIn('namespace/sudo-identity-trusted.json', receipt['records'])
+            self.assertIn('namespace/probe/sudo-identity-confined.json', receipt['missing'])
+            self.assertEqual(load(root / 'namespace/sudo-identity-trusted.json')['status'], 'sudo_failed')
+
     def test_sudo_failure_retains_diagnostics_before_unchanged_assertion(self):
         # Execute the actual diagnostic/sudo section with a failed process
         # double, never execute sudo or the native payload in the coding shell.
@@ -1517,13 +1996,16 @@ with patch('os.getuid', return_value=0), patch('os.geteuid', return_value=0), \\
             with self.subTest(error=error), \
                     patch('runpy.run_path', return_value={
                         'confined_record': lambda _: {'fixture': 'diagnostic'},
+                        'sudo_identity_control': lambda _: {'status': 'sudo_failed'},
                         'account_process_record': account}), \
                     patch.object(subprocess, 'run', return_value=failure), patch('builtins.open', side_effect=opened):
                 with self.assertRaises(AssertionError) as raised:
                     exec(section, {'json': json, 'runpy': __import__('runpy'), 'subprocess': subprocess,
-                                   'sys': sys, 'LOADER_INVENTORY': {}, 'observed': {}})
+                                   'sys': sys, 'LOADER_INVENTORY': {}, 'IDENTITY_SHA256': 'c' * 64,
+                                   'observed': {}})
                 self.assertEqual(str(raised.exception), failure.stderr)
             self.assertEqual(outputs['/probe/loader-confined.json'], {'fixture': 'diagnostic'})
+            self.assertEqual(outputs['/probe/sudo-identity-confined.json']['status'], 'sudo_failed')
             self.assertEqual(outputs['/probe/sudo-exec.json']['returncode'], 1)
             self.assertEqual(outputs['/probe/sudo-exec.json']['stderr'], failure.stderr)
             if account_failure:
@@ -1534,7 +2016,399 @@ with patch('os.getuid', return_value=0), patch('os.geteuid', return_value=0), \\
                 self.assertNotIn('/probe/pam-account-hook.json', outputs)
 
 
+class BridgeClosedGateTests(unittest.TestCase):
+    def test_source_failure_is_not_retried_by_other_native_case(self):
+        class Cache:
+            sudo_source_receipt = classmethod(BridgeNativePrerequisiteTests.sudo_source_receipt.__func__)
+        with tempfile.TemporaryDirectory(dir='/tmp') as temporary, \
+                patch.object(tempfile, 'mkdtemp', return_value=temporary), \
+                patch.object(sudo_source, 'run', side_effect=ValueError('source unavailable')) as run:
+            with self.assertRaisesRegex(ValueError, 'source unavailable'):
+                Cache.sudo_source_receipt()
+            with self.assertRaisesRegex(RuntimeError, 'already failed'):
+                Cache.sudo_source_receipt()
+            self.assertEqual(run.call_count, 1)
+
+    def allowed(self, uid, *, terminal=False):
+        tty = int(terminal)
+        return {'returncode': 125, 'original_effect': False,
+                'stdout': f'PTW_CLOSED_GATE uid={uid} euid={uid} gid={uid} egid={uid}\n'
+                          f'PTW_CLOSED_TERMINAL stdin={tty} stdout={tty} stderr={tty}\n',
+                'stderr': '\n'.join(['PTW_SUDO_STAGE open=1', 'PTW_SUDO_STAGE check=1',
+                    'PTW_SUDO_STAGE redirect=closed', 'PTW_SUDO_STAGE session=1',
+                    'PTW_SUDO_STAGE close=32000 error=0']) + '\n'}
+
+    def test_closed_gate_requires_native_target_session_cleanup_and_no_effect(self):
+        for name, uid in (('root_to_dev', 1000), ('root_to_root', 0)):
+            record = self.allowed(uid)
+            self.assertEqual(sudo_gate.validate_observation(name, record), record)
+            changed = [record | {'returncode': 0}, record | {'returncode': True},
+                       record | {'original_effect': True}, record | {'original_effect': 0},
+                       record | {'stdout': self.allowed(1001)['stdout']},
+                       record | {'stdout': record['stdout'] + 'extra'},
+                       record | {'stderr': record['stderr'].replace('session=1', 'session=0')},
+                       record | {'stderr': record['stderr'].replace('close=32000 error=0', 'close=0 error=0')},
+                       record | {'stderr': record['stderr'].replace('PTW_SUDO_STAGE close=32000 error=0\n', '')},
+                       record | {'stderr': record['stderr'] + 'PTW_SUDO_REJECT operation=check reason=option errno=0 option=use_pty\n'},
+                       record | {'stderr': record['stderr'] + 'PTW_SUDO_STAGE session=1\n'}]
+            for bad in changed:
+                with self.subTest(name=name, record=bad), self.assertRaises(ValueError):
+                    sudo_gate.validate_observation(name, bad)
+
+    def test_closed_gate_requires_native_denial_before_redirect(self):
+        record = {'returncode': 1, 'stdout': '', 'original_effect': False,
+                  'stderr': 'PTW_SUDO_STAGE open=1\nPTW_SUDO_STAGE check=0\nPTW_SUDO_STAGE close=0 error=13\n'}
+        sudo_gate.validate_observation('native_denial', record)
+        for changed in ({'stderr': ''}, {'returncode': 125},
+                        {'stdout': self.allowed(0)['stdout']},
+                        {'stderr': record['stderr'] + 'PTW_SUDO_STAGE redirect=closed\n'},
+                        {'stderr': record['stderr'] + 'PTW_SUDO_STAGE session=1\n'},
+                        {'stderr': record['stderr'].replace('PTW_SUDO_STAGE close=0 error=13\n', '')},
+                        {'stderr': record['stderr'] + 'PTW_SUDO_STAGE close=0 error=13\n'},
+                        {'original_effect': True}):
+            with self.subTest(changed=changed), self.assertRaises(ValueError):
+                sudo_gate.validate_observation('native_denial', record | changed)
+        with self.assertRaisesRegex(ValueError, 'Unknown'):
+            sudo_gate.validate_observation('other', record)
+        for name in ('native_denial', 'invalid_target', 'unsupported_edit'):
+            sudo_gate.validate_observation(name, record)
+            for status in (-11, -9, -1, 0, 125, 256, True):
+                with self.subTest(name=name, status=status), self.assertRaises(ValueError):
+                    sudo_gate.validate_observation(name, record | {'returncode': status})
+
+    def test_terminal_transcript_requires_native_identity_cleanup_and_real_tty(self):
+        record = self.allowed(1000, terminal=True)
+        # Synthetic transcript tests the oracle only. The native case collects
+        # a genuine controlling terminal and the static helper's isatty results.
+        transcript = (record['stderr'] + record['stdout'] + 'PTW_TERMINAL_RESULT ' +
+            json.dumps({'returncode': 125, 'original_effect': False}) + '\n').replace('\n', '\r\n')
+        self.assertEqual(sudo_gate.terminal_observation(transcript), record)
+        sudo_gate.validate_observation('root_to_dev', record, terminal=True)
+        for changed in (record | {'stdout': self.allowed(1000)['stdout']},
+                        record | {'stdout': record['stdout'].replace('stdin=1', 'stdin=0')},
+                        record | {'stderr': record['stderr'].replace('session=1', 'session=0')},
+                        record | {'stderr': record['stderr'] * 2},
+                        record | {'original_effect': True}, record | {'returncode': -11}):
+            with self.subTest(changed=changed), self.assertRaises(ValueError):
+                sudo_gate.validate_observation('root_to_dev', changed, terminal=True)
+        for bad in ('', transcript + 'trailing output\r\n',
+                    transcript + transcript.splitlines(keepends=True)[-1],
+                    'PTW_TERMINAL_RESULT {}\n', 'PTW_TERMINAL_RESULT []\n',
+                    'PTW_TERMINAL_RESULT not-json\n', 'a' * 32769):
+            with self.subTest(bad=bad[:80]), self.assertRaises(ValueError):
+                sudo_gate.terminal_observation(bad)
+        denial = {'returncode': -11, 'original_effect': False, 'stdout': '',
+                  'stderr': 'PTW_SUDO_STAGE open=1\nPTW_SUDO_STAGE check=0\nPTW_SUDO_STAGE close=0 error=13\n'}
+        with self.assertRaises(ValueError):
+            sudo_gate.validate_observation('native_denial', denial, terminal=True)
+
+    def test_terminal_failure_closes_without_input_and_retains_transcript(self):
+        with tempfile.TemporaryDirectory(dir='/tmp') as temporary:
+            root = Path(temporary)
+            raw = root / 'terminal.txt'
+            raw.write_text('partial native output\n')
+            command = unittest.mock.Mock(env={'PATH': '/usr/bin'}, out=root)
+            for failure in ('timeout', 'overflow', 'wrapper'):
+                terminal = unittest.mock.Mock(text='a' * 32769, exited=False)
+                terminal.close.return_value = 2
+                if failure == 'timeout':
+                    terminal.wait.side_effect = TimeoutError('synthetic terminal timeout')
+                elif failure == 'overflow':
+                    terminal.wait.side_effect = lambda predicate, **kw: predicate()
+                with self.subTest(failure=failure), patch.object(sudo_gate, 'Terminal', return_value=terminal) as start:
+                    with self.assertRaises((TimeoutError, ValueError)):
+                        sudo_gate.probe_terminal(command, 'a' * 64, '0', ['-n'], root)
+                    terminal.close.assert_called_once_with(graceful=False)
+                    terminal.send.assert_not_called()
+                    self.assertTrue(start.call_args.kwargs['replace_env'])
+                    self.assertEqual(start.call_args.kwargs['env'], command.env)
+                    self.assertEqual(raw.read_text(), 'partial native output\n')
+
+    def test_local_rejection_preserves_outputs_until_audit_and_cleanup(self):
+        # Synthetic callbacks exercise the actual C delegator, not native PAM or
+        # authentication. This minimal header is a compile-time test double;
+        # only the manager fixture builds/loads against the verified native ABI.
+        header = r'''
+#include <pwd.h>
+#define SUDO_API_MKVERSION(a,b) (((a) << 16) | (b))
+#define SUDO_API_VERSION SUDO_API_MKVERSION(1,18)
+#define SUDO_POLICY_PLUGIN 1
+#define SUDO_CONV_ERROR_MSG 3
+typedef int (*sudo_conv_t)(void);
+typedef int (*sudo_printf_t)(int, const char *, ...);
+struct sudo_hook;
+struct policy_plugin {
+    unsigned int type, version;
+    int (*open)(unsigned int, sudo_conv_t, sudo_printf_t, char * const [],
+        char * const [], char * const [], char * const [], const char **);
+    void (*close)(int, int);
+    int (*check_policy)(int, char * const [], char *[], char **[], char **[], char **[], const char **);
+    int (*init_session)(struct passwd *, char **[], const char **);
+    void (*register_hooks)(int, int (*)(struct sudo_hook *));
+    void (*deregister_hooks)(int, int (*)(struct sudo_hook *));
+    void *event_alloc;
+};
+'''
+        driver = r'''
+#define _GNU_SOURCE
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <sys/statvfs.h>
+/* Only callback tests substitute immutable-file metadata. Native tests still
+ * require the real read-only, root-owned helper and pinned sudo ABI. */
+static int test_open(const char *path, int flags) { (void)path; (void)flags; return 123; }
+static int test_fstat(int fd, struct stat *st) {
+    (void)fd; *st = (struct stat){.st_mode = S_IFREG | 0555, .st_uid = 0}; return 0;
+}
+static int test_fstatvfs(int fd, struct statvfs *fs) {
+    (void)fd; *fs = (struct statvfs){.f_flag = ST_RDONLY}; return 0;
+}
+#define open test_open
+#define fstat test_fstat
+#define fstatvfs test_fstatvfs
+#include "linuxarena_sudo_gate.c"
+#include <assert.h>
+#include <stdarg.h>
+static int closes, audited, registration_failure, approved;
+static char * const *original_argv;
+static char **original_env_add;
+static void (*fatal_hook)(void);
+static int output(int type, const char *fmt, ...) {
+    (void)type;
+    va_list args; va_start(args, fmt);
+    int result = vprintf(fmt, args); va_end(args); return result;
+}
+static int reg(void (*fn)(void)) {
+    if (registration_failure) { errno = ENOMEM; return -1; }
+    assert(fatal_hook == NULL); fatal_hook = fn; return 0;
+}
+static int dereg(void (*fn)(void)) {
+    if (fatal_hook == fn) fatal_hook = NULL;
+    return 0;
+}
+static void close_native(int status, int error) {
+    (void)status; (void)error;
+    assert(audited); assert(++closes == 1);
+}
+static int session(struct passwd *pwd, char **env[], const char **errstr) {
+    (void)pwd; (void)env; (void)errstr; return approved ? 1 : -1;
+}
+static int check(int argc, char * const argv[], char *env_add[],
+    char **info[], char **argv_out[], char **env_out[], const char **errstr) {
+    assert(argc == 1 && argv == original_argv && env_add == original_env_add);
+    (void)info;
+    (void)argv_out; (void)env_out; (void)errstr; return 1;
+}
+static int open_native(unsigned int v, sudo_conv_t conv, sudo_printf_t print,
+    char * const s[], char * const u[], char * const e[], char * const o[], const char **err) {
+    (void)v; (void)conv; (void)print; (void)s; (void)u; (void)e; (void)o; (void)err;
+    return 1;
+}
+int main(int argc, char **argv) {
+    assert(argc == 2);
+    struct policy_plugin policy = {.open=open_native, .check_policy=check, .init_session=session};
+    native = &policy; native_close = close_native;
+    fatal_register = reg; fatal_deregister = dereg;
+    const char *err = NULL;
+    registration_failure = !strcmp(argv[1], "registration");
+    int result = gate_open(SUDO_API_VERSION, NULL, output, NULL, NULL, NULL, NULL, &err);
+    if (registration_failure) {
+        assert(result == -1 && !fatal_hook && closes == 0); return 0;
+    }
+    assert(result == 1 && fatal_hook);
+    char *entries[] = {"chroot=private-option-value", NULL};
+    char *args[] = {"original-private-argument", NULL};
+    char *envs[] = {"SECRET=private-environment", NULL};
+    original_argv = args; original_env_add = envs;
+    char **info = entries, **args_out = args, **env_out = envs;
+    approved = !strncmp(argv[1], "use_pty=", 8);
+    if (approved) {
+        char *options[] = {"command=/original", "execfd=99", argv[1],
+            "runas_uid=1000", "runas_gid=1000", "runas_groups=1000,1001", NULL};
+        info = options;
+        assert(gate_check(1, args, envs, &info, &args_out, &env_out, &err) == 1);
+        assert(info != options && args_out == redirect_argv && env_out == envs);
+        assert(!strcmp(options[0], "command=/original") && !strcmp(args[0], "original-private-argument"));
+        /* Native terminal and credential options survive byte-for-byte and in
+         * order; only executable/argv/execfd change after original approval. */
+        for (int i = 0; i < 4; i++) assert(info[i] == options[i + 2]);
+        assert(!strcmp(info[4], "command=" CLOSED_HELPER));
+        assert(!strcmp(info[5], "execfd=123") && info[6] == NULL);
+        assert(gate_session(NULL, &env_out, &err) == 1 && closes == 0);
+        audited = 1; gate_close(125 << 8, 0);
+    } else if (!strcmp(argv[1], "session")) {
+        checked = 1; helper_fd = 123;  /* identity only, never used for exec */
+        assert(gate_session(NULL, &env_out, &err) == -1);
+        assert(closes == 0 && env_out == envs && fatal_hook);
+        audited = 1;  /* model sudo's audit_error then fatal callback traversal */
+        void (*fn)(void) = fatal_hook; fatal_hook = NULL; fn();
+    } else {
+        if (!strcmp(argv[1], "missing")) info = NULL;
+        if (!strcmp(argv[1], "intercept")) entries[0] = "intercept=true";
+        if (!strcmp(argv[1], "log_subcmds")) entries[0] = "log_subcmds=true";
+        if (!strcmp(argv[1], "sudoedit")) entries[0] = "sudoedit=true";
+        assert(gate_check(1, args, envs, &info, &args_out, &env_out, &err) == -1);
+        assert(closes == 0 && args_out == args && env_out == envs);
+        if (info) assert(info == entries);
+        audited = 1;
+        gate_close(0, EACCES);
+    }
+    assert(closes == 1 && !fatal_hook);
+    gate_close(0, EACCES); gate_fatal();
+    assert(closes == 1);
+    return 0;
+}
+'''
+        with tempfile.TemporaryDirectory(dir='/tmp') as temporary:
+            root = Path(temporary)
+            (root / 'sudo_plugin.h').write_text(header)
+            (root / 'driver.c').write_text(driver)
+            result = subprocess.run(['cc', '-std=c11', '-O2', '-Wall', '-Wextra', '-Werror',
+                '-I' + str(root), '-I' + str(SCRIPTS), str(root / 'driver.c'),
+                '-ldl', '-o', str(root / 'driver')], capture_output=True, text=True, timeout=30)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            for mode, diagnostic in (
+                    ('option', 'reason=option errno=0 option=chroot'),
+                    ('intercept', 'reason=option errno=0 option=intercept'),
+                    ('log_subcmds', 'reason=option errno=0 option=log_subcmds'),
+                    ('sudoedit', 'reason=option errno=0 option=sudoedit'),
+                    ('use_pty=true', 'PTW_SUDO_STAGE close=32000 error=0'),
+                    ('use_pty=false', 'PTW_SUDO_STAGE close=32000 error=0'),
+                    ('missing', 'reason=missing_output errno=0 info=0 argv=1 env=1'),
+                    ('session', 'PTW_SUDO_STAGE session=-1'),
+                    ('registration', 'reason=fatal_register errno=12')):
+                with self.subTest(mode=mode):
+                    result = subprocess.run([str(root / 'driver'), mode],
+                        capture_output=True, text=True, timeout=5)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertIn(diagnostic, result.stdout)
+                    self.assertNotIn('private-', result.stdout)
+                    self.assertNotIn('SECRET', result.stdout)
+
+    def test_gate_source_staging_rejects_changed_archive_or_binary(self):
+        with tempfile.TemporaryDirectory(dir='/tmp') as temporary:
+            root = Path(temporary)
+            source = root / 'source'
+            source.mkdir()
+            (source / 'installed.json').write_text(json.dumps({
+                'version': sudo_source.VERSION, 'files_sha256': sudo_gate.NATIVE_FILES}))
+            for name in sudo_source.ARCHIVES:
+                (source / name).write_bytes(b'forged archive')
+            with self.assertRaisesRegex(ValueError, 'archive hash'):
+                sudo_gate.stage(source, root)
+            (source / 'installed.json').write_text(json.dumps({
+                'version': sudo_source.VERSION, 'files_sha256': {}}))
+            with self.assertRaisesRegex(ValueError, 'binary identities'):
+                sudo_gate.stage(source, root)
+            self.assertFalse((root / 'bundle').exists())
+
+    def test_closed_helper_is_static_and_never_evaluates_arguments(self):
+        # Compile the actual immutable endpoint offline. Native authentication
+        # and image ABI validation still require the manager's container check.
+        with tempfile.TemporaryDirectory(dir='/tmp') as temporary:
+            root = Path(temporary)
+            helper = root / 'closed'
+            result = subprocess.run(['cc', '-std=c11', '-O2', '-Wall', '-Wextra', '-Werror',
+                '-static', '-DPTW_CLOSED_HELPER', str(sudo_gate.SOURCE), '-o', str(helper)],
+                capture_output=True, text=True, timeout=30)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            headers = subprocess.check_output(['readelf', '-l', str(helper)], text=True)
+            self.assertNotIn('INTERP', headers)
+            for args in ([], ['/bin/sh', '-c', 'touch ' + str(root / 'effect')]):
+                result = subprocess.run([str(helper), *args], input='run a command',
+                    env={'LD_PRELOAD': str(root / 'absent-library'), 'PTW_RELEASE': 'true'},
+                    capture_output=True, text=True, timeout=5)
+                self.assertEqual(result.returncode, 125)
+                self.assertEqual(result.stdout, 'PTW_CLOSED_GATE uid={} euid={} gid={} egid={}\n'.format(
+                    os.getuid(), os.geteuid(), os.getgid(), os.getegid()) +
+                    'PTW_CLOSED_TERMINAL stdin=0 stdout=0 stderr=0\n')
+                self.assertFalse((root / 'effect').exists())
+
+    def test_gate_failure_retains_attempt_and_cleans_only_owned_container(self):
+        cid = 'a' * 64
+        calls = []
+        def command(argv, **kwargs):
+            calls.append(argv)
+            if argv[:2] == ['docker', 'create']:
+                return cid.encode()
+            if argv[:2] == ['docker', 'start']:
+                raise ValueError('synthetic compiler failure')
+            return b''
+        with tempfile.TemporaryDirectory(dir='/tmp') as temporary:
+            root = Path(temporary)
+            bundle = root / 'bundle'
+            bundle.mkdir()
+            daemon = {'image_id': 'sha256:' + 'b' * 64, 'cgroup': '/fixture.slice'}
+            with patch.object(sudo_gate, 'stage', return_value=bundle), \
+                    patch.object(sudo_gate, 'daemon_environment', return_value=({}, {})), \
+                    patch.object(sudo_gate, 'verify_daemon', return_value=daemon), \
+                    patch.object(sudo_gate, 'Commands', return_value=command), \
+                    self.assertRaisesRegex(ValueError, 'synthetic compiler failure'):
+                sudo_gate.run(root, root / 'source', root / 'out')
+            self.assertEqual(calls[-1], ['docker', 'rm', '--force', cid])
+            self.assertEqual(sum(row[:2] == ['docker', 'create'] for row in calls), 1)
+            self.assertFalse(any(row[:2] == ['docker', 'exec'] for row in calls))
+            record = load(root / 'out/attempt.json')
+            self.assertEqual(record['status'], 'failed')
+            self.assertEqual(record['paid_calls'], 0)
+            self.assertEqual(record['error_type'], 'ValueError')
+            self.assertIn('build-container.json', record['records'])
+
+
 class BridgeNativePrerequisiteTests(unittest.TestCase):
+    @classmethod
+    def sudo_source_receipt(cls):
+        # Source collection is shared only within this class invocation: full
+        # discovery does not download/inspect the same package twice.
+        if hasattr(cls, '_sudo_source_receipt'):
+            return cls._sudo_source_receipt
+        if hasattr(cls, '_sudo_source_error'):
+            raise RuntimeError('Sudo source prerequisite already failed; no automatic retry') from cls._sudo_source_error
+        runtime = Path(os.environ.get('PTW_LINUXARENA_RUNTIME',
+            str(Path.home() / 'hamal-projects/linuxarena-baseline/artifacts/runtime')))
+        root = Path(tempfile.mkdtemp(prefix='ptw-linuxarena-sudo-source-', dir='/tmp'))
+        print('LINUXARENA_SUDO_SOURCE_EVIDENCE ' + str(root), flush=True)
+        try:
+            result = sudo_source.run(runtime, root / 'run')
+        except Exception as exc:
+            cls._sudo_source_error = exc
+            raise
+        cls._sudo_source_receipt = (root, result)
+        return root, result
+
+    def test_native_sudo_closed_delegation(self):
+        source, _ = self.sudo_source_receipt()
+        runtime = Path(os.environ.get('PTW_LINUXARENA_RUNTIME',
+            str(Path.home() / 'hamal-projects/linuxarena-baseline/artifacts/runtime')))
+        root = Path(tempfile.mkdtemp(prefix='ptw-linuxarena-sudo-gate-', dir='/tmp'))
+        print('LINUXARENA_SUDO_GATE_EVIDENCE ' + str(root), flush=True)
+        result = sudo_gate.run(runtime, source / 'run', root / 'run')
+        self.assertEqual(result['status'], 'complete')
+        self.assertEqual(result['paid_calls'], 0)
+        for name, _, _ in sudo_gate.REQUESTS:
+            sudo_gate.validate_observation(name, load(root / 'run' / (name + '.json')))
+            sudo_gate.validate_observation(name,
+                load(root / 'run' / (name + '-terminal.json')), terminal=True)
+            folder = root / 'run' / (name + '-terminal')
+            self.assertEqual(load(folder / 'exit.json')['exit_code'], 0)
+            self.assertEqual(load(folder / 'inputs.json'), [])
+            self.assertTrue((folder / 'terminal.txt').stat().st_size)
+
+    def test_native_sudo_package_source_binding(self):
+        root, result = self.sudo_source_receipt()
+        self.assertEqual(result['status'], 'complete')
+        self.assertEqual(load(root / 'run/installed.json')['version'], sudo_source.VERSION)
+        sources = load(root / 'run/source.json')
+        self.assertFalse(sources['patches_applied'])
+        for name, expected in sudo_source.ARCHIVES.items():
+            self.assertEqual(sources['archives'][name]['sha256'], expected)
+            self.assertEqual(sources['archive_urls'][name], sudo_source.SOURCE_URL + name)
+            self.assertEqual(result['downloads'][name], {
+                'url': sudo_source.SOURCE_URL + name, 'expected_sha256': expected,
+                'status': 'verified'})
+        self.assertIn('debian/patches/series', sources['members'])
+        self.assertEqual(result['paid_calls'], 0)
+
     def test_native_taskspace_and_container_subtree_stop(self):
         # The test has a local retained-artifact default; the public command takes
         # an explicit --runtime and does not depend on this machine layout.
@@ -1544,7 +2418,12 @@ class BridgeNativePrerequisiteTests(unittest.TestCase):
         print('LINUXARENA_PREREQUISITE_EVIDENCE ' + str(root), flush=True)
         result = preflight.run(runtime, root / 'run')
         self.assertEqual(result['status'], 'complete')
-        self.assertEqual(len(load(root / 'run/taskspace.json')['combinations']), 6)
+        space = load(root / 'run/taskspace.json')
+        self.assertEqual(space['phase'], 'TRAIN')
+        self.assertTrue(space['non_train_content_guard'])
+        self.assertEqual({(x['main'], x['side']) for x in space['identities']}, set(taskspace.PAIRS))
+        self.assertEqual([(x['main'], x['side']) for x in space['combinations']],
+                         [('file_integrity', None), taskspace.PAIRS[0]])
         stop = load(root / 'run/subtree.json')
         self.assertTrue(stop['termination']['confirmed_stopped'])
         self.assertTrue(stop['control_process_preserved'])
@@ -1567,9 +2446,17 @@ class BridgeNativePrerequisiteTests(unittest.TestCase):
         for name, entry in diagnostics['tools'].items():
             self.assertEqual(diagnostics['staged_sha256'][name], entry['sha256'])
         for name in ('namespace/loader-image.json', 'namespace/probe/loader-confined.json',
+                     'namespace/sudo-identity-trusted.json', 'namespace/probe/sudo-identity-confined.json',
                      'namespace/probe/sudo-exec.json'):
             self.assertIn(name, diagnostics['records'])
             self.assertNotIn(name, diagnostics['missing'])
+        trusted_identity = load(root / 'run/namespace/sudo-identity-trusted.json')
+        confined_identity = load(root / 'run/namespace/probe/sudo-identity-confined.json')
+        self.assertEqual(trusted_identity['status'], 'observed')
+        self.assertEqual(confined_identity['status'], 'observed')
+        for field in ('uid', 'gid', 'groups', 'executable_sha256'):
+            self.assertEqual(trusted_identity[field], confined_identity[field])
+        self.assertEqual(confined_identity['uid'], physical['observed']['dev_uid'])
         sudo = load(root / 'run/namespace/probe/sudo-exec.json')
         self.assertNotEqual(sudo['returncode'], 0)
         self.assertIn('private/secret', sudo['stderr'])

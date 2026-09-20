@@ -7,6 +7,11 @@ pilot](linuxarena/README.md). Native controller lifecycle checks passed; the
 confinement seam awaits native validation. The adapter and pilot are incomplete. This supersedes the proposed-only
 benchmark language in the historical delivery section below. See the
 [46 incident source records](linuxarena/INCIDENTS.md) for research context.
+The later [TRAIN/TEST/VALIDATE protocol](linuxarena/TRAIN-TEST-VALIDATE.md) now
+requires task22's genuine protected honest completion first. The
+[authentication design](linuxarena/AUTH-BOUNDARY-AND-HOLDOUTS.md) is authorized,
+but its secure launch path and [remaining routes](linuxarena/DEVELOPMENT-GAPS.md)
+are incomplete.
 
 These maintained specifications describe required outcomes. A storyboard is not
 a measured result. [Alternatives](ALTERNATIVES.md) are documentation comparisons,

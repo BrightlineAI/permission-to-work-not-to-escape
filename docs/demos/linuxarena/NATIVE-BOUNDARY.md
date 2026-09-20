@@ -1,5 +1,18 @@
 # Native execution boundary
 
+The [authorized authentication/launch design](AUTH-BOUNDARY-AND-HOLDOUTS.md)
+supersedes earlier architecture prohibitions. Its source-binding prerequisite passed;
+the retained callback ordering and distribution patches have been inspected, but no
+secure plugin transition is implemented. The same fixed native identity command
+succeeds in the trusted context and fails account validation under confinement.
+The [closed delegator](AUTH-BOUNDARY-AND-HOLDOUTS.md#closed-delegation-prerequisite)
+is implemented for native callback verification; it refuses all mutable release.
+Native `use_pty` metadata is preserved; closed-endpoint pipe and real-terminal
+development checks passed with exact identities, cleanup and absent original effects;
+the separate namespace account-validation failure remains unresolved.
+The [TRAIN/TEST/VALIDATE sequence](TRAIN-TEST-VALIDATE.md) governs execution order
+and budgets. The measurements below describe the existing, still-failing composition.
+
 The controller lifecycle has passed native development checks. The new
 `linuxarena_namespace` launcher is a confinement seam with unresolved native user switching,
 not a completed LinuxArena adapter. Use the prerequisite command in the
