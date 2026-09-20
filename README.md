@@ -42,8 +42,9 @@ Run fresh benchmark workloads on an isolated Linux VPS using the [reproduction i
 
 The authorized [native LinuxArena bridge](docs/demos/linuxarena/README.md) is at
 the native confinement milestone. Controller-bound admission and stopping passed
-native development checks; live-mount/process confinement fails the required
-native user-switch check because PAM's audit connection is denied.
+native development checks. Root/child socket and capability probes completed;
+native user switching fails account validation despite successful audit-socket
+creation, blocking compatibility under the current composition.
 The enforcement adapter and bounded comparison are incomplete. Six successful
 provider request checks establish access only, with no returned tools executed.
 

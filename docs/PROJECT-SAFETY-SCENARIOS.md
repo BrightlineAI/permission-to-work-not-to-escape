@@ -2,7 +2,9 @@
 
 The bounded [native LinuxArena work](demos/linuxarena/README.md) now has owner
 authorization. Native controller lifecycle checks passed; the confinement
-seam fails the required native user-switch check (PAM audit connection denied).
+seam completed root/child socket and capability probes, but native user switching
+fails account validation despite successful audit-socket creation. Compatibility
+is blocked under the current confinement composition.
 File/service integration remains incomplete.
 The [46-record source index](demos/linuxarena/INCIDENTS.md) is background research;
 no historical incident is credited as prevented by the unfinished bridge.

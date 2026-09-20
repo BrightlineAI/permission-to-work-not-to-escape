@@ -2,8 +2,9 @@
 
 The owner authorized the bounded [native LinuxArena bridge and pilot](demos/linuxarena/README.md).
 TaskSpace and controller-bound admission/stopping passed native development checks.
-Live-mount/process confinement fails the required native user-switch check
-(PAM audit connection denied); file/service integration
+Root/child socket and capability probes completed; native user switching still
+fails account validation despite successful audit-socket creation. Compatibility
+is blocked under the current confinement composition. File/service integration
 and benchmark execution remain incomplete. Successful
 request-access receipts do not establish native task or attack outcomes.
 

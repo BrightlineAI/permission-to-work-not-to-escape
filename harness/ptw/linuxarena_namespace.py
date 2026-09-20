@@ -6,11 +6,15 @@ admit its stopped process through linuxarena_lifecycle before sending SIGCONT.
 Only the native fixture integrates this seam until its compatibility is proven.
 The standalone entry point also runs in the pinned container's system Python.
 """
+import ctypes
+import fcntl
 import json
 import os
+import platform
 from pathlib import PurePosixPath
 import signal
 import stat
+import struct
 import sys
 
 TOOLS = '/ptw-native-tools'
@@ -23,6 +27,130 @@ RUNTIME = ('/usr', '/etc/passwd', '/etc/group', '/etc/nsswitch.conf',
 # survive into mutable code. The separate PID namespace hides trusted observers.
 CAPABILITIES = ('CAP_SETUID', 'CAP_SETGID', 'CAP_DAC_OVERRIDE', 'CAP_CHOWN',
                 'CAP_FOWNER', 'CAP_KILL')
+CAPABILITY_MASK = sum(1 << bit for bit in (7, 6, 1, 0, 3, 5))
+
+
+def capability_state():
+    with open('/proc/self/status') as stream:
+        status = dict(line.split(':', 1) for line in stream)
+    return {key: int(status[key].strip(), 16 if key.startswith('Cap') else 10)
+            for key in ('CapEff', 'CapPrm', 'CapInh', 'CapBnd', 'CapAmb',
+                        'NoNewPrivs', 'Seccomp')}
+
+
+def restrict_capabilities():
+    """Finish bubblewrap's capability drop without replacing the user mapping.
+
+    Bwrap 0.12.0 only trims bounding capabilities on its userns paths. Keep
+    SETPCAP from the existing container solely for this trusted reduction,
+    then remove it from every set before nono or any mutable code starts.
+    No syscall error is ignored; observations go to the private launch stderr.
+    """
+    before = capability_state()
+    print(json.dumps({'capabilities_before': before}), file=sys.stderr, flush=True)
+    setup_mask = CAPABILITY_MASK | (1 << 8)  # CAP_SETPCAP, never payload authority
+    if (before['NoNewPrivs'] != 1 or before['Seccomp'] != 2 or
+            before['CapEff'] != setup_mask or before['CapPrm'] != setup_mask or
+            any(before[key] & ~setup_mask for key in ('CapInh', 'CapAmb')) or
+            before['CapBnd'] & CAPABILITY_MASK != CAPABILITY_MASK):
+        raise RuntimeError('Unexpected native capability setup: ' + repr(before))
+    libc = ctypes.CDLL(None, use_errno=True)
+    libc.prctl.argtypes = [ctypes.c_int, *([ctypes.c_ulong] * 4)]
+    libc.prctl.restype = ctypes.c_int
+    for bit in range(64):
+        if before['CapBnd'] & (1 << bit) and not CAPABILITY_MASK & (1 << bit):
+            if libc.prctl(24, bit, 0, 0, 0) != 0:  # PR_CAPBSET_DROP
+                error = ctypes.get_errno()
+                raise OSError(error, 'Native bounding capability drop failed: ' + str(bit))
+    # Linux capability ABI v3: header(version, pid), two E/P/I uint32 rows.
+    header = (ctypes.c_uint32 * 2)(0x20080522, 0)
+    data = (ctypes.c_uint32 * 6)(CAPABILITY_MASK, CAPABILITY_MASK,
+                                before['CapInh'] & CAPABILITY_MASK, 0, 0, 0)
+    libc.capset.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+    libc.capset.restype = ctypes.c_int
+    if libc.capset(header, data) != 0:
+        error = ctypes.get_errno()
+        raise OSError(error, 'Native active capability drop failed')
+    # capset also intersects the ambient set with the new P/I sets.
+    after = capability_state()
+    print(json.dumps({'capabilities_after': after}), file=sys.stderr, flush=True)
+    if (after['NoNewPrivs'] != 1 or after['Seccomp'] != 2 or
+            any(after[key] != CAPABILITY_MASK for key in ('CapEff', 'CapPrm', 'CapBnd')) or
+            any(after[key] & ~CAPABILITY_MASK for key in ('CapInh', 'CapAmb'))):
+        raise RuntimeError('Native capability reduction unconfirmed: ' + repr(after))
+
+
+def socket_filter():
+    """Fixed x86_64 cBPF baseline, with only the native libaudit exception.
+
+    Nono 0.77.0's TCP-only baseline also denies socketpair outside AF_UNIX,
+    io_uring_setup and alternate syscall ABIs. Keep those denials. Landlock
+    separately restricts TCP ports; this filter alone is not confinement.
+    No user-supplied instructions or socket exceptions are accepted.
+    """
+    if sys.platform != 'linux' or platform.machine() != 'x86_64' or sys.byteorder != 'little':
+        raise ValueError('Native socket filter requires Linux x86_64 little endian')
+    allow, deny = 0x7fff0000, 0x00050001  # SECCOMP_RET_ALLOW / ERRNO(EPERM)
+    # (opcode, true skip, false skip, constant). Offsets are seccomp_data:
+    # nr=0, arch=4, args[0]=16, args[1]=24, args[2]=32 (low words).
+    program = (
+        (0x20, 0, 0, 4),             # 0: architecture
+        (0x15, 1, 0, 0xc000003e),    # 1: AUDIT_ARCH_X86_64
+        (0x06, 0, 0, deny),          # 2: reject compat architectures
+        (0x20, 0, 0, 0),             # 3: syscall number
+        (0x35, 0, 1, 0x40000000),    # 4: reject x32 and negative numbers
+        (0x06, 0, 0, deny),          # 5
+        (0x15, 4, 0, 41),            # 6: socket -> 11
+        (0x15, 21, 0, 53),           # 7: socketpair -> 29
+        (0x15, 0, 1, 425),           # 8: io_uring_setup
+        (0x06, 0, 0, deny),          # 9
+        (0x06, 0, 0, allow),         # 10: unrelated syscall
+        (0x20, 0, 0, 16),            # 11: socket domain
+        (0x15, 19, 0, 1),            # 12: AF_UNIX -> 32
+        (0x15, 3, 0, 2),             # 13: AF_INET -> 17
+        (0x15, 2, 0, 10),            # 14: AF_INET6 -> 17
+        (0x15, 8, 0, 16),            # 15: AF_NETLINK -> 24
+        (0x06, 0, 0, deny),          # 16: all other families
+        (0x20, 0, 0, 24),            # 17: internet type
+        (0x54, 0, 0, 0xfff7f7ff),    # 18: remove only NONBLOCK/CLOEXEC
+        (0x15, 0, 11, 1),            # 19: SOCK_STREAM, otherwise -> 31
+        (0x20, 0, 0, 32),            # 20: internet protocol
+        (0x15, 10, 0, 0),            # 21: default TCP -> 32
+        (0x15, 9, 0, 6),             # 22: IPPROTO_TCP -> 32
+        (0x06, 0, 0, deny),          # 23
+        (0x20, 0, 0, 24),            # 24: netlink type
+        (0x54, 0, 0, 0xfff7f7ff),    # 25: remove only NONBLOCK/CLOEXEC
+        (0x15, 0, 4, 3),             # 26: SOCK_RAW, otherwise -> 31
+        (0x20, 0, 0, 32),            # 27: netlink protocol
+        (0x15, 3, 2, 9),             # 28: NETLINK_AUDIT -> 32, else -> 31
+        (0x20, 0, 0, 16),            # 29: socketpair domain
+        (0x15, 1, 0, 1),             # 30: only AF_UNIX -> 32
+        (0x06, 0, 0, deny),          # 31
+        (0x06, 0, 0, allow),         # 32
+    )
+    return b''.join(struct.pack('<HBBI', *row) for row in program)
+
+
+def filter_descriptor():
+    """Seal immutable bytes before passing ownership to bubblewrap --seccomp."""
+    data = socket_filter()  # Refuse unsupported architecture before opening.
+    fd = os.memfd_create('ptw-native-socket-filter', os.MFD_CLOEXEC | os.MFD_ALLOW_SEALING)
+    try:
+        remaining = memoryview(data)
+        while remaining:
+            written = os.write(fd, remaining)
+            if written <= 0:
+                raise OSError('Incomplete native socket filter write')
+            remaining = remaining[written:]
+        os.lseek(fd, 0, os.SEEK_SET)
+        # Linux UAPI constants: some installed Python builds omit these names.
+        # The platform gate above makes their numeric use unambiguous.
+        fcntl.fcntl(fd, 1033, 0x000f)  # F_ADD_SEALS: WRITE|GROW|SHRINK|SEAL
+        os.set_inheritable(fd, True)
+        return fd
+    except BaseException:
+        os.close(fd)
+        raise
 
 
 def validate(spec):
@@ -100,7 +228,7 @@ def command(spec):
             '--setenv', 'PATH', '/usr/local/bin:/usr/bin:/bin',
             '--setenv', 'HOME', STATE, '--setenv', 'XDG_STATE_HOME', STATE,
             '--cap-drop', 'ALL']
-    for cap in CAPABILITIES:
+    for cap in (*CAPABILITIES, 'CAP_SETPCAP'):
         args += ['--cap-add', cap]
     # Auto-created mount parents are private (0700). Native sudo children
     # need to traverse this synthetic parent; no host /etc is mounted here.
@@ -118,8 +246,12 @@ def command(spec):
                  '--dir', STATE]
         for device in ('null', 'zero', 'random', 'urandom'):
             args += ['--dev-bind', '/dev/' + device, '/dev/' + device]
-        args += ['--symlink', '/proc/self/fd', '/dev/fd', '--chdir', spec['cwd'], '--',
-                 *loader, TOOLS + '/bin/nono', 'run', '--silent', '--sandbox-policy', 'auto',
+        seccomp_fd = filter_descriptor()
+        fds.append(seccomp_fd)
+        args += ['--symlink', '/proc/self/fd', '/dev/fd', '--chdir', spec['cwd'],
+                 '--seccomp', str(seccomp_fd), '--',
+                 '/usr/bin/python3', '-I', '-S', TOOLS + '/launcher.py', '--drop-capabilities',
+                 *loader, TOOLS + '/bin/nono', 'run', '--silent', '--sandbox-policy', 'landlock',
                  '--block-net', '--allow', '/tmp', '--read', TOOLS,
                  '--no-rollback', '--no-audit', '--no-diagnostics']
         # The pinned image's sudo library, plugin and configuration have
@@ -153,6 +285,12 @@ def command(spec):
 
 
 def main():
+    if len(sys.argv) > 2 and sys.argv[1] == '--drop-capabilities':
+        # This stage is already admitted, in the new namespaces and fixed
+        # seccomp filter. Reinvocation cannot restore dropped capabilities.
+        restrict_capabilities()
+        os.execv(sys.argv[2], sys.argv[2:])
+        return
     if len(sys.argv) != 2:
         raise ValueError('Trusted launcher requires one frozen specification')
     spec = validate(json.loads(sys.argv[1]))

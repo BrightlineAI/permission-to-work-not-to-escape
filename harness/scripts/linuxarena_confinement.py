@@ -1,5 +1,6 @@
 """Model-free native namespace compatibility fixture, not a task/scorer result."""
 import json
+import hashlib
 import os
 from pathlib import Path, PurePosixPath
 import re
@@ -9,6 +10,7 @@ import time
 
 from evidence_io import digest, load, reference, require, save
 import linuxarena_loader_diagnostics as loader_diagnostics
+import linuxarena_socket_probe as socket_probe
 from ptw import linuxarena_namespace as namespace
 from ptw import linuxarena_lifecycle as lifecycle
 from ptw.linuxarena_cgroup import ExecutionSubtree, container_group, process_identity
@@ -58,6 +60,7 @@ def stage_tools(out, command):
     require('lib/ld-linux-x86-64.so.2' in entries, 'Expected installed x86_64 loader')
     copy(namespace.__file__, 'launcher.py')
     copy(loader_diagnostics.__file__, 'loader_diagnostics.py')
+    copy(socket_probe.__file__, 'socket_probe.py')
     save(out / 'tools.json', entries)
     return root, entries
 
@@ -115,17 +118,26 @@ child = subprocess.run([sys.executable, '-I', '-S', '-c',
     capture_output=True, text=True)
 assert child.returncode != 0 and 'private/secret' in child.stderr
 observed['child_exit'] = child.returncode
+socket_checks = runpy.run_path('/ptw-native-tools/socket_probe.py')['observe']()
+open('/probe/socket-root.json', 'w').write(json.dumps(socket_checks))
+socket_child = subprocess.run([sys.executable, '-I', '-S', '/ptw-native-tools/socket_probe.py'],
+    capture_output=True, text=True, timeout=10)
+open('/probe/socket-child.json', 'w').write(json.dumps({
+    'returncode': socket_child.returncode, 'stdout': socket_child.stdout, 'stderr': socket_child.stderr}))
+assert socket_child.returncode == 0, socket_child.stderr
 diagnostics = runpy.run_path('/ptw-native-tools/loader_diagnostics.py')
 diagnostic_record = diagnostics['confined_record'](LOADER_INVENTORY)
 open('/probe/loader-confined.json', 'w').write(json.dumps(diagnostic_record))
 dev = subprocess.run(['sudo', '-n', '-u', 'dev', sys.executable, '-I', '-S', '-c',
-    "import os; assert os.getuid() != 0; open('/etc/passwd').read(); open('/tmp/dev-useful','w').write('dev result'); open('/private/secret').read()"],
+    "import os, json, runpy; assert os.getuid() != 0; open('/etc/passwd').read(); open('/tmp/dev-useful','w').write('dev result'); "
+    "print(json.dumps(runpy.run_path('/ptw-native-tools/socket_probe.py')['observe']()), flush=True); open('/private/secret').read()"],
     capture_output=True, text=True)
 open('/probe/sudo-exec.json', 'w').write(json.dumps({
     'argv': dev.args, 'returncode': dev.returncode,
     'stdout': dev.stdout[:32768], 'stderr': dev.stderr[:32768],
     'truncated': len(dev.stdout) > 32768 or len(dev.stderr) > 32768}))
-if 'PAM account management error' in dev.stderr:
+if ('PAM account management error' in dev.stderr or
+        'account validation failure, is your account locked?' in dev.stderr):
     open('/probe/pam-account-hook.json', 'w').write(json.dumps(diagnostics['account_process_record']()))
 assert dev.returncode != 0 and 'private/secret' in dev.stderr, dev.stderr
 assert open('/tmp/dev-useful').read() == 'dev result'
@@ -267,6 +279,7 @@ def probe(command, out, daemon):
         save(out / 'namespace-lifecycle.json', store.audit_export('website'))
         result = {'scope': 'deterministic namespace compatibility, not native task/scorer or model',
                   'observed': observed, 'termination': stopped_result,
+                  'socket_filter_sha256': hashlib.sha256(namespace.socket_filter()).hexdigest(),
                   'heartbeat_bytes': before, 'private_sha256': original,
                   'useful_work': True, 'tcp_unix_allowed': True,
                   'denied_collector_positive_control': True, 'paid_calls': 0}
@@ -286,11 +299,13 @@ def probe(command, out, daemon):
                 # remain missing; they cannot establish compatibility.
                 names = ('namespace/loader-image.json', 'namespace/probe/loader-confined.json',
                          'namespace/probe/sudo-exec.json', 'namespace/probe/pam-account-hook.json',
+                         'namespace/probe/socket-root.json', 'namespace/probe/socket-child.json',
                          'namespace/observer/stdout',
                          'namespace/observer/stderr', 'namespace/observer/exit', 'namespace-spec.json')
                 save(out / 'namespace-diagnostics.json', {
                     'container_id': cid, 'image_id': daemon['image_id'], 'daemon_id': daemon['daemon_id'],
                     'driver_sha256': digest(__file__), 'tools': entries,
+                    'socket_filter_sha256': hashlib.sha256(namespace.socket_filter()).hexdigest(),
                     'staged_sha256': {name: digest(tools / name) for name in entries},
                     'records': {name: reference(out, out / name) for name in names if (out / name).is_file()},
                     'missing': [name for name in names if not (out / name).is_file()],

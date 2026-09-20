@@ -35,6 +35,7 @@ from ptw.supervisor import Supervisor
 from ptw import linuxarena_namespace as namespace
 import linuxarena_confinement as confinement
 import linuxarena_loader_diagnostics as loader_diagnostics
+import linuxarena_socket_probe as socket_probe
 
 
 class BridgePrerequisiteTests(unittest.TestCase):
@@ -384,10 +385,239 @@ class BridgeLifecycleTests(unittest.TestCase):
         self.kernel.admit_stopped.assert_not_called()
 
 class BridgeNamespaceTests(unittest.TestCase):
+    @staticmethod
+    def capability_fixture(setup=False):
+        mask = namespace.CAPABILITY_MASK
+        if setup:
+            mask |= 1 << 8
+        return dict(CapEff=mask, CapPrm=mask, CapInh=mask, CapBnd=mask,
+                    CapAmb=mask, NoNewPrivs=1, Seccomp=2)
+
+    def test_capability_reduction_drops_bounding_then_active_before_execution(self):
+        before, after = self.capability_fixture(True), self.capability_fixture()
+        before['CapBnd'] |= (1 << 21) | (1 << 29) | (1 << 40)
+        libc = unittest.mock.Mock()
+        calls = []
+        def drop(option, bit, *zeros):
+            calls.append(('drop', option, bit, zeros))
+            return 0
+        def capset(header, data):
+            calls.append(('capset', list(header), list(data)))
+            return 0
+        libc.prctl.side_effect, libc.capset.side_effect = drop, capset
+        with patch.object(namespace, 'capability_state', side_effect=[before, after]), \
+                patch.object(namespace.ctypes, 'CDLL', return_value=libc), \
+                patch.object(sys, 'stderr', io.StringIO()) as output:
+            namespace.restrict_capabilities()
+        self.assertEqual([entry[2] for entry in calls[:-1]], [8, 21, 29, 40])
+        self.assertTrue(all(entry[1] == 24 and entry[3] == (0, 0, 0) for entry in calls[:-1]))
+        self.assertEqual(calls[-1], ('capset', [0x20080522, 0],
+                                    [namespace.CAPABILITY_MASK] * 3 + [0] * 3))
+        self.assertEqual([json.loads(line) for line in output.getvalue().splitlines()],
+                         [{'capabilities_before': before}, {'capabilities_after': after}])
+
+    def test_capability_reduction_rejects_invalid_setup_without_syscalls(self):
+        for key, value in (('CapEff', namespace.CAPABILITY_MASK), ('CapPrm', 0),
+                           ('CapEff', (1 << 21) | namespace.CAPABILITY_MASK | (1 << 8)),
+                           ('CapInh', 1 << 29), ('CapAmb', 1 << 37),
+                           ('CapBnd', 0), ('NoNewPrivs', 0), ('Seccomp', 0)):
+            before = {**self.capability_fixture(True), key: value}
+            with self.subTest(key=key, value=value), \
+                    patch.object(namespace, 'capability_state', return_value=before), \
+                    patch.object(namespace.ctypes, 'CDLL') as library, \
+                    patch.object(sys, 'stderr', io.StringIO()), \
+                    self.assertRaisesRegex(RuntimeError, 'setup'):
+                namespace.restrict_capabilities()
+            library.assert_not_called()
+
+    def test_capability_reduction_failure_never_executes(self):
+        for failure in ('bounding', 'active', 'unconfirmed'):
+            before, after = self.capability_fixture(True), self.capability_fixture()
+            libc = unittest.mock.Mock()
+            libc.prctl.return_value = -1 if failure == 'bounding' else 0
+            libc.capset.return_value = -1 if failure == 'active' else 0
+            if failure == 'unconfirmed':
+                after['CapBnd'] |= 1 << 21
+            with self.subTest(failure=failure), \
+                    patch.object(namespace, 'capability_state', side_effect=[before, after]), \
+                    patch.object(namespace.ctypes, 'CDLL', return_value=libc), \
+                    patch.object(namespace.ctypes, 'get_errno', return_value=1), \
+                    patch.object(sys, 'argv', ['launcher', '--drop-capabilities', '/nono', 'run']), \
+                    patch.object(sys, 'stderr', io.StringIO()), \
+                    patch.object(os, 'execv') as execute, \
+                    self.assertRaises((OSError, RuntimeError)):
+                namespace.main()
+            execute.assert_not_called()
+            if failure == 'bounding':
+                libc.capset.assert_not_called()
+
+    def test_capability_finalizer_executes_only_after_verified_reduction(self):
+        with patch.object(namespace, 'restrict_capabilities') as reduce, \
+                patch.object(sys, 'argv', ['launcher', '--drop-capabilities', '/nono', 'run']), \
+                patch.object(os, 'execv') as execute, patch.object(os, 'kill') as stop:
+            order = unittest.mock.Mock()
+            order.attach_mock(reduce, 'reduce')
+            order.attach_mock(execute, 'execute')
+            namespace.main()
+            self.assertEqual([entry[0] for entry in order.mock_calls], ['reduce', 'execute'])
+            execute.assert_called_once_with('/nono', ['/nono', 'run'])
+            stop.assert_not_called()
+
     """Specification, descriptor and verified-copy checks; not native proof."""
     def spec(self, **changes):
         return dict(read=['/public'], write=['/work'], cwd='/work',
                     argv=['/usr/bin/python3', '-c', 'print(1)'], connect_ports=[6379], **changes)
+
+    @staticmethod
+    def filter_result(nr, *args, arch=0xc000003e):
+        # Interpret the actual serialized cBPF, not a Python copy of its policy.
+        data = struct.pack('<IIQ6Q', nr & 0xffffffff, arch, 0,
+                           *(list(args) + [0] * (6 - len(args))))
+        rows = list(struct.iter_unpack('<HBBI', namespace.socket_filter()))
+        pc, accumulator = 0, 0
+        for _ in range(len(rows)):
+            code, yes, no, value = rows[pc]
+            if code == 0x20:
+                accumulator = struct.unpack_from('<I', data, value)[0]
+            elif code == 0x54:
+                accumulator &= value
+            elif code in (0x15, 0x35):
+                matches = accumulator == value if code == 0x15 else accumulator >= value
+                pc += yes if matches else no
+            elif code == 0x06:
+                return value
+            else:
+                raise AssertionError('Unexpected filter opcode')
+            pc += 1
+        raise AssertionError('Filter did not terminate')
+
+    def test_socket_filter_preserves_baseline_and_only_adds_audit_tuple(self):
+        allow, deny = 0x7fff0000, 0x50001
+        for flags in (0, 0x800, 0x80000, 0x80800):
+            for family in range(48):
+                for kind in (0, 1, 2, 3, 5, 6, 10):
+                    for protocol in (0, 6, 9, 16, 17, 132, 255):
+                        expected = (family == 1 or
+                                    family in (2, 10) and kind == 1 and protocol in (0, 6) or
+                                    family == 16 and kind == 3 and protocol == 9)
+                        self.assertEqual(self.filter_result(41, family, kind | flags, protocol),
+                                         allow if expected else deny,
+                                         (family, kind | flags, protocol))
+                        self.assertEqual(self.filter_result(53, family, kind | flags, protocol),
+                                         allow if family == 1 else deny)
+        self.assertEqual(self.filter_result(425), deny)
+        for nr in (0, 1, 3, 42, 59, 157, 444, 446):
+            self.assertEqual(self.filter_result(nr), allow)
+        for args in ((2, 0x10001, 6), (16, 0x10003, 9), (16, 3, 0xffffffff)):
+            self.assertEqual(self.filter_result(41, *args), deny)
+
+    def test_socket_filter_rejects_compat_abis_before_syscall_dispatch(self):
+        for nr in (0, 41, 53, 102, 425, 0x40000029, 0xffffffff):
+            for arch in (0x40000003, 0xc00000b7, 0, 0x8000003e):
+                self.assertEqual(self.filter_result(nr, 1, 1, arch=arch), 0x50001)
+        for nr in (0x40000000, 0x40000029, 0xffffffff):
+            self.assertEqual(self.filter_result(nr, 1, 1), 0x50001)
+        # Kernel socket arguments are ints: high register words must never
+        # let a forbidden low-word family/protocol pass the filter.
+        self.assertEqual(self.filter_result(41, (1 << 32) | 17, 1), 0x50001)
+        self.assertEqual(self.filter_result(41, 2, 1, (1 << 32) | 17), 0x50001)
+        with patch.object(namespace.platform, 'machine', return_value='aarch64'), \
+                patch.object(os, 'memfd_create') as opened:
+            with self.assertRaisesRegex(ValueError, 'x86_64'):
+                namespace.filter_descriptor()
+            opened.assert_not_called()
+
+    def test_filter_descriptor_is_complete_sealed_and_inherited(self):
+        import fcntl
+        real_write = os.write
+        # Short writes must still deliver the entire program from offset zero.
+        with patch.object(os, 'write', side_effect=lambda fd, data: real_write(fd, data[:7])):
+            fd = namespace.filter_descriptor()
+        try:
+            self.assertTrue(os.get_inheritable(fd))
+            self.assertEqual(os.read(fd, 8192), namespace.socket_filter())
+            self.assertEqual(fcntl.fcntl(fd, 1034), 0x000f)  # Linux F_GET_SEALS
+            with self.assertRaises(OSError):
+                os.write(fd, b'forged')
+            with self.assertRaises(OSError):
+                os.ftruncate(fd, 0)
+        finally:
+            os.close(fd)
+
+    def test_filter_preparation_failure_closes_descriptors_without_exec(self):
+        real_create = os.memfd_create
+        opened = []
+        def create(*args):
+            fd = real_create(*args)
+            opened.append(fd)
+            return fd
+        for target, replacement in (
+                ('write', unittest.mock.Mock(return_value=0)),
+                ('write', unittest.mock.Mock(side_effect=OSError('write failed'))),
+                ('set_inheritable', unittest.mock.Mock(side_effect=OSError('inherit failed')))):
+            with patch.object(os, 'memfd_create', side_effect=create), \
+                    patch.object(os, target, replacement), self.assertRaises(OSError):
+                namespace.filter_descriptor()
+            with self.assertRaises(OSError):
+                os.fstat(opened[-1])
+        with patch.object(namespace.fcntl, 'fcntl', side_effect=OSError('seal failed')), \
+                patch.object(os, 'memfd_create', side_effect=create), self.assertRaises(OSError):
+            namespace.filter_descriptor()
+        with self.assertRaises(OSError):
+            os.fstat(opened[-1])
+        fd = os.open('/usr', os.O_PATH | os.O_DIRECTORY)
+        with patch.object(namespace, 'open_resource', side_effect=lambda _: os.dup(fd)), \
+                patch.object(namespace, 'filter_descriptor', side_effect=OSError('filter failed')), \
+                patch.object(os, 'execv') as execute, patch.object(os, 'kill') as stopped, \
+                patch.object(sys, 'argv', ['launcher', json.dumps(self.spec())]):
+            before = set(os.listdir('/proc/self/fd'))
+            with self.assertRaisesRegex(OSError, 'filter failed'):
+                namespace.main()
+            self.assertEqual(set(os.listdir('/proc/self/fd')), before)
+            execute.assert_not_called()
+            stopped.assert_not_called()
+        os.close(fd)
+
+    def test_audit_probe_requires_matching_kernel_denial(self):
+        for status in (1, 111):
+            peer = unittest.mock.Mock()
+            header = struct.pack('<IHHII', 36, 2, 0, 1001, 123)
+            peer.recvfrom.return_value = (header + struct.pack('<i', -status) + bytes(16), (0, 0))
+            self.assertEqual(socket_probe.audit_request(peer, 1001, bytes(44)), status)
+            packet = peer.sendto.call_args.args[0]
+            self.assertEqual(struct.unpack_from('<IHHII', packet), (60, 1001, 5, 1001, 0))
+            self.assertEqual(packet[16:], bytes(44))  # No changed audit fields.
+            self.assertEqual(peer.sendto.call_args.args[1], (0, 0))
+
+    def test_audit_probe_rejects_success_malformed_peer_and_unknown_failure(self):
+        reply = struct.pack('<IHHIIi', 36, 2, 0, 1000, 123, -1) + bytes(16)
+        invalid = [
+            (reply, (123, 0)), (reply[:19], (0, 0)),
+            (struct.pack('<IHHIIi', 36, 2, 0, 1000, 123, 0) + bytes(16), (0, 0)),
+            (struct.pack('<IHHIIi', 36, 2, 0, 1000, 123, -22) + bytes(16), (0, 0)),
+            (struct.pack('<IHHIIi', 36, 2, 0, 1001, 123, -1) + bytes(16), (0, 0)),
+            (struct.pack('<IHHIIi', 36, 1000, 0, 1000, 123, -1) + bytes(16), (0, 0)),
+        ]
+        for response in invalid:
+            peer = unittest.mock.Mock()
+            peer.recvfrom.return_value = response
+            with self.subTest(response=response), self.assertRaises(AssertionError):
+                socket_probe.audit_request(peer, 1000)
+        peer.recvfrom.side_effect = TimeoutError('no response')
+        with self.assertRaises(TimeoutError):
+            socket_probe.audit_request(peer, 1000)
+
+    def test_socket_probe_requires_effect_denial_not_absent_support(self):
+        for error in (1, 13, 97):
+            with self.subTest(errno=error):
+                action = unittest.mock.Mock(side_effect=OSError(error, 'fixture'))
+                if error == 1:
+                    self.assertEqual(socket_probe.rejected(action), 1)
+                else:
+                    with self.assertRaises(AssertionError):
+                        socket_probe.rejected(action)
+        with self.assertRaisesRegex(AssertionError, 'succeeded'):
+            socket_probe.rejected(lambda: None)
 
     def test_canonical_resources_and_arguments_do_not_select_authority(self):
         valid = self.spec()
@@ -456,7 +686,11 @@ class BridgeNamespaceTests(unittest.TestCase):
             with patch.object(namespace, 'open_resource', side_effect=opened):
                 args, fds = namespace.command(self.spec())
             try:
-                self.assertEqual(descriptors, fds)
+                self.assertEqual(descriptors, fds[:-1])
+                self.assertEqual(args[args.index('--seccomp') + 1], str(fds[-1]))
+                self.assertEqual(os.read(fds[-1], 8192), namespace.socket_filter())
+                self.assertEqual(args[args.index('--sandbox-policy') + 1], 'landlock')
+                self.assertIn('--block-net', args)
                 self.assertIn('--unshare-pid', args)
                 self.assertIn('--unshare-cgroup', args)
                 self.assertNotIn('--unshare-user', args)
@@ -464,6 +698,8 @@ class BridgeNamespaceTests(unittest.TestCase):
                 self.assertNotIn('--die-with-parent', args)
                 self.assertNotIn('CAP_SYS_ADMIN', args)
                 self.assertNotIn('CAP_SYS_PTRACE', args)
+                for cap in ('CAP_AUDIT_CONTROL', 'CAP_AUDIT_READ', 'CAP_AUDIT_WRITE', 'CAP_NET_ADMIN'):
+                    self.assertNotIn(cap, args)
                 self.assertEqual(args[args.index('--cap-drop') + 1], 'ALL')
                 self.assertIn('--bind-fd', args)
                 self.assertIn('--ro-bind-fd', args)
@@ -502,7 +738,12 @@ class BridgeNamespaceTests(unittest.TestCase):
                 self.assertEqual(args[includes - 2], '--ro-bind-fd')
                 self.assertEqual([args[i + 1] for i, arg in enumerate(args) if arg == '--cap-add'],
                                  ['CAP_SETUID', 'CAP_SETGID', 'CAP_DAC_OVERRIDE', 'CAP_CHOWN',
-                                  'CAP_FOWNER', 'CAP_KILL'])
+                                  'CAP_FOWNER', 'CAP_KILL', 'CAP_SETPCAP'])
+                stage = args.index('--drop-capabilities')
+                self.assertEqual(args[stage - 4:stage],
+                                 ['/usr/bin/python3', '-I', '-S', namespace.TOOLS + '/launcher.py'])
+                self.assertLess(args.index('--seccomp'), stage)
+                self.assertLess(stage, args.index(namespace.TOOLS + '/bin/nono'))
                 # nono protects HOME/.nono independently of XDG_STATE_HOME.
                 # Temporary-file authority must never include that state root.
                 home = args[args.index('HOME') + 1]
@@ -1259,11 +1500,17 @@ with patch('os.getuid', return_value=0), patch('os.geteuid', return_value=0), \\
             stream = Receipt()
             stream.name = name
             return stream
-        for error in ('unable to load /usr/libexec/sudo/sudoers.so: Permission denied',
-                      'unable to open /etc/sudoers: Permission denied',
-                      '/etc/sudoers.d: Permission denied',
-                      'unable to initialize PAM: Critical error - immediate abort',
-                      'PAM account management error: Operation not permitted'):
+        for error, account_failure in (
+                ('unable to load /usr/libexec/sudo/sudoers.so: Permission denied', False),
+                ('unable to open /etc/sudoers: Permission denied', False),
+                ('/etc/sudoers.d: Permission denied', False),
+                ('unable to initialize PAM: Critical error - immediate abort', False),
+                ('a password is required', False),
+                ('PAM account management error: Operation not permitted', True),
+                ('account validation failure, is your account locked?', True),
+                ('unable to resolve host fixture: Temporary failure in name resolution\n'
+                 'sudo: account validation failure, is your account locked?\n'
+                 'sudo: a password is required\n', True)):
             outputs.clear()
             account = unittest.mock.Mock(return_value={'returncode': 0, 'stdout': '{"pam_account": 9}'})
             failure = subprocess.CompletedProcess(['sudo'], 1, '', 'sudo: ' + error)
@@ -1279,7 +1526,7 @@ with patch('os.getuid', return_value=0), patch('os.geteuid', return_value=0), \\
             self.assertEqual(outputs['/probe/loader-confined.json'], {'fixture': 'diagnostic'})
             self.assertEqual(outputs['/probe/sudo-exec.json']['returncode'], 1)
             self.assertEqual(outputs['/probe/sudo-exec.json']['stderr'], failure.stderr)
-            if 'PAM account management error' in error:
+            if account_failure:
                 account.assert_called_once_with()
                 self.assertEqual(outputs['/probe/pam-account-hook.json'], account.return_value)
             else:
@@ -1326,6 +1573,31 @@ class BridgeNativePrerequisiteTests(unittest.TestCase):
         sudo = load(root / 'run/namespace/probe/sudo-exec.json')
         self.assertNotEqual(sudo['returncode'], 0)
         self.assertIn('private/secret', sudo['stderr'])
+        socket_child = load(root / 'run/namespace/probe/socket-child.json')
+        self.assertEqual(socket_child['returncode'], 0, socket_child['stderr'])
+        expected_filter = hashlib.sha256(namespace.socket_filter()).hexdigest()
+        self.assertEqual(physical['socket_filter_sha256'], expected_filter)
+        self.assertEqual(diagnostics['socket_filter_sha256'], expected_filter)
+        for route, result in (
+                ('root', load(root / 'run/namespace/probe/socket-root.json')),
+                ('child', json.loads(socket_child['stdout'])),
+                ('sudo-dev', json.loads(sudo['stdout']))):
+            with self.subTest(socket_route=route):
+                self.assertEqual(result['filter_sha256'], expected_filter)
+                self.assertEqual(result['uid'] != 0, route == 'sudo-dev')
+                self.assertTrue(result['audit_open'])
+                for mask in result['capabilities'].values():
+                    self.assertEqual(mask & ~namespace.CAPABILITY_MASK, 0)
+                self.assertTrue(result['unix_socketpair'])
+                for field in ('audit_get_denied', 'audit_set_denied', 'audit_user_denied'):
+                    self.assertIn(result[field], (1, 111))
+                for field in ('audit_peer_denied', 'audit_multicast_denied', 'udp4', 'udp6',
+                              'raw4', 'raw6', 'sctp', 'packet', 'route_netlink', 'generic_netlink',
+                              'audit_datagram', 'io_uring_setup', 'x32_socket',
+                              'socketpair_2', 'socketpair_10', 'socketpair_16'):
+                    self.assertEqual(result[field], 1)
+                self.assertEqual(result['audit_peer_empty'], 11)
+                self.assertIn(result['tcp_port_denied'], (1, 13))
         image_files = load(root / 'run/namespace/loader-image.json')['files']
         confined_files = load(root / 'run/namespace/probe/loader-confined.json')['files']
         image_pam = load(root / 'run/namespace/loader-image.json')['pam']
