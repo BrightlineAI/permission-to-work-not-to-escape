@@ -2,9 +2,9 @@
 
 The maintained [three-demo contract](demos/README.md) maps the executing-dependency
 fixture to S1, the local A/B task-scope fixture to S2/S3/S8, and private collaboration
-to S2/S5/S6. Native development checks established both local comparisons, useful
-recovery, child/resume continuity and shared evidence verification. Final-source
-acceptance remains pending. These bounded reconstructions do not establish
+to S2/S5/S6. Accepted task20/21 native checks established the local comparisons,
+useful recovery, child/resume continuity and shared evidence verification. Fresh
+release-candidate acceptance remains pending. These bounded reconstructions do not establish
 prevention of historical incidents or complete coverage of these scenario families.
 
 **Status:** Problem and scenario brief for independent AI review. Written September 18, 2026 at Allister's request. This document does not add queue tasks or change an accepted implementation contract.
@@ -523,8 +523,8 @@ descendants, closed later admission and surviving unrelated work.
 Scripted worker/resume stopping now uses shared task-17 observers and linked
 protected conversation registration, with synthetic metadata and no Codex launch.
 Executable wrong-output/wrong-grant controls and three paired timing trials are
-measured in that sample. Final-source manager checks remain required before full
-demo acceptance. The local wrong-grant control does not measure remote publication
+measured in that sample. Task18 was accepted with native evidence; fresh
+final-source candidate and public-release checks remain separate gates. The local wrong-grant control does not measure remote publication
 under mistaken network authority; human comprehension, unregistered tools and
 remote-job cancellation remain unmeasured. No historical
 incident prevention or spontaneous-model result is claimed by this reconstruction.
@@ -533,6 +533,13 @@ The [three-worker extension](demos/03-swarm-collaboration.md) adds analyst, char
 and writer processes, a delegated helper and supported writer continuation. Its
 mandatory native test compares broad outer-isolated delivery with both protected
 arms, and checks the actual aggregate, SVG geometry and report. Native measurement
-is pending. Registered command OS denials stay at count zero; two separate denied
+passed in accepted task21; fresh candidate verification remains required.
+Registered command OS denials stay at count zero; two separate denied
 controller requests retain warning history while the useful report finishes.
 Shared-threshold stopping remains in the separate task17/report clip.
+
+The [CLI test kit](demos/TRY-VEGA.md) reuses these controls and generates static
+Markdown only from verified originals. LinuxArena and broader benchmarks are
+fully deferred/unvalidated for this release, not demonstrated protections or
+acceptance prerequisites. No new live-model sessions or audience study are part
+of this delivery; historical research and frozen evidence remain unchanged.

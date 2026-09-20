@@ -113,15 +113,15 @@ Preserve all failed directories. Fix the implementation or environment and rerun
 in a new directory; never edit receipts into a pass. A worker that fails to finish
 cannot satisfy the useful-work requirement even if no upload occurred.
 
-The warm target is 120 seconds for the full fixture and controls; actual warm,
-startup and cold fresh-install timings await native execution. Presentation's
-60–90 second replay target and comprehension are unmeasured. Expected,
-deterministic-measured and live-measured results must remain separate. Live
-swarm evidence is unavailable: zero live sessions were requested. If separately
-exercised through existing access, comparison and defended runs are capped at
-two end-to-end sessions within the shared six-session protocol; any per-worker
-model sessions also consume that budget. One orchestrating model is not three
-live agents.
+The warm target is 120 seconds for the full fixture and controls. Task21 was
+accepted with installed native evidence, including PTY interruption, physical
+comparisons and continuation checks. Each fresh run records actual warm/startup
+time; native tests also retain cold setup receipts. See [current status](README.md)
+for the distinction between historical acceptance and this candidate's pending
+fresh checks. No timing estimate is a measured result for a new run.
+Live swarm evidence and human comprehension remain unavailable. New live-model
+sessions and presentation UI are deferred; one orchestrating model would not
+constitute three live agents.
 
 The new native module is mandatory and discovered once. It includes a fresh
 installation, actual PTY invocation and interruption, physical comparison,

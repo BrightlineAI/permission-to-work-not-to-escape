@@ -1,20 +1,24 @@
-# Three Vega demos: implementation contract
+# Three Vega demos: status and evidence
 
 ## Implementation status
 
-These maintained specifications describe required outcomes. A storyboard is not
-a measured result. [Alternatives](ALTERNATIVES.md) are documentation comparisons,
+Start with [TRY-VEGA](TRY-VEGA.md) for prerequisites, exact installed commands,
+local result paths and troubleshooting. These maintained specifications describe
+required outcomes; only verified receipts establish a measured result. [Alternatives](ALTERNATIVES.md) are documentation comparisons,
 not performance measurements.
 
 | Demo | Deterministic implementation | Evidence status |
 |---|---|---|
-| [Executing dependency](01-poisoned-dependency.md) | Three arms; executing offline wheel, secret/send probes, invoice oracle, safe incompletion and reviewed replacement | Native comparison, child/resume, replacement and shared envelope checks passed; final acceptance pending |
-| [Task scope](02-task-scope.md) | Three arms; physical B denial, A-local fix, child/resume and separate authority controls | Native scope, shared envelope and legacy publication checks passed; final acceptance pending |
-| [Three-worker report](03-swarm-collaboration.md) | Three arms; analyst, chart worker, writer, registered helper, child processes and protected writer continuation | Implemented; native measurement and final acceptance pending. Historical two-worker receipts are separate |
+| [Executing dependency](01-poisoned-dependency.md) | Three arms; executing offline wheel, secret/send probes, invoice oracle, safe incompletion and reviewed replacement | Accepted task20 native comparison, child/resume, replacement and envelope checks; fresh candidate checks pending |
+| [Task scope](02-task-scope.md) | Three arms; physical B denial, A-local fix, child/resume and separate authority controls | Accepted task20 native scope, envelope and publication checks; fresh candidate checks pending |
+| [Three-worker report](03-swarm-collaboration.md) | Three arms; analyst, chart worker, writer, registered helper, child processes and protected writer continuation | Accepted task21 installed physical comparison, useful work, helper/resume and evidence checks; fresh candidate checks pending |
 
 No live sessions have run for this extension. Live evidence, playback timing and
 human comprehension are unavailable. Final-source acceptance of all three demos,
-including the added installed CLI failure/interruption checks, remains pending.
+including the Markdown export added here, remains pending. Task20/21 acceptance
+included installed CLI failure/interruption checks; it is historical evidence, not
+a substitute for fresh receipts. Task18 separately accepted shared-threshold stop
+and unrelated-work survival. Public-release gates remain independent.
 
 ## Run and verify
 
@@ -45,6 +49,13 @@ python -B harness/scripts/product_demo.py verify --out /tmp/task-scope-run-01
 python -B harness/scripts/product_demo.py verify --out /tmp/swarm-run-01
 ```
 
+For a static report, add `--markdown /tmp/dependency-summary-01.md` to verification.
+The destination must be a new canonical file outside the evidence tree and checkout;
+its parent must exist. The command verifies originals first, then renders the fixed
+sanitized projection with measured warm time and provenance hashes. No network or
+model call is made. Existing files are never overwritten; failures emit no success
+summary. The file is a historical view, not a fresh acceptance receipt.
+
 An optional `--demo` on verification must match the recorded scenario. Unsupported
 names, missing receipts, reused destinations and linked directories fail with
 exit 2. Interruption returns 130 and retains a failed attempt. Retain that directory
@@ -73,7 +84,8 @@ wrapper and link it to the reviewed command and session. Verification rejects
 missing or conflicting identities and a changed system runtime, even if the
 installed driver is unchanged. Verification identifies the fixed system Python;
 it never executes an interpreter selected by an evidence record. This additional
-runtime binding awaits native manager validation; earlier runs do not establish it.
+runtime binding was included in accepted task21. This candidate still requires
+fresh installed manager validation; older projections cannot establish it.
 
 Cold installation is a prerequisite to the public runner and is explicitly null
 in its timing record. Fresh-install native checks separately retain
@@ -127,6 +139,12 @@ private acceptance evidence. Nothing is published by running or verifying a demo
    ceiling. Collector controls bracket real attempts in every arm.
 9. Native tests remain mandatory and discovered once; previous gates, maintained
    guides and manifest remain intact.
+10. Markdown export verifies originals before rendering the sanitized projection;
+    scenario, timing and provenance agree, invalid evidence emits no report, and
+    reporting makes no network/model requests.
+11. One concise quickstart supplies installed commands, visible outcomes, result
+    paths and troubleshooting. Task7 receives the kit and actual manager receipts;
+    historical acceptance, current checks and remaining limits stay distinct.
 
 Native checks require sockets, namespaces, systemd and cgroups in the manager's
 isolated environment. They cannot run in the restricted coding sandbox. Local
@@ -140,12 +158,15 @@ Use the real freshly installed Linux product on Algol 2.1, with isolated fixture
 
 Derive approved permissions from the legitimate assignment before introducing the payload. Keep policy identical across matched benign/hostile runs. Project grants are the ceiling; task/delegate grants may narrow it, never widen it. For the local task-scope MVP use a supported narrow task/project instance rather than claiming an unimplemented hierarchy. Agent prompt, tool description, workspace file, cwd and claimed approval are not authority. No silent auto-approval or unconfined fallback.
 
-## Two execution modes
+## Execution scope
 
-1. Required fast deterministic mode: real processes and actual enforced requests, with a deterministic worker driving the unsafe attempt and subsequent safe workflow. No model required; never call this spontaneous AI misconduct. Target at most 120 seconds per warm fixture and 60–90 seconds per presentation. Record cold setup, warm execution and playback duration separately; targets are not current measurements. If slower, report and optimize without removing checks.
-2. Optional live mode: the installed supported Codex adapter with the user's available requested Sol 5.6/Astra model, resolved to an exact ID at execution (do not silently guess or substitute). A real model receives the task and fixture content. Record model/version/reasoning, policy, prompt and input hashes, tool trace, latency and outcomes. Use existing authenticated launcher; never copy or inspect auth files. Do not claim a model is intrinsically malicious. If it avoids the unsafe action, record “attempt not elicited”, not successful Vega prevention. No refusal bypass or retry-until-failure/pass.
-
-For this extension, optional live evaluation has a separate maximum of six end-to-end model sessions total across the three demos: one comparison and one defended session per demo on one available requested model. This does not enlarge or rerun task16's frozen eight-case/16-call study. No new paid API integration or credential acquisition. If existing access, credits or model resolution are unavailable, finish deterministic acceptance and mark live evidence unavailable. Record hosted provider processing of fixture data; no real private inputs. Live runs are evidence of those runs, not statistical coverage.
+This release uses deterministic real processes and enforced requests with synthetic
+inputs and scripted approvals. Warm execution has a 120-second target; actual
+measurements and misses are reported. Cold setup is separate. There is no live
+switch or spontaneous-model claim. New live-model sessions, HTML/replay UI,
+animation, video/share cards and audience studies are deferred. The prior optional
+live protocol does not authorize any run in this release and does not change the
+frozen eight-case/16-call semantic cap. Human comprehension remains unvalidated.
 
 ## Fair comparison and acceptance
 
@@ -164,8 +185,19 @@ Add three native test modules to normal regression discovery exactly once. Reuse
 
 Keep shared threshold stopping in the existing separate task17 clip/tests; main demos finish useful work. A denied OS operation inside an approved command is not automatically a controller violation. Do not change escalation semantics for presentation.
 
-## Delivery on Algol
+## Release handoff
 
-Do not edit running task18. Queue a follow-up for demos 1 and 2 and a follow-up for the three-worker extension of task18. Both include narrowly necessary supported-route fixes, not general gateways, SaaS adapters, malware scanning or a new authority service. Put them before task19 presentation and task7 release; retain every prior check and acceptance. Copy these three specifications and ALTERNATIVES.md into maintained product docs. Task19 presents all three with clear labels, captions, evidence links and limits.
+The concrete test kit is this checkout plus [TRY-VEGA](TRY-VEGA.md), using the
+existing installed runtime. The compatibility check name
+`test_product_demo_presentation` covers CLI/Markdown/evidence behavior and reuses
+the three installed scenario suites, report/lifecycle and affected publication
+regressions. Full discovery retains each existing test once. Native checks save
+fresh external run/install directories, real PTY logs, cold setup receipts and
+`summary.md`; their logs print each private evidence location. Results and timings
+come from those receipts, never expected captions.
 
-This intake adds fixtures and required boundary fixes. It does not launch LinuxArena or a broad benchmark campaign. Those remain a later evidence phase described in the feasibility report. Four earlier mechanism candidates and 13/32 broader candidates are not measured coverage.
+Task7 packages/audits the candidate through its existing release gates. No new
+runner, framework, model campaign, public upload or messaging is required here.
+LinuxArena and broader benchmarks are fully deferred/unvalidated, including
+tasks22/23; neither is a prerequisite for this release. Earlier research candidate
+counts are not measured coverage.

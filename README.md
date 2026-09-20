@@ -40,18 +40,20 @@ Run fresh benchmark workloads on an isolated Linux VPS using the [reproduction i
 
 ## Build on the work
 
-The [three-demo specifications and implementation status](docs/demos/README.md)
-cover executing dependencies, task-scoped fixes and private collaboration.
-All three demos have a shared run/verify CLI. The three-worker private-report
-scenario is implemented; full native validation remains pending. For the dependency
-and task-scope demos, native development checks established three-arm effects,
-useful recovery, child/resume continuity and evidence verification.
-Final-source acceptance, including CLI interruption checks, remains pending.
+Start with the [three-demo try-it-now guide](docs/demos/TRY-VEGA.md): executing
+dependencies, task-scoped fixes and a three-worker private report. The shared
+installed CLI runs real deterministic fixtures and verifies physical effects,
+useful work and child/resume continuity. It can export a small Markdown summary
+from verified originals. The [status and evidence contract](docs/demos/README.md)
+distinguish accepted task20/21 native evidence from this candidate's pending
+final-source checks. These are synthetic reconstructions, not spontaneous model
+trajectories.
 
-The [incident-inspired demo](harness/DEMO.md) documents the paired synthetic report
-workflow, fair confinement comparison and scripted shared-stop sequence, with a
+The [incident-inspired report demo](harness/DEMO.md) retains the separate fair
+sandbox comparison and scripted shared-stop sequence, with a
 [measured historical sample](harness/validation/demo-20260919/README.md).
-Final-source demo acceptance remains pending; scripted actions are not spontaneous model evidence.
+Task18 was accepted; fresh candidate and public-release gates remain separate.
+LinuxArena and broader benchmarks are deferred/unvalidated for this release.
 
 The [current harness safety contracts](harness/SAFETY.md) identify the reviewed
 extension, supported-route audit coverage and implementation limits separately

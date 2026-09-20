@@ -1,18 +1,20 @@
 # Roadmap
 
-The bounded [dependency and task-scope demos](demos/README.md) add executing-code
-containment and useful local recovery to the existing report demo. Their finite
-checklist and actual missing coverage are maintained there. Native development
-checks established both comparisons, reviewed replacement, task-authority controls,
-child/resume continuity and shared evidence verification. Final-source acceptance
-remains pending; deterministic results do not establish live-model behavior.
+The release candidate contains [three deterministic CLI demos](demos/TRY-VEGA.md)
+and a Markdown summary generated only after original evidence verification.
+Tasks18/20/21 were accepted with native evidence for the report lifecycle,
+dependency/task-scope comparisons and three-worker collaboration. The
+[current status](demos/README.md) keeps historical acceptance separate from this
+candidate's fresh installed checks and the independent public-release gates.
 
-The owner-authorized [demo MVP plan](../harness/DEMO.md) adds a same-task sandbox
-comparison and useful local report workflow, followed by separately scripted
-worker/resume escalation. A [privacy-reviewed historical sample](../harness/validation/demo-20260919/README.md)
-records paired completion and prevention, physical stopping, negative controls and
-timing. Final-source task-18 acceptance and task-19 presentation/audience work remain
-separate gates.
+The [report demo](../harness/DEMO.md) retains its fair sandbox comparison, useful
+local work and separate scripted worker/resume escalation. Its
+[historical sample](../harness/validation/demo-20260919/README.md) includes
+physical stopping, negative controls and timing. HTML/replay UI, animation,
+share cards/video, audience studies and new live-model sessions are deferred.
+LinuxArena (including tasks22/23) and broader benchmarks are fully deferred and
+unvalidated for this release; they are not acceptance prerequisites. Historical
+research remains preserved and does not establish measured coverage.
 
 For the authorized single-host extension, the [current contract page](../harness/SAFETY.md)
 and [reviewed section 11](PROJECT-SAFETY-EXTENSION-REVIEW.md#11-reviewed-disposition-and-minimum-implementation-contract)
@@ -34,7 +36,7 @@ The eventual workflow is: **write policy → review → apply controls → probe
 
 Broader coverage needs evidence, not just more integrations. Installation now checks known vulnerabilities and release age. Continuous rescanning, malware detection, external credential/service adapters, distributed stopping, protected audit export and assurance remain separate extensions.
 
-The [three-worker collaboration demo](demos/03-swarm-collaboration.md) now has a
-bounded deterministic implementation on the shared runner. Fresh installed
-physical-effect and continuation checks remain pending. Presentation work must
-use verified receipts, not infer three-worker coverage from the earlier report.
+The [three-worker collaboration demo](demos/03-swarm-collaboration.md) has accepted
+task21 native physical-effect and continuation evidence. Current reports must
+verify fresh matching originals; they cannot infer three-worker results from the
+earlier two-worker report or treat an old projection as current acceptance.

@@ -5,13 +5,59 @@ import os
 from pathlib import Path
 import sqlite3
 import time
+from unittest.mock import patch
 
 from evidence_io import digest, load, reference, save
+
+
+def check_markdown(case, out):
+    """Real original verification, with all network/model launches forbidden."""
+    import product_demo
+    import subprocess
+    popen = subprocess.Popen
+    identity_code = ("import json,platform,sys,sysconfig; print(json.dumps(dict("
+                     "version=platform.python_version(), implementation=sys.implementation.name, "
+                     "abi=sysconfig.get_config_var('SOABI'), prefix=sys.base_prefix)))")
+
+    def identity_only(argv, *args, **kwargs):
+        case.assertEqual(argv, [str(Path('/usr/bin/python3').resolve()), '-I', '-S', '-c', identity_code])
+        case.assertFalse(kwargs.get('shell', False))
+        return popen(argv, *args, **kwargs)
+
+    summary = out.parent / 'summary.md'
+    with patch('socket.socket', side_effect=AssertionError('Reporting opened a socket')), \
+         patch('socket.create_connection', side_effect=AssertionError('Reporting used networking')), \
+         patch('subprocess.Popen', side_effect=identity_only):
+        result = product_demo.write_markdown(out, summary)
+    text = summary.read_text()
+    sample = load(out / 'public-sample.json')
+    case.assertIn('# Vega demo: ' + result['demo'], text)
+    case.assertIn(f'{result["warm_seconds"]:.3f} seconds', text)
+    case.assertIn(sample['original_result_sha256'], text)
+    case.assertIn(sample['public_payload_sha256'], text)
+    case.assertIn(sample['payload']['source_fingerprint'], text)
+    for claim in sample['payload']['claims']:
+        case.assertIn(claim, text)
+    for private in (str(out), '/home/', '/tmp/', 'Bearer ', 'session_meta', 'direct_url'):
+        case.assertNotIn(private, text)
+    case.assertIn('not fresh acceptance', text)
+    case.assertIn('correctly configured underlying sandbox', text)
+    case.assertIn('OS denials are not controller violations', text)
 
 
 def check_envelope_mutations(case, out):
     import product_demo
     case.assertTrue(product_demo.verify(out)['verified'])
+    check_markdown(case, out)
+    rejected_summary = out.parent / 'rejected-summary.md'
+
+    def reject(errors=(ValueError, OSError)):
+        with case.assertRaises(errors):
+            product_demo.verify(out)
+        with case.assertRaises(errors):
+            product_demo.write_markdown(out, rejected_summary)
+        case.assertFalse(rejected_summary.exists(), 'Invalid evidence emitted a report')
+
     # Check the runtime verifier directly: neither a stale artifact hash nor the
     # public projection mismatch may mask an interpreter-identity defect.
     from demo_evidence import verify_tools
@@ -51,8 +97,7 @@ def check_envelope_mutations(case, out):
                     artifact_path.symlink_to(extra)
                 else:
                     extra.write_text('{}\n')
-                with case.assertRaises((ValueError, OSError)):
-                    product_demo.verify(out)
+                reject()
             finally:
                 if artifact_path.is_symlink():
                     artifact_path.unlink()
@@ -84,8 +129,7 @@ def check_envelope_mutations(case, out):
                     save(out / 'failed.json', {'complete': False})
                 save(out / 'attempt.json', begin)
                 save(out / 'result.json', changed)
-                with case.assertRaises((ValueError, OSError)):
-                    product_demo.verify(out)
+                reject()
             finally:
                 (out / 'attempt.json').write_bytes(begin_bytes)
                 (out / 'result.json').write_bytes(result_bytes)
@@ -99,8 +143,7 @@ def check_envelope_mutations(case, out):
         changed['artifacts'] = [reference(out, artifact_path) if r['path'] == str(artifact_path.relative_to(out)) else r
                                 for r in changed['artifacts']]
         save(out / 'result.json', changed)
-        with case.assertRaises(ValueError):
-            product_demo.verify(out)
+        reject(ValueError)
     finally:
         artifact_path.write_bytes(original)
         (out / 'result.json').write_bytes(result_bytes)
@@ -119,6 +162,7 @@ def check_envelope_mutations(case, out):
         save(sample_path, sample)
         with case.assertRaisesRegex(ValueError, 'Public projection'):
             product_demo.verify(out)
+        reject()
     finally:
         sample_path.write_bytes(original_sample)
 
@@ -133,7 +177,11 @@ def check_installed_cli(case, root, python, env, demo):
     for label, arguments, expected in (
             ('verify', ['verify', '--out', out], 0),
             ('verify-explicit', ['verify', '--demo', demo, '--out', out], 0),
+            ('markdown', ['verify', '--demo', demo, '--out', out, '--markdown', root / 'cli-summary.md'], 0),
             ('wrong-demo', ['verify', '--demo', other, '--out', out], 2),
+            ('wrong-markdown-demo', ['verify', '--demo', other, '--out', out,
+                                     '--markdown', root / 'wrong-summary.md'], 2),
+            ('markdown-reuse', ['verify', '--out', out, '--markdown', root / 'cli-summary.md'], 2),
             ('reuse', ['run', '--demo', demo, '--out', out], 2)):
         terminal = Terminal([python, '-B', script, *arguments], root / ('cli-' + label),
                             env=env, replace_env=True)
@@ -150,6 +198,8 @@ def check_installed_cli(case, root, python, env, demo):
             terminal.close(graceful=False)
     case.assertEqual(before, {name: digest(out / name) for name in before})
     case.assertFalse((out / 'failed.json').exists(), 'Reuse must not corrupt completed evidence')
+    case.assertFalse((root / 'wrong-summary.md').exists())
+    case.assertIn('# Vega demo: ' + demo, (root / 'cli-summary.md').read_text())
 
     # Interrupt an actual registered operation, not a stub or a timer before launch.
     from ptw.supervisor import Supervisor

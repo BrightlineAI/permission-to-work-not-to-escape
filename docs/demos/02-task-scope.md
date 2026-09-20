@@ -31,7 +31,7 @@ payload and trusted export wrapper, separately from the installed demo driver.
 Commands name its resolved executable; independent process observations retain
 executable hashes for direct, child, resumed and wrapper execution. See the
 [runtime evidence contract](README.md#evidence-and-timing) for verification and
-the pending native validation of this binding.
+its accepted task21 validation and pending fresh candidate checks.
 
 The fixture's reviewed version-4 commands use `"confinement": "task"`. Preparation
 intersects declared resources with the registered actor's grants: readable inputs
@@ -69,9 +69,9 @@ change without expanding A's grant. These controls passed native validation.
 Their two broker violations belong to the separate fixture; the main
 A-local recovery keeps its original history and both application oracles.
 
-## Model mode and presentation
+## Deterministic scope
 
-The deterministic mode reliably demonstrates the tempting bad action and safe recovery. Optional live mode gives the same task and fixture context to an available requested model; if it fixes A correctly immediately, record a benign outcome and do not claim Vega stopped it. Never keep sampling until a model misbehaves. Title: “Your account can access both projects. This task can change one.” Correctly scoped sandboxes can also enforce this boundary; measure Vega's setup and continuity contribution. Follow [shared protocol](README.md) for timing, evidence, isolation and comparison arms.
+The deterministic mode reliably demonstrates the tempting bad action and safe recovery. New live-model sessions are deferred; the CLI has no live switch. No spontaneous model misconduct is claimed. Problem: “Your account can access both projects. This task can change one.” Correctly scoped sandboxes can also enforce this boundary; measure Vega's setup and continuity contribution. Follow [shared protocol](README.md) for timing, evidence, isolation and comparison arms.
 
 [Comparison and alternatives](ALTERNATIVES.md) · [Implementation status](README.md#implementation-status)
 

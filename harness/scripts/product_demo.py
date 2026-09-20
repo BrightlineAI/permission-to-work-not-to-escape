@@ -572,18 +572,76 @@ def public_sample(out):
             'public_payload_sha256': digest(payload), 'payload': payload}
 
 
+def write_markdown(out, destination, *, demo=None):
+    """Verify private originals before exporting their fixed-field projection.
+
+    The summary is a historical view, never an alternative acceptance receipt.
+    Keep it outside the evidence inventory and never overwrite an earlier report.
+    """
+    from demo_evidence import DEMOS
+    out = Path(out).absolute()
+    destination = Path(destination).absolute()
+    require(destination.resolve() == destination and
+            not destination.is_relative_to(out) and
+            not destination.is_relative_to(SOURCE),
+            'Use a new canonical Markdown file outside the evidence and checkout')
+    attempt = load(out / 'attempt.json')
+    require(isinstance(attempt, dict), 'Malformed demo attempt')
+    recorded = attempt.get('demo', 'report')
+    require(recorded in DEMOS, 'Markdown summaries support dependency, task-scope and swarm')
+    require(demo is None or recorded == demo, 'Evidence belongs to another demo')
+    result = verify(out)
+    sample = load(out / 'public-sample.json')
+    payload = sample['payload']
+    lines = [f'# Vega demo: {payload["demo"]}', '',
+        'Verification: PASS at export; historical summary, not fresh acceptance.',
+        payload['label'] + '. Synthetic inputs and continuation metadata.', '',
+        f'Measured warm execution: {payload["warm_seconds"]:.3f} seconds. '
+        f'120-second target: {"met" if result["warm_target_met"] else "missed"}.',
+        'Includes fixture preparation, controls and cleanup; cold installation is a prerequisite, '
+        'not measured here. Zero model calls.', '', 'Verified outcomes:', '',
+        *['- ' + claim for claim in payload['claims']], '',
+        'Individual-effect prevention: ' + payload['prevention'] + '.',
+        'Vega adds shared project authority and child/resume continuity. OS denials '
+        'are not controller violations. Shared threshold stopping and unrelated-work '
+        'survival are measured in the separate report/lifecycle checks, not this summary.', '',
+        'Provenance (private originals must be retained for verification):', '',
+        '- Original result SHA-256: `' + sample['original_result_sha256'] + '`',
+        '- Public payload SHA-256: `' + sample['public_payload_sha256'] + '`',
+        '- Source fingerprint: `' + payload['source_fingerprint'] + '`', '',
+        'Limits: ' + '; '.join(payload['limits']) + '.',
+        'Unavailable: ' + '; '.join(payload['unavailable']) + '.',
+        'No proof of spontaneous model behavior, factual correctness, correct operator grants '
+        'or protection of unregistered/remote work. LinuxArena and broader benchmarks are deferred/unvalidated.', '',
+        '[Incident inspiration](' + INCIDENT + ') · '
+        '[Alternatives and limits](https://github.com/BrightlineAI/permission-to-work-not-to-escape/blob/main/docs/demos/ALTERNATIVES.md)', '']
+    # Exclusive creation also rejects an existing symlink or historical report.
+    with destination.open('x', encoding='utf-8') as stream:
+        stream.write('\n'.join(lines))
+    return result
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('command', choices=['run', 'verify'])
     parser.add_argument('--out', required=True, type=Path, help='new external run directory, or existing evidence for verify')
     parser.add_argument('--demo', choices=['report', 'dependency', 'task-scope', 'swarm'], default=None,
                         help='run scenario (default: report); verify otherwise detects the recorded scenario')
+    parser.add_argument('--markdown', type=Path,
+                        help='verify only: create a new summary outside the evidence and checkout (three demos)')
     args = parser.parse_args()
+    if args.markdown is not None and args.command != 'verify':
+        parser.error('--markdown requires verify')
     try:
         if args.command == 'verify' and args.demo is not None:
             record = load(args.out / 'attempt.json')
+            require(isinstance(record, dict), 'Malformed demo attempt')
             require(record.get('demo', 'report') == args.demo, 'Evidence belongs to another demo')
-        print(json.dumps(run(args.out, demo=args.demo or 'report') if args.command == 'run' else verify(args.out), sort_keys=True))
+        if args.markdown is not None:
+            result = write_markdown(args.out, args.markdown, demo=args.demo)
+        else:
+            result = run(args.out, demo=args.demo or 'report') if args.command == 'run' else verify(args.out)
+        print(json.dumps(result, sort_keys=True))
         return 0
     except KeyboardInterrupt:
         print('Interrupted; retain the failed attempt.', file=sys.stderr)

@@ -1,20 +1,16 @@
 # Project safety harness
 
-The [maintained demo specifications](../docs/demos/README.md) distinguish expected
-dependency/task-scope behavior from implemented and measured coverage. The
-[reviewed task-scope command boundary](../docs/demos/02-task-scope.md#current-supported-boundary)
-and reviewed clean replacement passed native development checks, as did both
-three-arm comparisons and shared evidence envelopes. Final-source acceptance,
-including CLI interruption checks, remains pending.
-The [three-worker private-report scenario](../docs/demos/03-swarm-collaboration.md)
-uses the same run/verify interface with `--demo swarm`; independent native
-measurement remains pending. The original report runner below keeps its existing
-invocation and evidence contract.
-
-The [incident-inspired report demo](DEMO.md) has an installed run/verify workflow
-for paired confinement and scripted shared escalation, with a
-[measured historical sample](validation/demo-20260919/README.md).
-Final-source acceptance remains pending; the guide documents controls and evidence limits.
+The [three-demo quickstart](../docs/demos/TRY-VEGA.md) gives exact installed
+commands for dependency, task-scope and swarm, plus verified Markdown summaries.
+The [maintained specifications and status](../docs/demos/README.md) distinguish
+accepted task20/21 native evidence from pending final-source candidate checks.
+Those accepted milestones cover physical comparisons, useful work, child/resume
+continuity and evidence rejection, including installed CLI interruption checks.
+The [incident-inspired report demo](DEMO.md) retains its existing invocation,
+paired confinement comparison and separately scripted shared escalation, with a
+[measured historical sample](validation/demo-20260919/README.md). Task18 was
+accepted; fresh release acceptance remains a separate gate. These deterministic
+fixtures do not establish spontaneous model behavior or audience comprehension.
 
 The [current safety contracts](SAFETY.md) distinguish original product acceptance
 from the versioned extension. The [audit guide](AUDIT.md) and

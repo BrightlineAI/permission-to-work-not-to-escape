@@ -1,6 +1,6 @@
 # Incident-inspired report demo
 
-**Measured historical sample available; final-source acceptance pending.**
+**Task18 accepted with native evidence; fresh release-candidate checks remain separate.**
 The [privacy-reviewed native receipt](validation/demo-20260919/README.md) records
 both confinement arms completing the report with no delivery, followed by scripted
 warn1/stop3 recovery and physical stopping. It includes executable negative controls
@@ -39,11 +39,11 @@ The finite task-18 checklist is:
 8. Privacy-reviewed sample, original/public digest links and per-claim mapping for
    task 19; maintained guides and manifest. No raw receipt is committed.
 
-The implementation and curated sample cover this finite scenario; final manager
-checks against the finished source remain pending. No optional compatibility
-matrix or 46-case replay is included. Task 19 owns the silent HTML replay, share
-card and audience protocol; comprehension and sharing remain unvalidated until
-real observations.
+Task18 accepted this finite scenario with native evidence. Fresh manager checks
+against the release candidate remain separate. No optional compatibility matrix
+or 46-case replay is included. Task19 supplies the [three-demo CLI quickstart](../docs/demos/TRY-VEGA.md)
+and verified Markdown summaries. HTML/replay UI, share cards/video and audience
+studies are deferred; comprehension and sharing remain unvalidated.
 
 ## Reproduce
 
