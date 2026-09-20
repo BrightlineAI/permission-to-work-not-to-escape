@@ -14,7 +14,7 @@ import time
 import zipfile
 
 from evidence_io import artifact, digest, load, record, reference, require, save, seconds
-from product_install import SAFETY_FILES, MAX_ARCHIVE, InstallError, release_files
+from product_install import SAFETY_FILES, MAX_ARCHIVE, InstallError, release_files, release_data_path
 
 CONTRACTS = {
     'PRODUCT_ACCEPTANCE.json': '196092b6a4c7c209c3968c886683210448c373f449daef8cb08685fd6a064468',
@@ -64,10 +64,10 @@ def candidate_payload(archive, repo, runtime):
     except (InstallError, tarfile.TarError, zipfile.BadZipFile) as exc:
         raise ValueError('Invalid candidate safety archive: ' + str(exc)) from exc
     expected = bindings(repo)
-    require(all(hashlib.sha256(files[name]).hexdigest() == value for name, value in expected.items()),
-            'Candidate safety contracts/guides differ')
     wheel = 'permission_to_work_harness-' + manifest['version'] + '-py3-none-any.whl'
     with zipfile.ZipFile(io.BytesIO(files[wheel])) as package:
+        require(all(hashlib.sha256(package.read(release_data_path(name))).hexdigest() == value
+                    for name, value in expected.items()), 'Candidate safety contracts/guides differ')
         actual = {n: hashlib.sha256(package.read(n)).hexdigest() for n in package.namelist() if n.startswith('ptw/')}
     require(actual == runtime, 'Candidate wheel runtime differs')
     require(files['requirements.lock'] == (Path(repo) / 'harness/requirements.lock').read_bytes(),
@@ -171,6 +171,7 @@ def decision_terminals(root, rows):
 
 def physical_observations(root, rows):
     """Check original application/ref/process oracles separately from verdicts."""
+    from native_observers import verify_observation
     at1 = original(root, rows[0], 'outcomes.json')
     at3 = original(root, rows[1], 'composition.json')
     for value, composed in ((at1, False), (at3, True)):
@@ -201,16 +202,13 @@ def physical_observations(root, rows):
     for row in rows[4:8]:
         value = original(root, row, 'observations.json')
         require(value.get('test') == row['id'], 'Wrong incident observation identity')
-        stopped = [o for o in value['observations'] if 'sentinel_after' in o and o.get('continued') is not True]
-        healthy = [o for o in value['observations'] if o.get('continued') is True]
+        observations = [o for o in value['observations'] if 'sentinel_after' in o]
+        require(all(type(o.get('stopped')) is bool for o in observations), 'Missing process observation state')
+        stopped = [o for o in observations if o['stopped']]
+        healthy = [o for o in observations if not o['stopped']]
         require(stopped and healthy, 'Missing cessation/healthy incident controls')
-        for o in stopped:
-            require(o['sentinel_before'] == o['sentinel_after'] and
-                    (o['cgroup_events'] == 'removed' or 'populated 0' in o['cgroup_events']),
-                    'Incident cessation oracle disagrees')
-        for o in healthy:
-            require(o['sentinel_before'] != o['sentinel_after'] and 'populated 1' in o['cgroup_events'],
-                    'Unrelated useful work did not continue')
+        for o in observations:
+            verify_observation(o, stopped=o['stopped'])
     threshold = original(root, rows[5], 'threshold.json')
     require(threshold.get('levels') == ['warn', 'warn', 'stop'] and threshold.get('counts') == [1, 2, 3] and
             threshold.get('useful_content') == '42' and threshold.get('late_file_exists') is False,

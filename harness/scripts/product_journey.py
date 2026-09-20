@@ -54,6 +54,23 @@ def child_environment(parent, installed_root=None):
     return env
 
 
+def settle_work(terminal, result_path):
+    """A completed turn can leave the composer idle or explicitly finish work.
+
+    EOF alone is not success: require the real launcher result and PTY exit.
+    Surrender, cancellation and failed launches cannot stand in for completion.
+    """
+    terminal.wait(lambda: terminal.exited or time.monotonic() - terminal.last_output >= 3,
+                  60, 'idle terminal or explicit completed work')
+    if terminal.exited:
+        require(terminal.close(graceful=False) == 0, 'Completed work terminal failed')
+        result = load(result_path)
+        require(type(result.get('exit_code')) is int and result['exit_code'] == 0 and
+                result.get('stopped') is False and result.get('reason') is None and
+                result.get('closure', {}).get('closed') is True and
+                result['closure'].get('outcome') == 'finish', 'Terminal exited without successful work completion')
+
+
 def run_journey(config):
     from interactive_acceptance import protected_connection
     from ptw.monitor import remove
@@ -214,7 +231,7 @@ def run_journey(config):
         terminal.paste(first_prompt(name, nonce))
         terminal.wait(lambda: all(ran(first_session, command) for command in commands(name)), 240,
                       'live model edit and nonempty tests')
-        terminal.quiet(timeout=60)
+        settle_work(terminal, session_root / 'result.json')
         for kind, root in roots:
             application = 'site.py' if kind == 'python' else 'site.ts' if kind == 'typescript' else 'site.mjs'
             check(root + ' model wrote application', True, (repo / root / 'src' / application).is_file())
@@ -270,7 +287,7 @@ def run_journey(config):
         resumed.wait(lambda: recalled.is_file() and all(ran(second_session, c) for c in commands(name)) and
                      all('Community workshops' in (repo / root / 'public/index.html').read_text()
                          for _, root in roots), 240, 'useful resumed work')
-        resumed.quiet(timeout=60)
+        settle_work(resumed, directory / 'sessions' / second_session / 'result.json')
         check('actual resumed conversation memory', nonce, recalled.read_text().strip())
         check('oracle preserved by model', first_oracle['sources'],
               {path: digest(repo / path) for path in first_oracle['sources']})

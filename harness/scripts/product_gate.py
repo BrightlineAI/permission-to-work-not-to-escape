@@ -66,7 +66,7 @@ def requirement_evidence(report):
                               'unrelated-project-survives') + native,
         'acceptance': native + journey_records('terminal_record', 'functional_oracle', 'installed_module_record') +
                       security(*sorted(SECURITY)) + [report['local_git']['record']],
-        'release': candidate + native,
+        'release': candidate + native + [report['safety_extension'], report['demo_evidence']],
     }
 
 
@@ -401,6 +401,8 @@ def verify(root, repo=REPO):
     candidate_record(root, report, repo)
     from product_safety_evidence import verify as verify_safety
     verify_safety(root, report, repo)
+    from product_demo_evidence import verify as verify_demos
+    verify_demos(root, report, repo)
     required = {r['id'] for r in contract['requirements'] if r['mandatory']}
     coverage = report.get('requirements')
     require(isinstance(coverage, dict) and set(coverage) == required, 'Mandatory contract coverage incomplete')

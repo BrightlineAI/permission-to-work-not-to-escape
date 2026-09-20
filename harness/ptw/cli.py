@@ -11,9 +11,14 @@ from .store import Store
 
 
 def main(argv=None):
+    argv = sys.argv[1:] if argv is None else argv
+    if argv and argv[0] == 'demo':
+        from .demo import main as demo_main
+        raise SystemExit(demo_main(argv[1:]))
     parser = argparse.ArgumentParser(description="Reviewed project controls for local agents")
     parser.add_argument("--version", action="version", version=__version__)
     commands = parser.add_subparsers(dest="command", required=True)
+    commands.add_parser('demo', help='Run or verify the bundled deterministic demos')
     commands.add_parser("doctor", help="Check installation with real permitted, forbidden and stop probes")
     interactive = commands.add_parser("codex", help="Set up once, then open protected interactive Codex")
     interactive.add_argument("--repo", default=str(Path.cwd()))

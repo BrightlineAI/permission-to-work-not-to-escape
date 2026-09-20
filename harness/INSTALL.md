@@ -155,10 +155,20 @@ operator metadata, not tamper-proof evidence.
 From this checkout, on the isolated Linux VPS:
 
 ```sh
-python3 harness/scripts/build_product_release.py --out /absolute/new-release
+python3 harness/scripts/prepare_product_release.py --out /absolute/new-release
 PYTHONPATH=harness python3 -m unittest discover -s harness/tests -p test_product_install.py -v
 python3 harness/scripts/product_install_acceptance.py --out /absolute/new-install-evidence
 ```
+
+The release wrapper emits `release.json` with the candidate tag, asset paths and
+SHA-256 digests, plus [concise owner commands and limits](RELEASE.md). Its
+`private-candidate-unvalidated` status requires fresh native acceptance; it is
+not publication approval. The manager alone publishes and promotes. Only the
+listed assets are public candidates; `build.json` and original test receipts
+remain private. The wheel includes the three deterministic demos through
+`ptw demo`, unchanged pinned contracts and maintained safety guides. The builder
+rejects stale bundled document copies. No raw histories or measured historical
+sample is relabeled as this candidate's evidence.
 
 The builder refuses existing outputs, stages an explicit allowlist, builds one
 wheel using hashed setuptools 82.0.1 in an isolated environment, and includes

@@ -1,0 +1,144 @@
+# Release audit checklist
+
+Scope: original product, project-safety extension, incident amendment and the
+three existing deterministic CLI demos. LinuxArena, presentation UI, audience
+studies and additional live-model campaigns are deferred/unvalidated. Queue order
+and all three original contracts remain unchanged.
+
+This finite checklist is the implementation handoff, not an acceptance claim.
+
+1. Inspect the original contracts and prior native records. Trace all original
+   IDs, extension IDs, IG1-IG5 and AT1-AT3 to current source and original effects.
+   Original mappings, callbacks, terminal/physical records and retained installed
+   trees were inspected. The private handoff retains original paths and digests.
+2. Produce a private candidate through the existing deterministic builder, with
+   matching tag, bootstrap, hashes and owner commands. The wrapper and bundled
+   installed CLI are implemented and the native release test passed installation
+   and all bundled CLI demos. It prints `RELEASE_EVIDENCE` and retains assets, installation,
+   source hashes, failed attempts and results under that external directory.
+3. Reject malformed/missing/tampered artifacts and preserve installer lifecycle
+   behavior. Offline artifact mutations and original-only/incident evidence
+   rejection are implemented. Real installation and packaged execution passed;
+   final-source full acceptance remains pending.
+4. Preserve all security gates, useful work, privacy/retention, migration and
+   downgrade behavior. Existing gates remain active. Installed new/existing/upgrade
+   originals support the bounded behavior below; final-source revalidation remains.
+   Original installed incident receipts use the shared observer's `stopped`
+   field. Their validator now reuses that observer's process/sentinel checks,
+   including live unrelated-work controls, instead of expecting a nonexistent
+   `continued` field. Rehashed contradictions remain failures.
+5. Bind all final installed demo evidence and public projections to exact local
+   and published candidate bytes. The portable recursive identity and installed
+   `ptw demo` path are implemented. Local and published product acceptance now
+   require the candidate's own installed CLI, original physical records and
+   matching public projections. Missing/stale/changed/substituted evidence fails.
+6. Preserve normal discovery exactly once, including all extension/incident/demo
+   modules and installed safety acceptance. Inventory assertions cover every
+   owning module and installed safety ID without executing suites again. Full
+   native execution remains the existing manager regression. Hosted CI has an
+   explicitly labelled offline subset; it cannot certify native acceptance.
+7. Finish concise install/new/existing/everyday/recovery instructions and public
+   sanitization. RELEASE.md and the three-demo quickstart describe the private
+   candidate. Original-evidence and claim review are recorded privately. Generated
+   assets still require the independent credential scan before publication.
+8. Freeze final source/version, update MANIFEST.sha256, run full acceptance and
+   hand publication to the manager. Any runtime or version change invalidates
+   affected evidence. The <=30-second startup gate is mandatory. No current
+   complete product acceptance or publication is claimed. Live journey drivers
+   now distinguish explicit successful finish from failure/surrender and prepare
+   checkpoint review after delegation has completed. Native validation of these
+   driver corrections passed the prior manager run. Final-source validation
+   remains mandatory; stale-history enforcement is unchanged.
+
+## Requirement trace and inspected effects
+
+All eleven original IDs map to parsed supporting records. The original native
+receipt records each test occurrence and zero mandatory skips. Fresh acceptance
+must recreate this evidence for the final maintained source; runtime equality
+alone cannot substitute an earlier full-source receipt.
+
+| Original IDs | Original records and engineering checks |
+| --- | --- |
+| install, release | Archive/bootstrap digests; installer retry, upgrade/rollback/uninstall probes; actual wheel data and installed CLI |
+| first-setup, policy, ecosystems | Seven fresh Python/Node/TypeScript/mixed terminal, approval, functional, timing and installed-process records; installer invocation through readiness <=30 seconds |
+| everyday | Useful edits/tests, preview response, exact checkpoint approval, dependency revision, revoked finished delegate and distinct revision-probe child, protected resume |
+| packages, reassessment | Direct/transitive critical, young, tampered, compatible older and approved build outcomes; outage without misconduct; quarantine and unrelated survival |
+| scope, escalation | Denied private/native routes, narrower child, shared counts, physical stopping, refused subsequent admission and unrelated useful work |
+| acceptance | Native callback inventory and seven separate retained installations; final source and published candidate gates remain independent of historical acceptance |
+
+Every extension ID maps through `product_safety_evidence.COVERAGE` to original
+native callbacks and parsed installed new/existing/upgrade records:
+
+| Extension / amendment IDs | Inspected implementation and original observations |
+| --- | --- |
+| audit-coverage, audit-durability, IG1-authority | `event_evidence`, Store and supported route writers; authority/time/outcome metadata, pre-effect intent, capture failure and uncertain recovery in `test_product_audit` |
+| audit-retention | `evidence_storage`; 1 GiB default, optional content off, 256 KiB payload bound, unpinned 30-day expiry, tombstones, unresolved pinning and closed export in `AuditStorageTests` |
+| artifact-boundary, artifact-context, artifact-binding | `artifact_review` and local checkpoint; exact assembled tree/base, unchanged context, tests/history binding, stale and missing-evidence holds in `test_product_artifact_review` |
+| review-authority, sequence-review, reviewer-isolation, IG4-review-facts | `sequence_review`, operator terminal and cached-fixture records; earlier originals across intervening work, facts separated from narrative, exact operator approval and no reviewer effect authority |
+| evaluation | `BoundedTransportTests.test_frozen_eight_cases`; four benign/four harmful, maximum 16 calls; zero live semantic cases/calls, unknown misses/false alerts |
+| harness-boundaries, IG2-scope, IG3-surrender | `test_product_incident_controls` and workspace/ecosystem cases; useful imports, denied alternate targets/registry writes, empty collector, surrender cessation and parent/unrelated survival |
+| migration | `AuditStorageTests` and installed upgrade; preserved identities/history/counts/stops/quarantine, exact adoption, old-runtime refusal, interrupted rollback and stopped original backups |
+| installed-acceptance, release-integration, IG5-release | `InstalledSafetyTests` new/existing/upgrade wheels; per-ID parsed originals and independent foreground/detached/retained hashes including package data |
+
+AT1 maps to `test_product_artifact_review.NativeArtifactTests.test_at1_native_paired_terminal_decisions_and_physical_effects`.
+Original `outcomes.json` distinguishes correct versus hidden-password login under
+identical allowed grants, fixture findings, terminal decisions and physical refs.
+The benign candidate publishes and useful work completes; the harmful candidate
+is held/rejected. Blocking both cannot pass the application oracle.
+
+AT2 maps to `test_product_incident_controls.NativeIncidentTests.test_shipped_aggregate_escalation_stops_real_descendants`.
+Installed new/existing originals include `shipped-policy.json`,
+`aggregate-events.json`, `threshold.json` and `observations.json`. Three distinct
+sessions reach warn1/stop3. Independent process/cgroup and sentinel observations
+establish cessation, refused late effects and unrelated progress. Useful work
+does not increase counts. A counter-only result cannot pass.
+
+AT3 maps to `test_product_artifact_review.NativeArtifactTests.test_at3_native_resumed_composition_and_benign_counterpart`.
+Original `composition.json`, review packets, earlier references and terminal
+decisions distinguish benign/harmful assembled application behavior after benign
+work and resume. AT1/AT3 prove deterministic gate mechanics, not model detection.
+
+## Demo and communication review
+
+Installed dependency, task-scope and swarm originals were independently
+reverified: useful outputs, recovery, child/resume, collector controls and equal
+protection in the correctly configured sandbox arm. Separate report originals
+establish warning recovery, aggregate stopping, unrelated survival, wrong-output
+and mistaken-grant limits. CLI output and fixed-field summaries were read without
+narration: synthetic task, prevented effect, useful result, added continuity and
+a limit are identifiable. This is engineering review, not an audience study.
+The owner's reduced scope defers timed silent video/HTML, human comprehension and
+viral spread. No spontaneous behavior, historical prevention rate or adoption is
+inferred. Demo commands never automatically share externally.
+
+Ordinary workflows outside claimed coverage include first-account browser/MFA,
+unregistered clients, remote jobs/deployments, unsupported ecosystem formats and
+unknown malicious dependencies. Supported formats retain rejection/recovery
+guides. LinuxArena remains deferred/unvalidated, not a release prerequisite.
+
+## Package layout and research
+
+The wheel carries the existing deterministic workers as package data, with a thin
+`ptw demo` entry point. Repository script wrappers retain existing invocations;
+there is one implementation of each worker. Its namespace worker directory remains
+self-contained. Recursive identity includes every demo helper and contract/data
+file. The original flat-module identity remains for compatible existing probes,
+and wheel construction additionally checks the complete recursive map.
+
+The manager archive allowlist permits runtime content inside the wheel, not flat
+contract files beside it. Reviewed `.md.txt` snapshots and the three pinned JSON
+contracts are checked byte-for-byte against their originals before building.
+They are provenance, not rewritten documentation or historical results. The
+standalone RELEASE.md is the owner guide. No model histories or measured sample
+is bundled as fresh candidate evidence.
+
+[Setuptools package-data documentation](https://setuptools.pypa.io/en/latest/userguide/datafiles.html)
+supports this explicit package-data layout; the existing hashed backend remains
+unchanged. No dependency upgrade or new external API was introduced. Additional
+web research cannot establish local installation, physical effects or timing.
+
+Native testing requires network downloads, loopback sockets, Linux namespaces,
+systemd user services/cgroups and real terminal behavior. Those checks belong to
+the manager environment. Offline assembly fixtures are not installable-wheel or
+native-effect evidence. Follow the isolated editable source-test instructions in
+README.md; installed candidate tests retain separate non-editable installations.

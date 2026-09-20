@@ -63,7 +63,10 @@ The [project safety harness](harness/README.md) adds reviewed policies, narrower
 shared controls across agents, and auditing of selected Codex logs.
 Use the [recoverable Linux installer](harness/INSTALL.md) from a compact, verified
 application artifact. Local release building is available; an online release is
-not yet published. With the [interactive quickstart](harness/INTERACTIVE.md), run
+not yet published. The [private candidate guide](harness/RELEASE.md) gives install,
+three-demo, recovery and normal-use commands. The packaged CLI passed native
+installation/demo checks; full final-source product acceptance remains pending.
+With the [interactive quickstart](harness/INTERACTIVE.md), run
 `ptw codex` in a new or existing repository. Review the policy, then work in
 the normal Codex terminal. First setup uses typed templates without a model
 roundtrip. For root files, use `ptw codex --editable src,tests --files README.md,app.py`.

@@ -581,9 +581,10 @@ class ArchiveTests(unittest.TestCase):
         self.assertLess(len(first), 500_000)
         self.assertTrue(manifest["source_sha256"])
         self.assertFalse(any("validation" in name or "experiments" in name for name in manifest["source_sha256"]))
-        self.assertEqual(len(files), 8 + len(product.SAFETY_FILES))
-        for name, source in product.SAFETY_FILES.items():
-            self.assertEqual(files[name], (builder.REPO / source).read_bytes())
+        self.assertEqual(len(files), 8)
+        with zipfile.ZipFile(io.BytesIO(files['permission_to_work_harness-0.5.0-py3-none-any.whl'])) as wheel:
+            for name, source in product.RELEASE_DATA.items():
+                self.assertEqual(wheel.read(product.release_data_path(name)), (builder.REPO / source).read_bytes())
 
     def test_builder_rejects_linked_source_and_inconsistent_version(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -670,10 +671,13 @@ class HealthTests(unittest.TestCase):
             package.mkdir()
             for source in (builder.REPO / "harness/ptw").glob("*.py"):
                 shutil.copyfile(source, package / source.name)
+            (package / 'data').mkdir()
+            (package / 'data/contract.json').write_text('{"synthetic":true}\n')
             receipt = product.snapshot(candidate)
             imported = json.loads(product.run(source_identity_command(candidate), env=env, cwd=base))
             self.assertEqual(Path(imported["path"]), package)
-            self.assertEqual(imported["hashes"], {p.name: product.sha(p.read_bytes()) for p in package.glob("*.py")})
+            self.assertEqual(imported["hashes"], {str(p.relative_to(package)): product.sha(p.read_bytes())
+                                                for p in package.rglob('*') if p.is_file()})
             product.verify(candidate, receipt)
 
             create(base / "project")

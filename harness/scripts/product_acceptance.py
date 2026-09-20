@@ -284,6 +284,8 @@ def acceptance(out, release_tag=None):
         report['local_git'] = load(out / 'local-git.json')
         from product_safety_evidence import collect
         report['safety_extension'] = collect(out, report, REPO)
+        from product_demo_evidence import collect as collect_demos
+        report['demo_evidence'] = collect_demos(out, report, REPO)
         report['requirements'] = map_requirements(out, report)
         report['unmet_requirements'] = [] if all(r['passed'] for r in report['journeys']) else ['first-setup']
         report['ended_epoch'] = time.time()

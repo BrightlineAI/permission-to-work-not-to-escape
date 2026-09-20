@@ -59,6 +59,22 @@ def physical_workloads(store, project):
             for w in store.status(project)['workloads']]
 
 
+def revision_probe_child(store, parent, completed, check):
+    """Keep the live delegate closed; register distinct deterministic probe work."""
+    with store.locked() as db:
+        try:
+            store.session(db, completed['token'])
+        except Invalid:
+            revoked = True
+        else:
+            revoked = False
+    check(revoked, 'completed live delegate credential remains revoked')
+    child = store.register(parent['project'], 'readcheck', parent_token=parent['token'])
+    check(child['session'] != completed['session'] and child['token'] != completed['token'] and
+          child['parent'] == parent['session'], 'distinct revision probe child belongs to active resumed parent')
+    return child
+
+
 def check_revision_scope(before, after, check):
     """This fixture's first revision adds only its generated, read-only pin file."""
     expected = copy.deepcopy(before)
@@ -699,17 +715,15 @@ def resume_journey(root):
 
         second.send('Use project_action to read and fix src/calculator.py so add adds. Install the dependencies '
             'resource (pypi), run build then test using the returned package set. Start python-preview and '
-            'node-preview. Show git-status and git-diff. Prepare git-checkpoint for only src/calculator.py '
-            'with message Addition fixed. Do not approve it. Finally delegate to readcheck to read '
-            'src/calculator.py and report whether addition is fixed, without editing or installing anything.')
+            'node-preview. Show git-status and git-diff. Finally delegate to readcheck to read '
+            'src/calculator.py and report whether addition is fixed, without editing or installing anything. '
+            'Do not prepare a checkpoint yet. Leave this conversation open for the operator review.')
         required = [('write', 'src'), ('install', 'dependencies'), ('run', 'build'), ('run', 'test'),
                     ('service_start', 'python-preview'), ('service_start', 'node-preview'),
                     ('git_status', 'git-status'), ('git_diff', 'git-diff'),
-                    ('git_checkpoint', 'git-checkpoint'), ('delegate', 'readcheck')]
+                    ('delegate', 'readcheck')]
         await_actions(second, fresh['session'], required)
         events = store.audit_events('python-demo')
-        checkpoint = next(e['result'] for e in events if e['session'] == fresh['session'] and
-                          e['request']['action'] == 'git_checkpoint' and e['result'].get('allowed'))
         delegate = next(e['result']['child'] for e in events if e['session'] == fresh['session'] and
                         e['request']['action'] == 'delegate' and e['result'].get('allowed'))
         child = load(store.directory / 'delegates' / (delegate['session'] + '.json'))
@@ -718,10 +732,23 @@ def resume_journey(root):
         second.quiet(timeout=90)
         check(successful_actions(store.audit_events('python-demo'), child['session'], [('read', 'src')]),
               'live narrower delegate actually read source')
+        completed_child = child
+        check(invalid_token(completed_child), 'completed live delegate cannot perform further actions')
         check(get(ports[0]) == b'python-daily' and get(ports[1]) == b'node-daily',
               'model-started Python and Node previews are reachable')
         check((repo / 'dist/calculator.py').read_bytes() == (repo / 'src/calculator.py').read_bytes(),
               'live build published expected output')
+        # Delegation changes required history. Prepare only after its completion,
+        # so the operator approves a current candidate rather than bypassing the
+        # assembled review's stale-history rejection.
+        second.send('Prepare git-checkpoint for only src/calculator.py with message Addition fixed. '
+                    'Do not approve it or perform any further actions, including finish. '
+                    'Leave this conversation open for the operator review.')
+        await_actions(second, fresh['session'], [('git_checkpoint', 'git-checkpoint')])
+        second.quiet(timeout=90)
+        checkpoint = next(e['result'] for e in store.audit_events('python-demo') if
+                          e['session'] == fresh['session'] and e['request']['action'] == 'git_checkpoint'
+                          and e['result'].get('allowed'))
         approval = Terminal([sys.executable, '-B', '-m', 'ptw', 'checkpoint', checkpoint['checkpoint'],
                              '--repo', str(repo)], root / 'live-checkpoint-approval', env=env)
         terminals.append(approval)
@@ -745,8 +772,17 @@ def resume_journey(root):
         check(independent_actor['session'] != fresh['session'], 'two independent live parents')
         # Keep a real descendant workload active when dependency revision revokes
         # all sessions. This is a deterministic probe, separate from model work.
+        child = revision_probe_child(store, fresh, completed_child, check)
         child_service = dispatch(store, child, 'scripted-child-before-revision', request('service_start', 'child-preview'))
         check(child_service['allowed'] and get(ports[2]) == b'python-daily', 'registered narrower child has active work')
+        with store.locked() as db:
+            workload = db.execute('SELECT session,stopped FROM workloads WHERE unit=?',
+                                  (child_service['unit'],)).fetchone()
+        check(workload is not None and workload['session'] == child['session'] and not workload['stopped'],
+              'revision preview workload is registered to the distinct probe child')
+        report['revision_probe'] = {'trajectory': 'deterministic',
+            'completed_live_delegate': completed_child['session'], 'probe_child': child['session'],
+            'parent': fresh['session'], 'unit': child_service['unit']}
 
         create(root / 'unrelated', 'python')
         other_policy, other_inv = load(root / 'unrelated/policy.json'), load(root / 'unrelated/inventory.json')
@@ -789,10 +825,12 @@ def resume_journey(root):
         for terminal in (second, independent):
             terminal.wait(lambda: terminal.exited, 30, 'revision terminates existing parent')
             close(terminal)
-        check(all(invalid_token(actor) for actor in (old, fresh, independent_actor, child)),
+        check(all(invalid_token(actor) for actor in (old, fresh, independent_actor, completed_child, child)),
               'revision revokes both parents and their narrower child without reviving old credentials')
         revision_effects = physical_workloads(store, 'python-demo')
         report['revision_physical_stop'] = revision_effects
+        check(any(w['unit'] == child_service['unit'] and w['confirmed_stopped'] for w in revision_effects),
+              'revision physically stops the distinct child preview cgroup')
         check(all(w['confirmed_stopped'] for w in revision_effects), 'revision stops every old registered cgroup')
         check(load(new_path.parent / 'result.json')['conversation'] == identity, 'revision preserves exact native conversation ID')
         current = store.status('python-demo')

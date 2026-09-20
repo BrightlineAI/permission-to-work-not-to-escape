@@ -39,6 +39,7 @@ def sources(repo=REPO):
     paths += [p for p in (repo / '.github/workflows').glob('*') if p.is_file()]
     paths += [repo / 'docs' / n for n in ('PROJECT-SAFETY-EXTENSION-REVIEW.md',
               'PROJECT-SAFETY-SCENARIOS.md') if (repo / 'docs' / n).is_file()]
+    paths += [p for p in (repo / 'docs/demos').rglob('*') if p.is_file()]
     require(all(not p.is_symlink() for p in paths), 'Linked maintained source')
     return {str(p.relative_to(repo)): digest(p) for p in sorted(paths)}
 

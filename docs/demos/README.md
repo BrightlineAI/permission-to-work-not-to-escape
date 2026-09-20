@@ -23,16 +23,16 @@ and unrelated-work survival. Public-release gates remain independent.
 ## Run and verify
 
 Use an isolated Linux VPS with the [matching installed product](../../harness/INSTALL.md),
-nono, bubblewrap, uv and a working systemd user manager. Run from the checkout
-whose source matches that installation. `python` below means the installed wheel's
-Python, with `PYTHONPATH` and `PYTHONHOME` unset. Editable/source imports fail.
+nono, bubblewrap, uv and a working systemd user manager. The installed `ptw demo`
+command includes the workers and verifier; a source checkout is unnecessary.
+Keep `PYTHONPATH` and `PYTHONHOME` unset. Editable/source imports fail.
 Each output must be a **new canonical directory outside the checkout**. Use an
 absolute path without `..` or symlink components; choose a new name on every run.
 
 ```sh
-python -B harness/scripts/product_demo.py run --demo dependency --out /tmp/dependency-run-01
-python -B harness/scripts/product_demo.py run --demo task-scope --out /tmp/task-scope-run-01
-python -B harness/scripts/product_demo.py run --demo swarm --out /tmp/swarm-run-01
+ptw demo run --demo dependency --out /tmp/dependency-run-01
+ptw demo run --demo task-scope --out /tmp/task-scope-run-01
+ptw demo run --demo swarm --out /tmp/swarm-run-01
 ```
 
 Each command executes deterministic workers, scripted fixture approvals, all
@@ -44,9 +44,9 @@ The original report command, without `--demo`, keeps its existing behavior.
 Verify a completed run without starting workloads or model calls:
 
 ```sh
-python -B harness/scripts/product_demo.py verify --out /tmp/dependency-run-01
-python -B harness/scripts/product_demo.py verify --out /tmp/task-scope-run-01
-python -B harness/scripts/product_demo.py verify --out /tmp/swarm-run-01
+ptw demo verify --out /tmp/dependency-run-01
+ptw demo verify --out /tmp/task-scope-run-01
+ptw demo verify --out /tmp/swarm-run-01
 ```
 
 For a static report, add `--markdown /tmp/dependency-summary-01.md` to verification.

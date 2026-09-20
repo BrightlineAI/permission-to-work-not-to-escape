@@ -26,25 +26,27 @@ The installer supplies pinned nono and uv. Have an administrator provision missi
 OS prerequisites; do not disable confinement to make a demo run. No Codex login,
 credentials or model service are needed.
 
-From the matching source checkout, this existing source installer makes a private,
-non-editable installation. Installation downloads dependencies/tools; the demo
-uses only local collectors, and verification/reporting makes no network requests.
-The runtime wheel alone does not include these repository demo scripts. Keep this
-checkout and installation unchanged and available while verifying receipts.
+Use the private candidate directory supplied by the operator. The runtime wheel
+bundles the demo scripts and contracts; no checkout is needed. Installation
+downloads dependencies/tools; the demo uses only local collectors, and
+verification/reporting makes no network requests. Keep the installation unchanged
+while verifying receipts. The native packaged-candidate check remains pending.
 
 ```sh
 PTW_KIT=$(mktemp -d /tmp/vega-kit.XXXXXXXX)
-bash harness/scripts/install-vps.sh --no-codex "$PTW_KIT/installation"
-PTW_PYTHON="$PTW_KIT/installation/venv/bin/python"
-export PATH="$PTW_KIT/installation/venv/bin:$PTW_KIT/installation/bin:$PATH"
-unset PYTHONPATH PYTHONHOME
-"$PTW_PYTHON" -B -m ptw doctor
+cd /absolute/operator-supplied-candidate
+sha256sum --check SHA256SUMS
+bash ./install.sh --artifact "$PWD/ptw-0.5.0-linux-x86_64.tar.gz" \
+  --root "$PTW_KIT/installation" --bin-dir "$PTW_KIT/commands"
+PTW="$PTW_KIT/commands/ptw"
+"$PTW" doctor
 ```
 
-Proceed only when doctor reports `"ready": true`. For an existing matching installed
-wheel, set `PTW_PYTHON` to its absolute interpreter path, put its private native
-tools on PATH, unset the two Python variables, and create a new `PTW_KIT` directory
-for results. See [installation/recovery](../../harness/INSTALL.md) for packaged
+Proceed only when doctor reports `"ready": true`. Check the bootstrap digest
+against the trusted operator handoff before executing it; an adjacent checksum
+alone does not authenticate a publisher. For an existing matching installation,
+set `PTW` to its installed command and create a new `PTW_KIT` directory for results.
+See [installation/recovery](../../harness/INSTALL.md) for packaged
 installation and [Linux setup](../../harness/README.md#install-on-a-linux-vps).
 Online release publication remains a separate gate; no unpublished download is
 required by this recipe.
@@ -55,12 +57,12 @@ Each run needs a new canonical output directory outside the checkout. The kit
 directory exists; its three run directories must not exist yet.
 
 ```sh
-"$PTW_PYTHON" -B harness/scripts/product_demo.py run --demo dependency --out "$PTW_KIT/dependency"
-"$PTW_PYTHON" -B harness/scripts/product_demo.py verify --demo dependency --out "$PTW_KIT/dependency" --markdown "$PTW_KIT/dependency.md"
-"$PTW_PYTHON" -B harness/scripts/product_demo.py run --demo task-scope --out "$PTW_KIT/task-scope"
-"$PTW_PYTHON" -B harness/scripts/product_demo.py verify --demo task-scope --out "$PTW_KIT/task-scope" --markdown "$PTW_KIT/task-scope.md"
-"$PTW_PYTHON" -B harness/scripts/product_demo.py run --demo swarm --out "$PTW_KIT/swarm"
-"$PTW_PYTHON" -B harness/scripts/product_demo.py verify --demo swarm --out "$PTW_KIT/swarm" --markdown "$PTW_KIT/swarm.md"
+"$PTW" demo run --demo dependency --out "$PTW_KIT/dependency"
+"$PTW" demo verify --demo dependency --out "$PTW_KIT/dependency" --markdown "$PTW_KIT/dependency.md"
+"$PTW" demo run --demo task-scope --out "$PTW_KIT/task-scope"
+"$PTW" demo verify --demo task-scope --out "$PTW_KIT/task-scope" --markdown "$PTW_KIT/task-scope.md"
+"$PTW" demo run --demo swarm --out "$PTW_KIT/swarm"
+"$PTW" demo verify --demo swarm --out "$PTW_KIT/swarm" --markdown "$PTW_KIT/swarm.md"
 cat "$PTW_KIT/dependency.md" "$PTW_KIT/task-scope.md" "$PTW_KIT/swarm.md"
 ```
 
@@ -81,8 +83,8 @@ No command above publishes anything.
 To verify again, omit `--markdown` (existing summary files are never overwritten):
 
 ```sh
-"$PTW_PYTHON" -B harness/scripts/product_demo.py verify --demo swarm --out "$PTW_KIT/swarm"
-"$PTW_PYTHON" -B harness/scripts/product_demo.py --help
+"$PTW" demo verify --demo swarm --out "$PTW_KIT/swarm"
+"$PTW" demo --help
 ```
 
 ## If it fails

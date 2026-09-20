@@ -93,6 +93,12 @@ class SafetyEvidenceTests(unittest.TestCase):
         changes = [(0, 'outcomes.json', lambda v: v['observations'][1].update(physical_ref_exists=True)),
                    (1, 'composition.json', lambda v: v['observations'][1].update(application=[True, False, False])),
                    (2, 'observations.json', lambda v: v.update(violations=1)),
+                   (4, 'observations.json', lambda v: v['observations'][0].update(stopped=False)),
+                   (4, 'observations.json', lambda v: v['observations'][0].pop('stopped')),
+                   (4, 'observations.json', lambda v: v['observations'][0].update(parent_exit_code=None)),
+                   (4, 'observations.json', lambda v: v['observations'][0].update(descendant_state='S')),
+                   (4, 'observations.json', lambda v: v['observations'][1].update(sentinel_after='456:1')),
+                   (4, 'observations.json', lambda v: v['observations'][1].update(cgroup_events='removed')),
                    (5, 'threshold.json', lambda v: v.update(counts=[1, 1, 1])),
                    (5, 'aggregate-events.json', lambda v: v[2]['result'].update(level='warn')),
                    (6, 'query.json', lambda v: v['initial'].update(confirmed_stopped=True)),
@@ -193,7 +199,7 @@ class SafetyEvidenceTests(unittest.TestCase):
         reject(changed)
 
     def test_missing_contract_stale_guide_and_substituted_candidate_wheel_rejected(self):
-        from product_install import archive_files, sha
+        from product_install import archive_files, sha, release_data_path
         from build_product_release import deterministic_tar
         from product_safety_evidence import candidate_payload, CONTRACTS
         from evidence_io import load
@@ -205,16 +211,17 @@ class SafetyEvidenceTests(unittest.TestCase):
         for name in (*CONTRACTS, 'PROJECT-SAFETY-SCENARIOS.md', 'permission_to_work_harness-0.5.0-py3-none-any.whl'):
             files = dict(original)
             manifest = json.loads(files.pop('release.json'))
-            if name in CONTRACTS:
-                files.pop(name)
-            elif name.endswith('.whl'):
-                import io, zipfile
-                wheel = io.BytesIO()
-                with zipfile.ZipFile(wheel, 'w') as package:
-                    package.writestr('ptw/__init__.py', 'substituted')
-                files[name] = wheel.getvalue()
-            else:
-                files[name] = b'stale guide'
+            import io, zipfile
+            wheel = io.BytesIO()
+            wheel_name = 'permission_to_work_harness-0.5.0-py3-none-any.whl'
+            target = release_data_path(name)
+            with zipfile.ZipFile(io.BytesIO(files[wheel_name])) as old, zipfile.ZipFile(wheel, 'w') as package:
+                for member in old.namelist():
+                    if member == target and name in CONTRACTS:
+                        continue
+                    package.writestr(member, b'substituted' if name.endswith('.whl') or member == target
+                                     else old.read(member))
+            files[wheel_name] = wheel.getvalue()
             manifest['files'] = {n: sha(v) for n, v in files.items()}
             files['release.json'] = json.dumps(manifest).encode()
             path.write_bytes(deterministic_tar(files))
@@ -263,6 +270,12 @@ class SafetyEvidenceTests(unittest.TestCase):
         for item in extension['requirements'].values():
             item['candidate_record'] = f.report['candidate_record']
         f.report['safety_extension'] = f.write(extension_ref['path'], extension)
+        with self.assertRaisesRegex(ValueError, 'substituted demo candidate'):
+            f.verify()
+        demo_ref = f.report['demo_evidence']
+        demo = load(f.out / demo_ref['path'])
+        demo['candidate_record'] = f.report['candidate_record']
+        f.report['demo_evidence'] = f.write(demo_ref['path'], demo)
         for name, evidence in requirement_evidence(f.report).items():
             item = f.report['requirements'][name]
             old = item['records'][0]

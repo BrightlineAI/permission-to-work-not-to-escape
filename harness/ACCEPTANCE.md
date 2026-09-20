@@ -10,6 +10,24 @@ Full acceptance against the final source, the integrated Git evidence and public
 candidate installation remain pending manager validation. Synthetic validator
 fixtures are not product evidence or publication approval.
 
+Local and `--release-tag TAG` acceptance also run the bundled CLI from a retained
+fresh candidate installation: dependency, task-scope, swarm and the separate
+report/lifecycle comparison. `demo_evidence` references the exact candidate,
+installed audit, original run/verify processes, results and public projections.
+The gate rechecks physical originals and sanitized claim mappings; missing,
+stale, changed or substituted receipts fail even if all earlier gates pass.
+Projections stay outside the wheel to avoid changing already measured bytes.
+The wheel bundles deterministic workers and pinned contracts, not private logs
+or an earlier sample presented as current evidence.
+
+Normal regression discovers all four extension modules, incident controls and
+the five demo/presentation modules once. Release inventory checks import test
+definitions only; execution comes from the existing full native regression.
+Installed safety compositions and product demo journeys test the separate fresh
+installation boundary. No mandatory native skip is accepted. See the
+[private candidate guide](RELEASE.md) for installation and everyday commands and
+the [release audit](RELEASE_AUDIT.md) for the finite coverage and remaining gates.
+
 ## Installed extension journeys
 
 `test_product_safety_acceptance` participates in ordinary full regression

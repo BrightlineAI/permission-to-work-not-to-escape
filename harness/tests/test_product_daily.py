@@ -29,6 +29,40 @@ class ResumeTests(WorkspaceFixture):
         self.record = {'repo': self.inv['root'], 'project': 'python-demo',
                        'policy_sha256': self.store.status('python-demo')['policy_sha256']}
 
+    def test_revision_probe_uses_distinct_child_and_keeps_finished_delegate_revoked(self):
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
+        from product_daily_acceptance import revision_probe_child
+        from ptw.workflow import dispatch
+        completed = self.store.register('python-demo', 'readcheck', parent_token=self.actor['token'])
+        self.assertTrue(dispatch(self.store, completed, 'useful-read', request('read', 'src', 'calculator.py'))['allowed'])
+        self.store.close_session(completed['token'], outcome='finish')
+        before = self.store.status('python-demo')
+        child = revision_probe_child(self.store, self.actor, completed, self.assertTrue)
+        self.assertEqual(child['grants'], completed['grants'])
+        self.assertEqual(child['commands'], completed['commands'])
+        self.assertEqual(child['packages'], completed['packages'])
+        self.assertEqual(child['task'], 'readcheck')
+        self.assertEqual(len(self.store.status('python-demo')['sessions']), len(before['sessions']) + 1)
+        with self.assertRaisesRegex(Invalid, 'Session ended'):
+            dispatch(self.store, completed, 'closed-service', request('service_start', 'child-preview'))
+        self.assertTrue(dispatch(self.store, child, 'probe-read', request('read', 'src', 'calculator.py'))['allowed'])
+        self.assertTrue(dispatch(self.store, self.actor, 'parent-read', request('read', 'src', 'calculator.py'))['allowed'])
+        self.assertEqual(self.store.status('python-demo')['violations'], before['violations'])
+
+    def test_revision_probe_rejects_unfinished_delegate_or_closed_parent(self):
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
+        from product_daily_acceptance import revision_probe_child
+        child = self.store.register('python-demo', 'readcheck', parent_token=self.actor['token'])
+        before = self.store.status('python-demo')['sessions']
+        with self.assertRaisesRegex(AssertionError, 'remains revoked'):
+            revision_probe_child(self.store, self.actor, child, self.assertTrue)
+        self.assertEqual(self.store.status('python-demo')['sessions'], before)
+        self.store.close_session(self.actor['token'], outcome='finish')
+        before = self.store.status('python-demo')['sessions']
+        with self.assertRaisesRegex(Invalid, 'Session ended'):
+            revision_probe_child(self.store, self.actor, child, self.assertTrue)
+        self.assertEqual(self.store.status('python-demo')['sessions'], before)
+
     def rollout(self, folder, identity=None, **changes):
         identity = identity or str(uuid.uuid4())
         path = folder / 'native-sessions/2026/09/18' / (identity + '.jsonl')

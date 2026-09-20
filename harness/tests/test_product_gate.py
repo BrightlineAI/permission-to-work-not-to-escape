@@ -151,6 +151,7 @@ class ProductGateTests(unittest.TestCase):
                                 inspect.unwrap(unittest.TextTestRunner.run), repo=self.repo, parent=parent)
         self.report['native_suite'] = native.retain(self.out, repo=self.repo)
         safety_fixture.extension(self)
+        safety_fixture.demos(self)
         from product_acceptance import map_requirements
         self.report['requirements'] = map_requirements(self.out, self.report)
         self.report['ended_epoch'] = time.time()
@@ -851,6 +852,7 @@ class ProductRunnerTests(unittest.TestCase):
                 self.assertEqual(value['unmet_requirements'], [])
                 self.assertIn('local_git', value)
                 self.assertIn('requirements', value)
+                self.assertEqual(value['demo_evidence'], {'fixture': 'synthetic demos'})
                 if failed:
                     raise ValueError('synthetic final validation failure')
                 return {'passed': True, 'complete': False,
@@ -862,6 +864,8 @@ class ProductRunnerTests(unittest.TestCase):
                  patch.object(runner, 'record_candidate', return_value={'path': 'synthetic'}), \
                  patch.object(runner, 'installed_journey', side_effect=lambda o, r, c: {'id': c, 'passed': True}), \
                  patch.object(runner, 'installed_security', side_effect=independent), \
+                 patch('product_safety_evidence.collect', return_value={'fixture': 'synthetic'}), \
+                 patch('product_demo_evidence.collect', return_value={'fixture': 'synthetic demos'}), \
                  patch.object(runner, 'map_requirements', return_value={'fixture': 'synthetic'}), \
                  patch.object(runner, 'verify', side_effect=validate) as verifier:
                 if failed:
@@ -1868,7 +1872,11 @@ class NativeEnvironmentTests(unittest.TestCase):
             tests.mkdir()
             site.mkdir()
             for name in ('native_receipt.py', 'evidence_io.py'):
-                shutil.copyfile(Path(native.__file__).parent / name, scripts / name)
+                # evidence_io is a checkout compatibility wrapper. This minimal
+                # repository needs its implementation, not a dangling wrapper.
+                source = (Path(sys.modules[native.require.__module__].__file__) if name == 'evidence_io.py'
+                          else Path(native.__file__))
+                shutil.copyfile(source, scripts / name)
             (site / 'receipt_fixture_dependency.py').write_text('VALUE = 42\n')
             (site / 'unsafe.pth').write_text('import sys; sys.exit("site hook executed")\n')
             (tests / 'test_discovery_fixture.py').write_text(
@@ -2195,6 +2203,33 @@ os.write(1, b'RECEIVED=' + hashlib.sha256(body).hexdigest().encode())
             self.assertTrue(receipt['complete'])
             gate.security_check(self.root, receipt['security_checks'][0], report)
         self.assertEqual(config['source_sha256'], report['source_sha256'])
+
+    def test_completed_turn_accepts_only_clean_finish(self):
+        from product_journey import settle_work
+        result = {'exit_code': 0, 'stopped': False, 'reason': None,
+                  'closure': {'closed': True, 'outcome': 'finish'}}
+        variants = [result, {**result, 'stopped': True}, {**result, 'exit_code': 1},
+                    {**result, 'closure': {'closed': True, 'outcome': 'surrender'}},
+                    {**result, 'closure': {'closed': False, 'outcome': 'finish'}}, None]
+        for index, value in enumerate(variants):
+            for code in (0, 1):
+                with self.subTest(result=value, terminal_exit=code):
+                    folder = self.root / ('finish-' + str(index) + '-' + str(code))
+                    terminal = Terminal([sys.executable, '-I', '-B', '-c',
+                        'print("Deterministic completed-turn fixture",flush=True); exit(' + str(code) + ')'], folder)
+                    path = folder / 'result.json'
+                    if value is not None:
+                        save(path, value)
+                    try:
+                        if index == 0 and code == 0:
+                            settle_work(terminal, path)
+                            self.assertTrue(terminal.closed)
+                        else:
+                            with self.assertRaises((ValueError, OSError)):
+                                settle_work(terminal, path)
+                    finally:
+                        terminal.close(graceful=False)
+                    self.assertEqual(load(folder / 'inputs.json'), [])
 
     def test_failure_cleanup_does_not_accept_prompt_and_clean_quit_still_works(self):
         sentinel = self.root / 'unexpected-input'

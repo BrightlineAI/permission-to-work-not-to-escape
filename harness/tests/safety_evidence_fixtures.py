@@ -9,7 +9,7 @@ import unittest
 import zipfile
 
 from evidence_io import digest, load, reference, save
-from product_install import SAFETY_FILES, sha
+from product_install import SAFETY_FILES, RELEASE_DATA, DEMO_FILES, release_data_path, sha
 from product_safety_acceptance import NATIVE, LIFECYCLE
 import product_safety_evidence as safety
 
@@ -19,6 +19,14 @@ def prepare(repo, source):
         path = repo / name
         path.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(source / name, path)
+    for name, original in RELEASE_DATA.items():
+        path = repo / 'harness' / release_data_path(name)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(repo / original, path)
+    for name in ['demo.py', *['demo_support/' + n + '.py' for n in DEMO_FILES]]:
+        path = repo / 'harness/ptw' / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text('# Synthetic packaging fixture, never executable proof\n')
 
 
 def archive(repo):
@@ -28,7 +36,7 @@ def archive(repo):
         for path in sorted((repo / 'harness/ptw').rglob('*')):
             if path.is_file():
                 package.writestr(str(path.relative_to(repo / 'harness')), path.read_bytes())
-    files = {n: (repo / p).read_bytes() for n, p in SAFETY_FILES.items()}
+    files = {}
     files.update({'permission_to_work_harness-0.5.0-py3-none-any.whl': wheel.getvalue(),
                   'requirements.lock': (repo / 'harness/requirements.lock').read_bytes()})
     files.update({n: b'SYNTHETIC VALIDATOR FIXTURE' for n in
@@ -40,6 +48,7 @@ def archive(repo):
 
 
 def suite():
+    from product_demo_evidence import MODULES
     class Synthetic(unittest.TestCase):
         def __init__(self, name):
             super().__init__()
@@ -50,8 +59,44 @@ def suite():
 
         def runTest(self):
             self.assertEqual(1, 1, 'Synthetic schema callback, never product proof')
-    return unittest.TestSuite(Synthetic(p + 'synthetic_validator_fixture')
-        for p in sorted({p for prefixes in safety.COVERAGE.values() for p in prefixes}))
+    names = {p + 'synthetic_validator_fixture' for prefixes in safety.COVERAGE.values() for p in prefixes}
+    names.update(m + '.synthetic_validator_fixture' for m in MODULES)
+    names.update('test_product_safety_acceptance.InstalledSafetyTests.test_' + n for n in (
+        'new_project_installed_review_and_incidents', 'existing_project_installed_review_and_incidents',
+        'installed_upgrade_mismatch_and_rollback'))
+    return unittest.TestSuite(Synthetic(n) for n in sorted(names))
+
+
+def demos(f):
+    """Synthetic envelope only; physical validators have their own native tests."""
+    from unittest.mock import patch
+    import product_demo_evidence as evidence
+    f.enterContext(patch.object(evidence, 'verify_originals', return_value=None))
+    installed_ref, audit, launcher = evidence.installation(f.out, f.report)
+    rows = {}
+    for name in evidence.DEMOS:
+        out = f.out / 'demos' / name
+        result = f.write('demos/' + name + '/result.json', {
+            'demo': name, 'complete': True,
+            'source': {'runtime_sha256': f.runtime, 'maintained_sha256': f.runtime,
+                       'distribution_inputs_sha256': f.inputs},
+            'installed': {'path': str(Path(audit['module_root']) / 'ptw'),
+                          'prefix': launcher['prefix'], 'runtime_sha256': f.runtime,
+                          'dependency_versions': audit['dependency_versions']}})
+        sample = f.write('demos/' + name + '/public-sample.json', {'synthetic': True})
+        processes = {}
+        for action in ('run', 'verify'):
+            folder = f.out / 'demos' / (name + '-' + action)
+            folder.mkdir()
+            (folder / 'stdout').write_text('SYNTHETIC VALIDATOR FIXTURE\n')
+            (folder / 'stderr').write_text('')
+            processes[action] = f.write(str((folder / 'process.json').relative_to(f.out)), {
+                'complete': True, 'exit_code': 0, 'started_epoch': f.epoch - 1,
+                'argv': evidence.command(launcher, action, name, out),
+                'stdout': reference(folder, folder / 'stdout'), 'stderr': reference(folder, folder / 'stderr')})
+        rows[name] = {'result': result, 'public_sample': sample, 'processes': processes}
+    f.report['demo_evidence'] = f.write('demos/evidence.json', {'schema': 1,
+        'candidate_record': f.report['candidate_record'], 'installed_module_record': installed_ref, 'demos': rows})
 
 
 def extension(fixture):
@@ -206,8 +251,10 @@ def extension(fixture):
                         'useful_content': 'useful permitted work'})
                 elif index in range(4, 8):
                     original('observations.json', {'test': test, 'observations': [
-                        dict(sentinel_before='1', sentinel_after='1', cgroup_events='removed'),
-                        dict(continued=True, sentinel_before='1', sentinel_after='2', cgroup_events='populated 1')]})
+                        dict(stopped=True, sentinel_before='123:1', sentinel_after='123:1', cgroup_events='removed',
+                             parent_exit_code=0, descendant_state='absent', seconds=.15),
+                        dict(stopped=False, sentinel_before='456:1', sentinel_after='456:2', cgroup_events='populated 1',
+                             parent_exit_code=None, descendant_state='S', seconds=.15)]})
                     if index == 5:
                         original('threshold.json', {'levels': ['warn', 'warn', 'stop'], 'counts': [1, 2, 3],
                                                    'useful_content': '42', 'late_file_exists': False})

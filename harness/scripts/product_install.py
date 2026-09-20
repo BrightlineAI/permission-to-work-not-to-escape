@@ -196,6 +196,17 @@ SAFETY_FILES = {
     'DAILY.md': 'harness/DAILY.md',
     'SEQUENCE_CASES.json': 'harness/SEQUENCE_CASES.json',
 }
+RELEASE_DATA = {**SAFETY_FILES, 'pyproject.toml': 'harness/pyproject.toml',
+                'requirements.lock': 'harness/requirements.lock'}
+DEMO_FILES = ('product_demo', 'demo_controls', 'demo_dependency', 'demo_dependency_comparison',
+              'demo_evidence', 'demo_lifecycle', 'demo_namespace', 'demo_swarm',
+              'demo_task_scope', 'demo_identity', 'evidence_io', 'native_observers')
+
+
+def release_data_path(name):
+    # Reviewed Markdown is an unchanged source snapshot, whose relative links
+    # refer to the repository. RELEASE.md is the standalone installed-user guide.
+    return 'ptw/release_data/' + name + ('.txt' if name.endswith('.md') else '')
 
 
 def release_files(data):
@@ -207,9 +218,13 @@ def release_files(data):
     require(manifest.get("files") == {name: sha(value) for name, value in files.items()}, "Release file manifest mismatch")
     wheel = f"permission_to_work_harness-{manifest['version']}-py3-none-any.whl"
     require(set(files) == {wheel, "requirements.lock", "package.json", "package-lock.json",
-                           "product_install.py", "INSTALL.md", "LICENSE", "THIRD_PARTY_NOTICES.md"} | set(SAFETY_FILES),
+                           "product_install.py", "INSTALL.md", "LICENSE", "THIRD_PARTY_NOTICES.md"},
             "Unexpected application artifact contents")
     validate_wheel(files[wheel], manifest["version"])
+    with zipfile.ZipFile(io.BytesIO(files[wheel])) as package:
+        required = {release_data_path(n) for n in RELEASE_DATA}
+        required |= {'ptw/demo_support/' + n + '.py' for n in DEMO_FILES} | {'ptw/demo.py'}
+        require(required <= set(package.namelist()), "Missing bundled contract or demo runtime")
     return manifest, files
 
 

@@ -98,7 +98,7 @@ def integration_line(guidance, prefix):
 
 
 def source_identity_command(installed):
-    probe = "import json,pathlib,ptw,hashlib; p=pathlib.Path(ptw.__file__).parent; print(json.dumps({'path':str(p),'hashes':{f.name:hashlib.sha256(f.read_bytes()).hexdigest() for f in p.glob('*.py')}}))"
+    probe = "import json,pathlib,ptw,hashlib; p=pathlib.Path(ptw.__file__).parent; print(json.dumps({'path':str(p),'hashes':{str(f.relative_to(p)):hashlib.sha256(f.read_bytes()).hexdigest() for f in p.rglob('*') if f.is_file() and '__pycache__' not in f.parts and f.suffix not in ('.pyc','.pyo')}}))"
     # -I ignores PYTHONDONTWRITEBYTECODE. This probe must not alter the receipt.
     return [installed / "venv/bin/python", "-I", "-B", "-c", probe]
 
@@ -284,7 +284,7 @@ def acceptance(out, *, candidate=None):
         for name, data in sources.items():
             target = fixture / name
             target.parent.mkdir(parents=True, exist_ok=True)
-            if name in ("harness/pyproject.toml", "harness/ptw/__init__.py"):
+            if name in ("harness/pyproject.toml", "harness/ptw/__init__.py", "harness/ptw/release_data/pyproject.toml"):
                 data = data.replace(('"' + project["version"] + '"').encode(), ('"' + fixture_version + '"').encode())
             target.write_bytes(data)
         fixture_build_record = {"phase": "fixture-upgrade-build", "passed": False}

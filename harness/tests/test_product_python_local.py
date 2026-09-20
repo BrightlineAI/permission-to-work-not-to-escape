@@ -3025,13 +3025,15 @@ shutil.copyfile(root / 'uv.lock', '/target/fixture.lock')
             store.commit_setup('local-python', approval, lambda: None)
         from ptw.supervisor import Supervisor
         with patch('ptw.supervisor.Supervisor.terminate', return_value={'confirmed_stopped': False}):
-            self.assertEqual(Supervisor(store).reconcile(), [{'unit': unit, 'confirmed_stopped': False}])
+            self.assertEqual(Supervisor(store).reconcile(),
+                             [{'unit': unit, 'confirmed_stopped': False, 'evidence': 'recorded'}])
         with self.assertRaisesRegex(Invalid, 'termination must be confirmed'):
             store.commit_setup('local-python', approval, lambda: None)
         with self.assertRaisesRegex(Invalid, 'pending recovery'):
             store.register('local-python', 'work')
         with patch('ptw.supervisor.Supervisor.terminate', return_value={'confirmed_stopped': True}):
-            self.assertEqual(Supervisor(store).reconcile(), [{'unit': unit, 'confirmed_stopped': True}])
+            self.assertEqual(Supervisor(store).reconcile(),
+                             [{'unit': unit, 'confirmed_stopped': True, 'evidence': 'recorded'}])
         store.commit_setup('local-python', approval, lambda: None)
         ordinary = store.register('local-python', 'work')
         with store.locked() as db:

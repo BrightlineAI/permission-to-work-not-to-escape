@@ -356,7 +356,8 @@ def build_test_wheel(out):
     out.mkdir(parents=True, exist_ok=False)
     _, sources = source_files(Path(__file__).resolve().parents[2])
     hashes = {Path(n).name: hashlib.sha256(data).hexdigest()
-              for n, data in sources.items() if n.startswith('harness/ptw/')}
+              for n, data in sources.items() if n.startswith('harness/ptw/')
+              and len(Path(n).parts) == 3 and n.endswith('.py')}
     save(out / 'inputs.json', {'hashes': {n: hashlib.sha256(data).hexdigest()
                                         for n, data in sources.items()},
                              'build_lock_sha256': hashlib.sha256(BUILD_PIN.encode()).hexdigest()})
@@ -391,10 +392,17 @@ def build_test_wheel(out):
     import tomllib
     validate_wheel(wheel.read_bytes(), tomllib.loads(sources['harness/pyproject.toml'].decode())['project']['version'])
     with zipfile.ZipFile(wheel) as archive:
+        recursive = {n: hashlib.sha256(archive.read(n)).hexdigest()
+                     for n in archive.namelist() if n.startswith('ptw/')}
         actual = {Path(n).name: hashlib.sha256(archive.read(n)).hexdigest()
-                  for n in archive.namelist() if n.startswith('ptw/') and n.endswith('.py')}
+                  for n in archive.namelist() if n.startswith('ptw/') and n.endswith('.py')
+                  and len(Path(n).parts) == 2}
     if actual != hashes:
         raise AssertionError('Built wheel differs from current source')
+    expected = {n.removeprefix('harness/'): hashlib.sha256(data).hexdigest()
+                for n, data in sources.items() if n.startswith('harness/ptw/')}
+    if recursive != expected:
+        raise AssertionError('Built wheel recursive runtime/package data differs from source')
     save(out / 'wheel.json', {'sha256': hashlib.sha256(wheel.read_bytes()).hexdigest(), 'modules': hashes})
     return wheel, hashes
 

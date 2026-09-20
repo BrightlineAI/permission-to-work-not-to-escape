@@ -1,5 +1,11 @@
 # Project safety harness
 
+The [private candidate guide](RELEASE.md) contains exact local installation,
+`ptw demo` and everyday-use commands. Build assets with
+`python3 harness/scripts/prepare_product_release.py --out /absolute/new-candidate`
+from the repository root. The packaged CLI passed native installation/demo
+checks; full final-source acceptance remains pending. This does not publish a release.
+
 The [three-demo quickstart](../docs/demos/TRY-VEGA.md) gives exact installed
 commands for dependency, task-scope and swarm, plus verified Markdown summaries.
 The [maintained specifications and status](../docs/demos/README.md) distinguish
@@ -222,6 +228,13 @@ The same full discovery now retains a separate [native suite receipt](ACCEPTANCE
 with the original runner log and exact test inventory. Keep those private logs and
 the source-test environment for independent verification. Focused receipts, old
 source receipts and incomplete attempts cannot satisfy full product acceptance.
+
+Hosted CI runs `python harness/scripts/offline_checks.py` from an isolated editable
+source installation. It preserves discovered offline cases and explicitly reserves
+the installed safety/demo/release classes for the manager's native gate. Existing
+per-test native prerequisites still apply there. CI success is not full product
+acceptance; normal `PTW_LINUX_TESTS=1` discovery still executes every mandatory
+case and accepts zero skips. Do not use the CI subset for a release receipt.
 
 Timings are inclusive and nested, so do not add phase durations to test durations.
 CPU counters are cumulative user/system totals for the process and its waited-for
