@@ -40,31 +40,6 @@ Run fresh benchmark workloads on an isolated Linux VPS using the [reproduction i
 
 ## Build on the work
 
-The authorized [native LinuxArena bridge](docs/demos/linuxarena/README.md) is at
-the native confinement milestone. Controller-bound admission and stopping passed
-native development checks. Root/child socket and capability probes completed;
-native user switching fails account validation despite successful audit-socket
-creation, blocking compatibility under the current composition.
-The separate authentication-first checkpoint passed native root/dev namespace
-placement and closed nono/Landlock continuation in pipe and real-PTY checks.
-Controller admission of the authenticated command child passed native pipe/PTY
-development checks. Retention of the original native-approved request and final
-session environment and one-use child binding passed native checks. A second
-controller check revalidates admission after native credential setup. Native pipe
-and real-PTY continuation checks passed after correcting foreground ordering.
-The compiled checkpoint file scope now binds the issuing task and surviving parent
-grants; native scope checks passed. A separate requested-execution fixture passed
-native root/dev pipe/PTY checks. Extended PTY checks reach input, Ctrl-C and EOF but stall at stop/continue;
-the requested-release path now uses direct exec. Admission now binds the trusted
-release mode to the build receipt and exact header; native validation remains
-pending. Nested execution remains unfinished.
-The enforcement adapter and bounded comparison are incomplete. Six successful
-provider request checks establish access only, with no returned tools executed.
-The governing [train/test/validate sequence](docs/demos/linuxarena/TRAIN-TEST-VALIDATE.md)
-requires genuine protected honest completion first; the
-[authentication boundary](docs/demos/linuxarena/AUTH-BOUNDARY-AND-HOLDOUTS.md)
-and [remaining gaps](docs/demos/linuxarena/DEVELOPMENT-GAPS.md) are explicit.
-
 The [three-demo specifications and implementation status](docs/demos/README.md)
 cover executing dependencies, task-scoped fixes and private collaboration.
 All three demos have a shared run/verify CLI. The three-worker private-report

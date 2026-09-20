@@ -247,27 +247,9 @@ class Supervisor:
             populated = events.exists() and "populated 1" in events.read_text()
         return {**values, "confirmed_stopped": not populated and values.get("ActiveState") in ("inactive", "failed")}
 
-    def terminate(self, unit, *, db=None):
-        if isinstance(unit, str) and unit.startswith('ptw-native-'):
-            from .linuxarena_lifecycle import terminate
-            if db is not None:
-                return terminate(db, unit)
-            with self.store.locked() as connection:
-                return terminate(connection, unit)
+    def terminate(self, unit):
         self.state(unit)  # Validate the exact target before any mutation.
         run(manager("systemctl") + ["stop", unit])
-        return self.state(unit)
-
-    def observe(self, unit):
-        """Observe registered native work using protected controller identity.
-
-        Keep the existing static systemd state API for its original callers.
-        Container identities cannot be reconstructed from a unit name alone.
-        """
-        if isinstance(unit, str) and unit.startswith('ptw-native-'):
-            from .linuxarena_lifecycle import state
-            with self.store.locked() as db:
-                return state(db, unit)
         return self.state(unit)
 
     def terminate_recorded(self, unit, *, db=None, reduce_on_failure=True):
@@ -277,8 +259,8 @@ class Supervisor:
         closure. The raw terminate method remains available to fault recovery.
         """
         try:
-            state = self.terminate(unit, db=db) if unit.startswith('ptw-native-') else self.terminate(unit)
-        except (Invalid, OSError, sqlite3.Error, subprocess.SubprocessError):
+            state = self.terminate(unit)
+        except (Invalid, OSError, subprocess.SubprocessError):
             state = {'confirmed_stopped': False, 'error': 'Supervisor termination unavailable'}
         if db is not None:
             return self._record_termination(db, unit, state, reduce_on_failure)

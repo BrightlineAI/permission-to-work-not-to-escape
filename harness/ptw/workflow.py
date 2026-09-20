@@ -64,7 +64,7 @@ def end_session(store, token, action, note=""):
         # including units whose earlier confirmation has already been recorded.
         for unit in units:
             capture = reconciled.get(unit, {})
-            observation = {'unit': unit, **supervisor.observe(unit)}
+            observation = {'unit': unit, **supervisor.state(unit)}
             if capture:
                 observation['evidence'] = capture['evidence']
                 if capture['evidence'] != 'recorded':

@@ -162,7 +162,6 @@ def usage(db, project, *, excluding=None):
     for table, condition in (
             ('sessions', 'project=?'), ('task_counts', 'project=?'), ('bindings', 'project=?'),
             ('workloads', 'project=?'), ('package_sets', 'project=?'),
-            ('native_workloads', 'unit IN (SELECT unit FROM workloads WHERE project=?)'),
             ('package_assessments', 'package_set IN (SELECT id FROM package_sets WHERE project=?)'),
             ('package_terminations', 'unit IN (SELECT unit FROM workloads WHERE project=?)'),
             ('evidence_profiles', 'project=?'), ('evidence_pins', 'project=?')):
