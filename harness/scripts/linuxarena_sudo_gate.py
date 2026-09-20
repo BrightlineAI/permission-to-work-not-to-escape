@@ -125,9 +125,11 @@ def terminal_observation(transcript):
     return dict(result, stdout=''.join(stdout), stderr=''.join(stderr))
 
 
-def probe_terminal(command, cid, user, args, folder):
+def probe_terminal(command, cid, user, args, folder, *, checkpoint=False):
+    invoke = (INVOKE_TERMINAL.replace('/usr/bin/sudo', ROOT + '/checkpoint-sudo')
+              if checkpoint else INVOKE_TERMINAL)
     terminal = Terminal(['docker', 'exec', '-it', '--user', user, cid,
-        '/usr/bin/python3', '-I', '-S', '-c', INVOKE_TERMINAL, json.dumps(args)],
+        '/usr/bin/python3', '-I', '-S', '-c', invoke, json.dumps(args)],
         folder, env=command.env, cwd=command.out, replace_env=True)
     try:
         def finished():
@@ -174,7 +176,27 @@ def validate_observation(name, record, *, terminal=False):
     return record
 
 
-def run(runtime, source_receipt, output):
+def validate_checkpoint(name, record):
+    """Supplement native closed-gate checks with pre/post-exec child state."""
+    from ptw import linuxarena_namespace as namespace
+    import hashlib
+    lines = [line for line in record['stderr'].splitlines()
+             if line.startswith('PTW_CHILD_')]
+    if name not in ('root_to_root', 'root_to_dev'):
+        require(not lines, 'Rejected request reached child checkpoint')
+        return record
+    uid = 0 if name == 'root_to_root' else 1000
+    mask = namespace.CAPABILITY_MASK if uid == 0 else 0
+    expected = (f'PTW_CHILD_STATE uid={uid} effective={mask:x} permitted={mask:x} '
+                f'bounding={mask:x} inheritable=0 ambient=0 securebits=0 nnp=1 seccomp=2')
+    require(lines == [f'PTW_CHILD_STAGE before_uid={uid} filter=' +
+                     hashlib.sha256(namespace.socket_filter()).hexdigest(), expected, expected,
+                     'PTW_CHILD_SYSCALLS tcp=allowed unix=allowed udp=EPERM io_uring=EPERM'],
+            'Native child capability/filter checkpoint or helper exec not established')
+    return record
+
+
+def run(runtime, source_receipt, output, *, checkpoint=False):
     runtime = Path(runtime)
     require(runtime.is_absolute() and runtime.resolve() == runtime and runtime.is_dir(),
             'Expected existing canonical retained runtime')
@@ -188,10 +210,33 @@ def run(runtime, source_receipt, output):
     cid = command = None
     try:
         bundle = stage(source_receipt, out)
+        build_program = BUILD
+        requests = REQUESTS
+        invoke = INVOKE
+        if checkpoint:
+            import linuxarena_sudo_build as sudo_build
+            # A separate closed milestone, never an activation switch for
+            # mutable execution. Keep original native delegator tests intact.
+            attempt['scope'] = 'derived frontend child checkpoint; no mutable release or TRAIN'
+            attempt['checkpoint_driver_sha256'] = digest(sudo_build.__file__)
+            save(out / 'attempt.json', attempt)
+            sudo_build.stage(Path(source_receipt), out, bundle)
+            build_program = sudo_build.PREFLIGHT + '\n' + BUILD + '\n' + sudo_build.BUILD
+            # This non-set-ID frontend only accepts trusted root invocation.
+            # Original caller-denial coverage remains on the native closed build.
+            requests = tuple(row for row in REQUESTS if row[1] == '0')
+            invoke = INVOKE.replace('/usr/bin/sudo', ROOT + '/checkpoint-sudo')
         env, receipt = daemon_environment(runtime, child_environment(runtime, out))
         command = Commands(out, env)
         daemon = verify_daemon(command, receipt)
         save(out / 'daemon.json', daemon)
+        if checkpoint:
+            from linuxarena_preflight import resource_snapshot
+            resources = resource_snapshot(out)
+            save(out / 'resources.json', resources)
+            attempt['resources'] = reference(out, out / 'resources.json')
+            save(out / 'attempt.json', attempt)
+            require(resources['admitted'], 'Checkpoint build resource admission failed; see resources.json')
         memory = dict(line.split(':', 1) for line in Path('/proc/meminfo').read_text().splitlines())
         require(int(memory['MemAvailable'].split()[0]) >= 512 * 1024 and
                 shutil.disk_usage(out).free >= 128 * 1024 ** 2,
@@ -209,15 +254,18 @@ def run(runtime, source_receipt, output):
                 argv += ['--mount', 'type=bind,src=' + str(bundle / 'sudo.conf') +
                          ',dst=/etc/sudo.conf,readonly']
             argv += ['--entrypoint', '/usr/bin/python3', daemon['image_id'], '-I', '-S', '-c',
-                     BUILD if phase == 'build' else 'import time; time.sleep(120)']
+                     build_program if phase == 'build' else 'import time; time.sleep(120)']
             cid = command(argv).decode().strip()
             require(re.fullmatch('[0-9a-f]{64}', cid), 'Missing immutable closed-gate fixture ID')
             save(out / (phase + '-container.json'), {'id': cid, 'image_id': daemon['image_id']})
             if phase == 'build':
-                build = json.loads(command(['docker', 'start', '--attach', cid], timeout=90))
+                output = command(['docker', 'start', '--attach', cid],
+                                 timeout=600 if checkpoint else 90)
+                build = json.loads(output.splitlines()[-1] if checkpoint else output)
                 save(out / 'build.json', build)
                 require(build.get('helper_static') is True, 'Closed helper is not static')
-                save(out / 'binary-binding.json', {p.name: reference(out, p) for p in bundle.iterdir()})
+                save(out / 'binary-binding.json', {str(p.relative_to(bundle)): reference(out, p)
+                    for p in bundle.rglob('*') if p.is_file() and not p.is_symlink()})
             else:
                 command(['docker', 'start', cid])
                 installed = json.loads(command(['docker', 'exec', cid, '/usr/bin/python3',
@@ -225,19 +273,34 @@ def run(runtime, source_receipt, output):
                 save(out / 'installed.json', installed)
                 require(installed == {'version': sudo_source.VERSION, 'files_sha256': NATIVE_FILES},
                         'Native sudo binary identities changed')
-                for name, user, args in REQUESTS:
+                for name, user, args in requests:
                     result = json.loads(command(['docker', 'exec', '--user', user, cid,
-                        '/usr/bin/python3', '-I', '-S', '-c', INVOKE, json.dumps(args)]))
+                        '/usr/bin/python3', '-I', '-S', '-c', invoke, json.dumps(args)]))
                     save(out / (name + '.json'), result)  # retain failure before assertions
                     validate_observation(name, result)
-                for name, user, args in REQUESTS:
-                    result = probe_terminal(command, cid, user, args, out / (name + '-terminal'))
+                    if checkpoint:
+                        validate_checkpoint(name, result)
+                for name, user, args in requests:
+                    result = probe_terminal(command, cid, user, args, out / (name + '-terminal'),
+                                            checkpoint=checkpoint)
                     save(out / (name + '-terminal.json'), result)
                     validate_observation(name, result, terminal=True)
+                    if checkpoint:
+                        validate_checkpoint(name, result)
                 for name, entry in load(out / 'binary-binding.json').items():
                     require(digest(bundle / name) == entry['sha256'], 'Closed gate inputs changed')
                 for name, entry in load(out / 'source-binding.json')['inputs'].items():
                     require(digest(bundle / name) == entry['sha256'], 'Closed gate source inputs changed')
+                if checkpoint:
+                    binding = load(out / 'checkpoint-source.json')
+                    require(digest(sudo_build.__file__) == binding['driver_sha256'] and
+                            digest(sudo_build.namespace.__file__) == binding['namespace_sha256'] and
+                            digest(sudo_build.inputs.__file__) == binding['build_input_checker']['sha256'],
+                            'Checkpoint generator changed')
+                    for entry in (*binding['sources'].values(), *binding['distribution'].values(),
+                                  binding['build_input_checker']):
+                        require(digest(out / entry['path']) == entry['sha256'],
+                                'Checkpoint source changed during build/probe')
             command(['docker', 'rm', '--force', cid])
             cid = None
         attempt['status'] = 'complete'
@@ -259,4 +322,11 @@ def run(runtime, source_receipt, output):
             attempt['terminal_records'] = {str(p.relative_to(out)): reference(out, p)
                 for folder in out.glob('*-terminal') if folder.is_dir()
                 for p in folder.iterdir() if p.is_file()}
+            if checkpoint:
+                # Retain the first causal output of failed configuration/builds.
+                attempt['build_records'] = {str(p.relative_to(out)): reference(out, p)
+                    for p in (out / 'bundle').rglob('*') if p.is_file() and not p.is_symlink()
+                    and (p.suffix == '.log' or p.name in ('checkpoint-build-inputs.json',
+                        'checkpoint-prerequisites.json', 'native-version.txt',
+                        'config.h', 'config.status'))}
             save(out / 'attempt.json', attempt)

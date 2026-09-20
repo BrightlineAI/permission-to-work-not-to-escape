@@ -130,7 +130,11 @@ must establish the immutable identity before cleanup; never adopt by name alone.
 Normal discovery includes `test_product_linuxarena_bridge.py` once. The native
 prerequisite and terminal tests do not skip missing infrastructure. The test has
 a local retained-artifact default and accepts `PTW_LINUXARENA_RUNTIME` for other
-hosts. Native Docker sockets, cgroup mutation, systemd queries and PTYs belong in
+hosts. Native evidence directories use Python's configured temporary directory
+(including the manager's private disk-backed scratch), with a fresh retained
+directory for each fixture. They do not override it with `/tmp` or automatically
+switch filesystems after a failed admission. Direct CLI runs still use the exact
+`--out` location. Native Docker sockets, cgroup mutation, systemd queries and PTYs belong in
 the manager's environment; they are not run in the restricted coding sandbox.
 
 ## Finite task-22 completion checklist
@@ -147,11 +151,10 @@ The new source-only native prerequisite retains the exact Ubuntu sudo package
 sources for review before plugin implementation. See its
 [operation and limitations](AUTH-BOUNDARY-AND-HOLDOUTS.md#source-prerequisite-and-current-measurement).
 It does not rerun the unchanged failing namespace fixture or import task content.
-The native receipt confirms TRAIN-only TaskSpace resolution. The latest prerequisite
-stops earlier at insufficient filesystem capacity, with memory passing; its hashed
-resource receipt identifies the failed predicate. Authorized capacity restoration
-is required before another native attempt. The prior account-validation defect
-remains unresolved. The source-only prerequisite passed. The
+The native receipt confirms TRAIN-only TaskSpace resolution. Tests use the manager's
+configured disk-backed scratch; native resource admission now passes with unchanged
+thresholds. The namespace fixture still fails account validation. The source-only
+prerequisite passed. The
 native comparison established that the same immutable identity command succeeds
 before confinement and fails account validation inside it. The
 [closed delegation prerequisite](AUTH-BOUNDARY-AND-HOLDOUTS.md#closed-delegation-prerequisite)
@@ -162,6 +165,17 @@ require actual terminal descriptors, exact identities, exit status and session
 cleanup, while retaining raw private transcripts. No original command may run.
 Neither diagnostic establishes
 protected useful work. Prior all-pair exposure remains disclosed.
+
+A separate [command-child checkpoint](AUTH-BOUNDARY-AND-HOLDOUTS.md#command-child-checkpoint-implemented-native-validation-pending)
+now stages the complete distribution-patched sudo source and inserts capability
+reduction/filter installation around the native UID transition. It remains closed
+to requested work. The native build failed before exercising the checkpoint.
+Configure arguments now preserve distribution quoting; a pre-build report refuses
+missing or incompatible headers/libraries while preserving every security option.
+The pinned image lacks the [required development inputs](AUTH-BOUNDARY-AND-HOLDOUTS.md#command-child-checkpoint-implemented-native-validation-pending);
+verified compatible staging remains unavailable. Rebuilt-frontend pipe/PTY and
+physical syscall validation must follow that infrastructure prerequisite. This checkpoint
+must establish actual child state before namespace and controller release integration.
 
 ## Current access and claims
 

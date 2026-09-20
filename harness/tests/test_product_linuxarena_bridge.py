@@ -41,6 +41,8 @@ import linuxarena_loader_diagnostics as loader_diagnostics
 import linuxarena_socket_probe as socket_probe
 import linuxarena_sudo_source as sudo_source
 import linuxarena_sudo_gate as sudo_gate
+import linuxarena_sudo_build as sudo_build
+import linuxarena_sudo_inputs as sudo_inputs
 import linuxarena_taskspace as taskspace
 
 
@@ -2017,6 +2019,51 @@ with patch('os.getuid', return_value=0), patch('os.geteuid', return_value=0), \\
 
 
 class BridgeClosedGateTests(unittest.TestCase):
+    def test_native_evidence_uses_configured_scratch_and_retains_failures(self):
+        # Stop before any native operation, but exercise each real fixture's
+        # directory selection. The manager configures tempfile's disk-backed
+        # scratch; a hard-coded /tmp silently defeats that resource admission.
+        class BeforeNativeWork(Exception):
+            pass
+
+        class SourceCache:
+            sudo_source_receipt = classmethod(BridgeNativePrerequisiteTests.sudo_source_receipt.__func__)
+
+        with tempfile.TemporaryDirectory() as directory:
+            scratch = Path(directory).resolve()
+            outputs = []
+
+            def stop(*args, **kwargs):
+                raise BeforeNativeWork()
+
+            cases = (
+                (SourceCache.sudo_source_receipt, sudo_source, 'run'),
+                (BridgeNativePrerequisiteTests('test_native_sudo_closed_delegation').test_native_sudo_closed_delegation,
+                 sudo_gate, 'run'),
+                (BridgeNativePrerequisiteTests('test_native_sudo_child_checkpoint').test_native_sudo_child_checkpoint,
+                 sudo_gate, 'run'),
+                (BridgeNativePrerequisiteTests('test_native_taskspace_and_container_subtree_stop').test_native_taskspace_and_container_subtree_stop,
+                 preflight, 'run'),
+                (BridgeNativePrerequisiteTests('test_prerequisite_terminal_help_and_invalid_arguments').test_prerequisite_terminal_help_and_invalid_arguments,
+                 sudo_gate.terminal_driver, 'Terminal'),
+            )
+            with patch.object(tempfile, 'tempdir', str(scratch)), \
+                    patch.object(BridgeNativePrerequisiteTests, 'sudo_source_receipt',
+                                 return_value=(scratch / 'retained-source', {})):
+                for invoke, module, name in cases:
+                    with self.subTest(case=invoke.__name__), \
+                            patch.object(module, name, side_effect=stop) as native, \
+                            self.assertRaises(BeforeNativeWork):
+                        invoke()
+                    native.assert_called_once()
+                    created = set(scratch.iterdir()) - set(outputs)
+                    self.assertEqual(len(created), 1)
+                    root = created.pop()
+                    self.assertTrue(root.is_dir())
+                    outputs.append(root)
+                self.assertEqual(len(set(outputs)), len(cases))
+                self.assertTrue(all(root.is_dir() for root in outputs))
+
     def test_source_failure_is_not_retried_by_other_native_case(self):
         class Cache:
             sudo_source_receipt = classmethod(BridgeNativePrerequisiteTests.sudo_source_receipt.__func__)
@@ -2355,6 +2402,352 @@ int main(int argc, char **argv) {
             self.assertIn('build-container.json', record['records'])
 
 
+class BridgeSudoCheckpointTests(unittest.TestCase):
+    def test_configure_argv_preserves_source_quoting_and_rejects_metadata_drift(self):
+        # Synthetic quoted distribution rule, not a reconstruction from sudo -V.
+        # The retained archive is independently exercised by native source staging.
+        rules = (b'define CONFIGURE_ARGS\n\t--with-pam --with-pam-login\n'
+                 b'\t--with-passprompt="[sudo] password for %p: "\n'
+                 b'\t--with-sssd-lib=/usr/lib/$(DEB_HOST_MULTIARCH)\nendef\n'
+                 b'CONFIGURE_ARGS += --with-selinux --with-linux-audit\n')
+        expected = list(sudo_inputs.PREFIX) + ['--with-pam', '--with-pam-login',
+            '--with-passprompt=[sudo] password for %p: ',
+            '--with-sssd-lib=/usr/lib/x86_64-linux-gnu', '--with-selinux', '--with-linux-audit']
+        version = 'Sudo version 1.9.9\nConfigure options: ' + ' '.join(expected) + '\n'
+        with patch.object(sudo_inputs, 'RULES_SHA256', hashlib.sha256(rules).hexdigest()):
+            self.assertEqual(sudo_inputs.configure_arguments(rules, version), expected)
+            for bad in (version.replace('%p:  ', '%p: '),
+                        version.replace('--with-pam ', ''),
+                        version.replace('--with-linux-audit', '--without-linux-audit'),
+                        version.replace('1.9.9', '1.9.10'),
+                        version + version.splitlines()[1] + '\n',
+                        version.replace('Configure options: ', 'Configure options: --host=password '),
+                        '', None, version + '\x00', 'x' * 65537):
+                with self.subTest(metadata=repr(bad)[:100]), self.assertRaises(ValueError):
+                    sudo_inputs.configure_arguments(rules, bad)
+            for bad in (rules + b'\n', rules.replace(b'--with-pam', b'--without-pam'), None):
+                with self.assertRaises(ValueError):
+                    sudo_inputs.configure_arguments(bad, version)
+
+    def test_build_prerequisites_bind_packages_files_and_link_without_execution(self):
+        self._check_build_prerequisites('ready')
+
+    def test_missing_prerequisites_stop_entire_checkpoint_before_compilation(self):
+        import runpy
+        with tempfile.TemporaryDirectory() as folder:
+            out = Path(folder)
+            rules = b'define CONFIGURE_ARGS\n\t--with-pam\nendef\n'
+            (out / 'distribution/debian').mkdir(parents=True)
+            (out / 'distribution/debian/rules').write_bytes(rules)
+            version = ('Sudo version 1.9.9\nConfigure options: ' +
+                       ' '.join([*sudo_inputs.PREFIX, '--with-pam']) + '\n')
+            calls = []
+            def missing(argv, *, stdout, **kwargs):
+                calls.append(argv)
+                # Empty successful inventory deliberately has no build inputs.
+                return SimpleNamespace(returncode=0)
+            program = (sudo_build.PREFLIGHT + '\n' + sudo_gate.BUILD + '\n' +
+                       sudo_build.BUILD).replace('/ptw-sudo-gate', str(out))
+            with patch.object(sudo_inputs, 'RULES_SHA256', hashlib.sha256(rules).hexdigest()), \
+                 patch.object(runpy, 'run_path', return_value=vars(sudo_inputs)), \
+                 patch.object(subprocess, 'check_output', return_value=version), \
+                 patch.object(subprocess, 'run', side_effect=missing), \
+                 self.assertRaisesRegex(ValueError, 'build inputs unavailable'):
+                exec(program, {})
+            self.assertEqual(len(calls), 5)  # inventory and four tool versions only
+            self.assertTrue(all(a[0] == '/usr/bin/dpkg-query' or a[1:] == ['--version']
+                                for a in calls))
+            self.assertEqual(load(out / 'checkpoint-prerequisites.json')['status'], 'unavailable')
+            self.assertTrue((out / 'checkpoint-build-inputs.json').is_file())
+            for path in ('frontend-build', 'policy.so', 'closed', 'checkpoint-sudo'):
+                self.assertFalse((out / path).exists())
+
+    def test_build_prerequisites_retain_missing_drift_and_tool_failures(self):
+        for failure in ('missing_header', 'missing_library', 'missing_package',
+                        'package_version', 'package_status', 'package_query',
+                        'malformed_packages', 'duplicate_packages', 'compiler_error',
+                        'compiler_timeout', 'missing_tool', 'link_error', 'link_timeout'):
+            with self.subTest(failure=failure):
+                self._check_build_prerequisites(failure)
+
+    def _check_build_prerequisites(self, failure):
+        with tempfile.TemporaryDirectory() as folder:
+            out = Path(folder)
+            calls = []
+            def identity(path):
+                path = str(path)
+                if ((failure == 'missing_header' and path == '/usr/include/libaudit.h') or
+                    (failure == 'missing_library' and path.endswith('/libaudit.so')) or
+                    (failure == 'missing_tool' and path == '/usr/bin/cc')):
+                    return {'path': path, 'error': 'FileNotFoundError'}
+                return {'path': path, 'resolved': path, 'sha256': 'a' * 64}
+            def run(argv, *, stdout, stderr, input, **kwargs):
+                calls.append(argv)
+                if argv[0] == '/usr/bin/dpkg-query':
+                    lines = [f'{name}:amd64\t{version}\tinstall ok installed\n'
+                        for dev, runtime, version, *_ in sudo_inputs.REQUIRED
+                        for name in (dev, runtime)]
+                    if failure == 'missing_package':
+                        lines.pop(0)
+                    if failure == 'package_version':
+                        lines[0] = lines[0].replace('1:3.0.7-1build1', '1:3.0.7-other')
+                    if failure == 'package_status':
+                        lines[0] = lines[0].replace('install ok installed', 'deinstall ok config-files')
+                    if failure == 'malformed_packages':
+                        lines = ['not tab separated\n']
+                    if failure == 'duplicate_packages':
+                        lines.append(lines[0].replace(':amd64', ''))
+                    stdout.write(''.join(lines).encode())
+                    return SimpleNamespace(returncode=int(failure == 'package_query'))
+                self.assertIn(argv[0], ('/usr/bin/cc', '/usr/bin/make', '/usr/bin/ld', '/usr/bin/as'))
+                self.assertEqual(kwargs['env'], sudo_inputs.ENV)
+                self.assertEqual(kwargs['timeout'], 30)
+                if '-x' in argv:
+                    self.assertIn(b'#include <', input)
+                    self.assertTrue(argv[-1].startswith('-l'))
+                    if failure == 'link_timeout':
+                        raise subprocess.TimeoutExpired(argv, 30)
+                    return SimpleNamespace(returncode=int(failure == 'link_error'))
+                self.assertEqual(argv[1:], ['--version'])
+                if argv[0] == '/usr/bin/cc' and failure == 'compiler_timeout':
+                    raise subprocess.TimeoutExpired(argv, 30)
+                return SimpleNamespace(returncode=int(
+                    argv[0] == '/usr/bin/cc' and failure == 'compiler_error'))
+            with patch.object(sudo_inputs, 'file_identity', side_effect=identity), \
+                 patch.object(sudo_inputs.subprocess, 'run', side_effect=run):
+                if failure == 'ready':
+                    result = sudo_inputs.prerequisites(out)
+                    self.assertEqual(result['status'], 'ready')
+                    self.assertEqual(len([a for a in calls if '-x' in a]), 4)
+                else:
+                    with self.assertRaises(ValueError):
+                        sudo_inputs.prerequisites(out)
+            record = load(out / 'checkpoint-prerequisites.json')
+            self.assertEqual(record['status'] == 'ready', failure == 'ready')
+            if failure not in ('malformed_packages', 'duplicate_packages'):
+                self.assertEqual(len(record['requirements']), 4)
+                self.assertEqual(set(record['tools']), {'cc', 'make', 'ld', 'as'})
+            # Neither configure, package installation nor the compiled probes run.
+            self.assertTrue(all(a[0].startswith('/usr/bin/') for a in calls))
+            self.assertFalse((out / 'frontend-build').exists())
+
+    def test_execution_patch_refuses_changed_or_duplicate_context(self):
+        original = ('#include "sudo.h"\n    unlimit_nproc();\n\n'
+                    '#if defined(HAVE_SETRESUID)\n'
+                    '    ret = true;\n\ndone:\n')
+        for content in (original, original.replace('unlimit_nproc', 'changed'), original * 2):
+            with tempfile.TemporaryDirectory() as folder:
+                root = Path(folder)
+                (root / 'src').mkdir()
+                (root / 'src/exec.c').write_text(content)
+                (root / 'src/Makefile.in').write_text('OBJS = conversation.o\n')
+                if content != original:
+                    with self.assertRaisesRegex(ValueError, 'context changed'):
+                        sudo_build.execution_patch(root)
+                    self.assertEqual((root / 'src/exec.c').read_text(), content)
+                else:
+                    sudo_build.execution_patch(root)
+                    result = (root / 'src/exec.c').read_text()
+                    self.assertLess(result.index('unlimit_nproc'), result.index('ptw_child_before_uid'))
+                    self.assertLess(result.index('ptw_child_before_uid'), result.index('HAVE_SETRESUID'))
+                    self.assertLess(result.index('ptw_child_after_uid'), result.index('ret = true'))
+
+    def test_archive_validation_precedes_writes(self):
+        for name, kind, link in (
+                ('sudo-1.9.9/../escape', tarfile.REGTYPE, ''),
+                ('/sudo-1.9.9/file', tarfile.REGTYPE, ''),
+                ('sudo-1.9.9/link', tarfile.SYMTYPE, '/outside'),
+                ('sudo-1.9.9/link', tarfile.LNKTYPE, 'sudo-1.9.9/file'),
+                ('sudo-1.9.9/pipe', tarfile.FIFOTYPE, '')):
+            data = io.BytesIO()
+            with tarfile.open(fileobj=data, mode='w') as archive:
+                valid = tarfile.TarInfo('sudo-1.9.9/valid')
+                archive.addfile(valid, io.BytesIO())
+                invalid = tarfile.TarInfo(name)
+                invalid.type, invalid.linkname = kind, link
+                archive.addfile(invalid, io.BytesIO())
+            content = data.getvalue()
+            with tempfile.TemporaryDirectory() as folder:
+                target = Path(folder) / 'new'
+                with self.subTest(name=name), self.assertRaises(ValueError):
+                    sudo_build.unpack(content, hashlib.sha256(content).hexdigest(),
+                                      target, prefix='sudo-1.9.9')
+                self.assertFalse(target.exists())
+
+    def test_pinned_patch_targets_allow_required_added_regressions(self):
+        self.assertEqual(sudo_build.patch_targets(
+            b'--- a/src/exec.c\n+++ b/src/exec.c\n--- /dev/null\n+++ b/test20.sh\n'),
+            [{'path': 'src/exec.c', 'create': False}, {'path': 'test20.sh', 'create': True}])
+        for data in (b'--- a/file\n+++ b/../../escape\n',
+                     b'--- a/file\n+++ /dev/null\n', b'--- a/file\n+++ b/other\n',
+                     b'--- a/file\n+++ b/file\n--- a/file\n+++ b/file\n'):
+            with self.subTest(data=data), self.assertRaises(ValueError):
+                sudo_build.patch_targets(data)
+
+    def test_checkpoint_receipt_rejects_missing_changed_or_reordered_states(self):
+        state = ('PTW_CHILD_STATE uid=1000 effective=0 permitted=0 bounding=0 '
+                 'inheritable=0 ambient=0 securebits=0 nnp=1 seccomp=2')
+        lines = ['PTW_CHILD_STAGE before_uid=1000 filter=' +
+                 hashlib.sha256(namespace.socket_filter()).hexdigest(), state, state,
+                 'PTW_CHILD_SYSCALLS tcp=allowed unix=allowed udp=EPERM io_uring=EPERM']
+        sudo_gate.validate_checkpoint('root_to_dev', {'stderr': '\n'.join(lines)})
+        for bad in (lines[:2], list(reversed(lines)), lines + [state],
+                    [x.replace('bounding=0', 'bounding=eb') for x in lines],
+                    [x.replace('nnp=1', 'nnp=0') for x in lines],
+                    [x.replace('filter=', 'filter=bad') for x in lines]):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                sudo_gate.validate_checkpoint('root_to_dev', {'stderr': '\n'.join(bad)})
+        with self.assertRaises(ValueError):
+            sudo_gate.validate_checkpoint('invalid_target', {'stderr': '\n'.join(lines)})
+
+    def test_compiled_child_reduction_and_failures(self):
+        # Syscall doubles execute only the checkpoint logic, never privileged
+        # syscalls, sudo or sockets. The separate native test supplies that proof.
+        wrapper = r'''
+#define _GNU_SOURCE
+#include <stdarg.h>
+#include <stdlib.h>
+#include <errno.h>
+#include <stdint.h>
+#include <string.h>
+#include <unistd.h>
+#include <sys/fsuid.h>
+#include <sys/prctl.h>
+#include <sys/syscall.h>
+#include <linux/capability.h>
+#include <linux/filter.h>
+#include <linux/seccomp.h>
+static uint64_t eff=0xa80425fb, prm=0xa80425fb, bnd=0xa80425fb, inh, amb;
+static unsigned uid, gid=1000;
+static int nnp, filter, secure, sets;
+static const char *failure;
+static int fail(const char *name) {
+    if (!strcmp(failure, name)) { errno=EPERM; return 1; } return 0;
+}
+static long fake_syscall(long number, ...) {
+    va_list ap; va_start(ap, number);
+    (void)va_arg(ap, struct __user_cap_header_struct *);
+    struct __user_cap_data_struct *d=va_arg(ap, struct __user_cap_data_struct *);
+    va_end(ap);
+    if (number==SYS_capget) {
+        if (fail("capget")) return -1;
+        d[0].effective=eff; d[0].permitted=prm; d[0].inheritable=inh;
+        d[1].effective=eff>>32; d[1].permitted=prm>>32; d[1].inheritable=inh>>32;
+        return 0;
+    }
+    if (number!=SYS_capset) abort();
+    if (fail(++sets==1 ? "inheritable" : "active")) return -1;
+    if (sets==2 && bnd != (uid==0 && gid==0 ? 0xeb : 0)) abort();
+    eff=d[0].effective | ((uint64_t)d[1].effective<<32);
+    prm=d[0].permitted | ((uint64_t)d[1].permitted<<32);
+    inh=d[0].inheritable | ((uint64_t)d[1].inheritable<<32);
+    return 0;
+}
+static int fake_prctl(int op, ...) {
+    va_list ap; va_start(ap, op);
+    int result=0;
+    switch (op) {
+    case PR_GET_SECUREBITS: result=secure; break;
+    case PR_CAPBSET_READ: {
+        unsigned bit=va_arg(ap, unsigned);
+        if (bit>40) { errno=EINVAL; result=-1; }
+        else result=(bnd>>bit)&1;
+        break;
+    }
+    case PR_CAP_AMBIENT: {
+        int mode=va_arg(ap, int);
+        if (mode==PR_CAP_AMBIENT_IS_SET) result=(amb>>va_arg(ap,unsigned))&1;
+        else if (fail("ambient")) result=-1;
+        else amb=0;
+        break;
+    }
+    case PR_CAPBSET_DROP: {
+        unsigned bit=va_arg(ap,unsigned);
+        if (!(eff & (1<<CAP_SETPCAP))) abort();
+        if (fail("bounding")) result=-1;
+        else bnd &= ~(UINT64_C(1)<<bit);
+        break;
+    }
+    case PR_SET_NO_NEW_PRIVS:
+        if (fail("nnp")) result=-1; else nnp=1;
+        break;
+    case PR_GET_NO_NEW_PRIVS: result=nnp; break;
+    case PR_SET_SECCOMP: {
+        if (!nnp || (eff & (1<<CAP_SETPCAP))) abort();
+        if (va_arg(ap,int)!=SECCOMP_MODE_FILTER) abort();
+        struct sock_fprog *prog=va_arg(ap,struct sock_fprog *);
+        if (prog->len!=33 || prog->filter[0].k!=4) abort();
+        if (fail("filter")) result=-1; else filter=2;
+        break;
+    }
+    case PR_GET_SECCOMP: result=filter; break;
+    default: abort();
+    }
+    va_end(ap); return result;
+}
+static int fake_getresuid(uid_t *r,uid_t *e,uid_t *s) {*r=*e=*s=uid;return 0;}
+static int fake_getresgid(gid_t *r,gid_t *e,gid_t *s) {*r=*e=*s=gid;return 0;}
+static int fake_getgroups(int size,gid_t *g) {if(size<2) abort();g[0]=gid;g[1]=27;return 2;}
+static uid_t fake_getuid(void) {return uid;}
+static int fake_setfsuid(uid_t ignored) {(void)ignored;return uid;}
+static int fake_setfsgid(gid_t ignored) {(void)ignored;return gid;}
+#define syscall fake_syscall
+#define prctl fake_prctl
+#define getresuid fake_getresuid
+#define getresgid fake_getresgid
+#define getgroups fake_getgroups
+#define getuid fake_getuid
+#define geteuid fake_getuid
+#define setfsuid fake_setfsuid
+#define setfsgid fake_setfsgid
+#include "linuxarena_sudo_child.c"
+int main(int argc,char **argv) {
+    if(argc!=3) return 98;
+    failure=argv[1]; unsigned target_uid=(unsigned)atoi(argv[2]); gid=target_uid;
+    if(!strcmp(failure,"filter_bytes")) {
+        return fwrite(ptw_socket_filter,1,sizeof(ptw_socket_filter),stdout)==sizeof(ptw_socket_filter) ? 0 : 99;
+    }
+    if(!strcmp(failure,"secure")) secure=1;
+    if(!strcmp(failure,"initial_caps")) eff &= ~(1<<CAP_SETPCAP);
+    if(!strcmp(failure,"initial_inheritable")) inh=1;
+    if(!strcmp(failure,"initial_ambient")) amb=1;
+    int ret=ptw_child_before_uid(target_uid,target_uid);
+    if(ret) return 10;
+    if(!strcmp(failure,"repeated")) return ptw_child_before_uid(target_uid,target_uid) ? 10 : 99;
+    /* Simulate the native UID transition, keeping this test unprivileged. */
+    uid=target_uid; if(uid) eff=prm=0;
+    if(!strcmp(failure,"groups")) gid++;
+    if(!strcmp(failure,"regain")) eff=prm=1<<CAP_SYS_ADMIN;
+    if(ptw_child_after_uid(target_uid,target_uid)) return 11;
+    return 0;
+}
+'''
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            (root / 'linuxarena_sudo_filter.h').write_text(sudo_build.filter_header())
+            (root / 'test.c').write_text(wrapper)
+            compile_result = subprocess.run(['cc', '-std=c11', '-Wall', '-Wextra', '-Werror',
+                '-I' + str(root), '-I' + str(SCRIPTS), str(root / 'test.c'), '-o', str(root / 'test')],
+                capture_output=True, text=True, timeout=30)
+            self.assertEqual(compile_result.returncode, 0, compile_result.stderr)
+            emitted = subprocess.run([str(root / 'test'), 'filter_bytes', '0'],
+                                     capture_output=True, timeout=5, check=True)
+            self.assertEqual(emitted.stdout, namespace.socket_filter())
+            for uid in (0, 1000):
+                for failure in ('none', 'capget', 'ambient', 'inheritable', 'bounding',
+                                'active', 'nnp', 'filter', 'secure', 'initial_caps',
+                                'initial_inheritable', 'initial_ambient', 'repeated', 'groups', 'regain'):
+                    result = subprocess.run([str(root / 'test'), failure, str(uid)],
+                                            capture_output=True, text=True, timeout=5)
+                    with self.subTest(uid=uid, failure=failure):
+                        expected = 0 if failure == 'none' else 11 if failure in ('groups', 'regain') else 10
+                        self.assertEqual(result.returncode, expected, result.stderr)
+                        if failure not in ('none', 'repeated', 'groups', 'regain'):
+                            self.assertNotIn('PTW_CHILD_STAGE', result.stderr)
+                        if failure != 'none':
+                            self.assertIn('PTW_CHILD_REJECT', result.stderr)
+
+
 class BridgeNativePrerequisiteTests(unittest.TestCase):
     @classmethod
     def sudo_source_receipt(cls):
@@ -2366,7 +2759,7 @@ class BridgeNativePrerequisiteTests(unittest.TestCase):
             raise RuntimeError('Sudo source prerequisite already failed; no automatic retry') from cls._sudo_source_error
         runtime = Path(os.environ.get('PTW_LINUXARENA_RUNTIME',
             str(Path.home() / 'hamal-projects/linuxarena-baseline/artifacts/runtime')))
-        root = Path(tempfile.mkdtemp(prefix='ptw-linuxarena-sudo-source-', dir='/tmp'))
+        root = Path(tempfile.mkdtemp(prefix='ptw-linuxarena-sudo-source-'))
         print('LINUXARENA_SUDO_SOURCE_EVIDENCE ' + str(root), flush=True)
         try:
             result = sudo_source.run(runtime, root / 'run')
@@ -2380,7 +2773,7 @@ class BridgeNativePrerequisiteTests(unittest.TestCase):
         source, _ = self.sudo_source_receipt()
         runtime = Path(os.environ.get('PTW_LINUXARENA_RUNTIME',
             str(Path.home() / 'hamal-projects/linuxarena-baseline/artifacts/runtime')))
-        root = Path(tempfile.mkdtemp(prefix='ptw-linuxarena-sudo-gate-', dir='/tmp'))
+        root = Path(tempfile.mkdtemp(prefix='ptw-linuxarena-sudo-gate-'))
         print('LINUXARENA_SUDO_GATE_EVIDENCE ' + str(root), flush=True)
         result = sudo_gate.run(runtime, source / 'run', root / 'run')
         self.assertEqual(result['status'], 'complete')
@@ -2393,6 +2786,25 @@ class BridgeNativePrerequisiteTests(unittest.TestCase):
             self.assertEqual(load(folder / 'exit.json')['exit_code'], 0)
             self.assertEqual(load(folder / 'inputs.json'), [])
             self.assertTrue((folder / 'terminal.txt').stat().st_size)
+
+    def test_native_sudo_child_checkpoint(self):
+        source, _ = self.sudo_source_receipt()
+        runtime = Path(os.environ.get('PTW_LINUXARENA_RUNTIME',
+            str(Path.home() / 'hamal-projects/linuxarena-baseline/artifacts/runtime')))
+        root = Path(tempfile.mkdtemp(prefix='ptw-linuxarena-sudo-child-'))
+        print('LINUXARENA_SUDO_CHILD_EVIDENCE ' + str(root), flush=True)
+        result = sudo_gate.run(runtime, source / 'run', root / 'run', checkpoint=True)
+        self.assertEqual(result['status'], 'complete')
+        self.assertEqual(result['paid_calls'], 0)
+        binding = load(root / 'run/checkpoint-source.json')
+        self.assertEqual(binding['archives'], sudo_source.ARCHIVES)
+        self.assertEqual(binding['filter_sha256'], hashlib.sha256(namespace.socket_filter()).hexdigest())
+        for name in ('root_to_root', 'root_to_dev'):
+            for terminal in (False, True):
+                record = load(root / 'run' / (name + ('-terminal' if terminal else '') + '.json'))
+                sudo_gate.validate_observation(name, record, terminal=terminal)
+                sudo_gate.validate_checkpoint(name, record)
+        self.assertTrue(load(root / 'run/build.json')['native_configure_preserved'])
 
     def test_native_sudo_package_source_binding(self):
         root, result = self.sudo_source_receipt()
@@ -2414,7 +2826,7 @@ class BridgeNativePrerequisiteTests(unittest.TestCase):
         # an explicit --runtime and does not depend on this machine layout.
         runtime = Path(os.environ.get('PTW_LINUXARENA_RUNTIME',
             str(Path.home() / 'hamal-projects/linuxarena-baseline/artifacts/runtime')))
-        root = Path(tempfile.mkdtemp(prefix='ptw-linuxarena-prerequisite-', dir='/tmp'))
+        root = Path(tempfile.mkdtemp(prefix='ptw-linuxarena-prerequisite-'))
         print('LINUXARENA_PREREQUISITE_EVIDENCE ' + str(root), flush=True)
         result = preflight.run(runtime, root / 'run')
         self.assertEqual(result['status'], 'complete')
@@ -2510,7 +2922,7 @@ class BridgeNativePrerequisiteTests(unittest.TestCase):
 
     def test_prerequisite_terminal_help_and_invalid_arguments(self):
         from terminal_driver import Terminal
-        root = Path(tempfile.mkdtemp(prefix='ptw-linuxarena-terminal-', dir='/tmp'))
+        root = Path(tempfile.mkdtemp(prefix='ptw-linuxarena-terminal-'))
         print('LINUXARENA_TERMINAL_EVIDENCE ' + str(root), flush=True)
         env = {k: os.environ[k] for k in ('PATH', 'LANG') if k in os.environ}
         for name, args, code, expected in (

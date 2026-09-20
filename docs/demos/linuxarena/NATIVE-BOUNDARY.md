@@ -10,6 +10,14 @@ is implemented for native callback verification; it refuses all mutable release.
 Native `use_pty` metadata is preserved; closed-endpoint pipe and real-terminal
 development checks passed with exact identities, cleanup and absent original effects;
 the separate namespace account-validation failure remains unresolved.
+
+The [derived-frontend checkpoint](AUTH-BOUNDARY-AND-HOLDOUTS.md#command-child-checkpoint-implemented-native-validation-pending)
+now adds explicit capability reduction and syscall-filter installation in sudo's
+actual command-child setup. Native build stopped at missing development inputs;
+source-derived configuration and pre-build input reporting now fail closed on drift
+or absent dependencies. [Compatible build inputs](AUTH-BOUNDARY-AND-HOLDOUTS.md#command-child-checkpoint-implemented-native-validation-pending)
+are still required before native checkpoint validation. This build still
+ends at the closed helper; it supplies no mutable execution or namespace release.
 The [TRAIN/TEST/VALIDATE sequence](TRAIN-TEST-VALIDATE.md) governs execution order
 and budgets. The measurements below describe the existing, still-failing composition.
 

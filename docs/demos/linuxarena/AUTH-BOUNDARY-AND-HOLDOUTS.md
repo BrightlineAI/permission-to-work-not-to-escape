@@ -42,6 +42,85 @@ review or successful archive check cannot satisfy these assertions.
 
 ## Source prerequisite and current measurement
 
+### Command-child checkpoint: implemented, native validation pending
+
+The next closed prerequisite rebuilds only the sudo execution frontend from the
+verified upstream archive plus the complete ordered Ubuntu patch series. It rejects
+unsafe archive members, unexpected patch targets, patch failures and fuzz. A small
+source patch calls the new capability/filter support after native group, resource,
+descriptor and chroot setup, immediately before `setresuid`; a second check follows
+native UID and cwd handling. Both pipe and PTY command children use this common
+function. The parent and terminal monitor do not run these checkpoints.
+
+The fixture requires the exact root starting capability mask `0xa80425fb` and zero
+securebits/inheritable/ambient state. This is a pinned fixture assumption awaiting
+native confirmation, not proof of every sudo mode. While SETPCAP remains effective,
+it drops bounding capabilities, then removes setup authority. Root keeps the existing
+`0xeb` ceiling; dev keeps only SETUID until sudo's native transition, after which
+all five capability sets must be zero. No capability retention or saved root identity
+is enabled. The actual command child sets no-new-privileges and installs the filter
+generated directly from `linuxarena_namespace.socket_filter()`. There is no separately
+maintained filter or assumption that this child inherits the keeper's filter.
+
+The derived frontend is a non-set-ID fixture binary; its caller is trusted root.
+It retains native policy, PAM/account/session handling, I/O and audit plugins. Native
+configure argv comes from the hash-verified Ubuntu `debian/rules`, with the fixed
+distribution frontend prefix checked against the hash-bound native binary's display.
+The display is not shell syntax: it loses quoting around the password prompt.
+Source parsing preserves the prompt's trailing space and rejects any display drift.
+The fixture does not replace host or image `/usr/bin/sudo`. Original
+closed-build caller-denial tests remain separate and unchanged.
+
+Before building helpers or configuring sudo, `checkpoint-prerequisites.json` records required package
+versions, header/library paths and hashes, compiler/make/linker/assembler identities
+and versions, and compile/link results. Probe binaries are never executed. Missing,
+changed or unusable inputs prevent configuration; all logs remain hash-linked in
+the failed attempt. No security option is disabled, no configure result is seeded,
+and no package is downloaded or installed by this checkpoint.
+
+The pinned image's retained inventory lacks these development packages:
+
+| Development package | Required matching runtime version |
+|---|---|
+| libaudit-dev | 1:3.0.7-1build1 |
+| libpam0g-dev | 1.4.0-11ubuntu2.6 |
+| libselinux1-dev | 3.3-1build2 |
+| zlib1g-dev | 1:1.2.11.dfsg-2ubuntu9.2 |
+
+Native configure failed on missing `libaudit.h` before reaching the child checkpoint.
+No verified compatible development artifacts were found in the searched retained
+artifacts. Providing and binding compatible build inputs in fresh owned staging
+remains an infrastructure prerequisite; shared installations and retained images
+must stay unchanged. The current checker only admits matching installed inputs in
+the fixture; it does not yet supply a staged dependency overlay.
+
+`BridgeNativePrerequisiteTests.test_native_sudo_child_checkpoint` builds and probes
+in two sequential fresh offline containers under the existing private allocation.
+It retains real pipe/PTY output, pre-exec and static-helper capability observations,
+permitted TCP/Unix socket creation and denied UDP/io_uring calls. It requires native
+cleanup, exit 125 and absence of the original requested effect. Resource admission
+uses existing memory/disk minima. Archives, ordered patches, sources, generated
+filter, input-checker source, configure arguments, compiler/package versions, outputs and failures remain
+in the private directory printed as `LINUXARENA_SUDO_CHILD_EVIDENCE`.
+
+Offline compiled syscall-double tests cover both users, invalid starting state,
+failed reductions/filter installation, repeated setup and changed final credentials
+or capabilities. They are logic tests, not physical isolation evidence. Native build
+compatibility, starting state, intermediate exec inheritance and terminal behavior
+must pass before namespace entry and final admission connect to this frontend.
+**All requests still terminate at the closed endpoint.** Mount/PID isolation, Landlock,
+frozen payload context, lifecycle release, nested switches and useful protected work
+are not supplied by this checkpoint. It cannot satisfy TRAIN or the complete boundary.
+
+[Linux capabilities](https://man7.org/linux/man-pages/man7/capabilities.7.html) documents
+bounding-set reduction and UID transitions;
+[kernel seccomp documentation](https://www.kernel.org/doc/html/latest/userspace-api/seccomp_filter.html)
+documents filter installation and fork/exec inheritance. The retained patched
+`src/exec.c` determines checkpoint order. These sources support the design; pending
+native checks must establish compatibility in the installed image.
+
+### Retained source-only prerequisite
+
 The retained image metadata reports Ubuntu sudo `1.9.9-1ubuntu2.5`. The existing
 confined route fails native account validation; a separate diagnostic records
 account=7 and successful audit socket creation. Missing account data is plausible,

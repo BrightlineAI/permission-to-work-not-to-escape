@@ -14,11 +14,32 @@
 #include <unistd.h>
 
 #ifdef PTW_CLOSED_HELPER
+#ifdef PTW_CHECKPOINT_HELPER
+#include "linuxarena_sudo_child.h"
+#include <sys/socket.h>
+#include <sys/syscall.h>
+#endif
 int main(void)
 {
     /* Static binary: native-approved environment cannot load project libraries.
      * No argv/environment interpretation and no requested command execution.
      */
+#ifdef PTW_CHECKPOINT_HELPER
+    if (ptw_child_observe() != 0)
+        return 124;
+    /* Physical syscall checks supplement the compiled-input binding and mode
+     * observation. This closed helper never accepts an address or payload. */
+    int fd = socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
+    if (fd < 0 || close(fd)) return 124;
+    fd = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
+    if (fd < 0 || close(fd)) return 124;
+    errno = 0;
+    fd = socket(AF_INET, SOCK_DGRAM | SOCK_CLOEXEC, 0);
+    if (fd != -1 || errno != EPERM) return 124;
+    errno = 0;
+    if (syscall(SYS_io_uring_setup, 0, NULL) != -1 || errno != EPERM) return 124;
+    fprintf(stderr, "PTW_CHILD_SYSCALLS tcp=allowed unix=allowed udp=EPERM io_uring=EPERM\n");
+#endif
     printf("PTW_CLOSED_GATE uid=%lu euid=%lu gid=%lu egid=%lu\n",
         (unsigned long)getuid(), (unsigned long)geteuid(),
         (unsigned long)getgid(), (unsigned long)getegid());
