@@ -213,6 +213,53 @@ def open_resource(path):
         raise
 
 
+def landlock_command(spec, directories, *, direct=False):
+    """Shared pinned nono argv; resource types must come from pinned inodes.
+
+    This assembles argv only. Namespace placement, native credentials, descriptor
+    closure, syscall restrictions and controller admission remain prerequisites.
+    """
+    validate(spec)
+    if not isinstance(directories, (set, frozenset)) or not directories <= set(spec['read'] + spec['write']):
+        raise ValueError('Invalid pinned native resource types')
+    loader = [TOOLS + '/lib/ld-linux-x86-64.so.2', '--library-path', TOOLS + '/lib']
+    # Only the authenticated sudo continuation uses direct exec: its native
+    # monitor must retain the command child for terminal job control. Wrap has
+    # no supervisor and rejects run-only policy/rollback/audit flags. Its auto
+    # backend adds static seccomp to Landlock; external cgroup limits, admission
+    # and stopping are still required and no fallback is attempted on rejection.
+    args = [*loader, TOOLS + '/bin/nono', 'wrap' if direct else 'run', '--silent']
+    if not direct:
+        args += ['--sandbox-policy', 'landlock']
+    args += ['--block-net', '--allow', '/tmp', '--read', TOOLS]
+    if not direct:
+        args += ['--no-rollback', '--no-audit']
+    args += ['--no-diagnostics']
+    # The pinned image's sudo library, plugin and configuration have
+    # demonstrated native read denials under nono's default policy.
+    # Grant exact files in immutable mounts, never their parent directory or
+    # an agent-selected runtime path. Missing files fail nono admission.
+    for path in ('/usr/libexec/sudo/libsudo_util.so.0.0.0',
+                 '/usr/libexec/sudo/sudoers.so', '/etc/sudoers'):
+        args += ['--read-file', path]
+    # sudo's includedir directive must enumerate and read the image's
+    # configuration fragments. This fixed directory is already mounted
+    # read-only; do not grant /etc or allow agent-selected configuration.
+    args += ['--read', '/etc/sudoers.d']
+    # The retained native receipt shows EACCES on sudo's PAM config and
+    # every include. This fixed image configuration is already read-only;
+    # it must remain available across legitimate Unix-user transitions.
+    args += ['--read', '/etc/pam.d']
+    for access, flag, file_flag in (('read', '--read', '--read-file'),
+                                    ('write', '--allow', '--allow-file')):
+        for path in spec[access]:
+            # Select file/directory flags from the already pinned inode type.
+            args += [flag if path in directories else file_flag, path]
+    for port in spec['connect_ports']:
+        args += ['--allow-connect-port', str(port)]
+    return args + ['--', *spec['argv']]
+
+
 def command(spec):
     """Return bubblewrap argv and pinned FDs, to be closed on every failed exec.
 
@@ -241,43 +288,21 @@ def command(spec):
             args += ['--bind-fd' if path in spec['write'] else '--ro-bind-fd', str(fd), path]
         args += ['--symlink', 'usr/bin', '/bin', '--symlink', 'usr/sbin', '/sbin',
                  '--symlink', 'usr/lib', '/lib', '--symlink', 'usr/lib64', '/lib64',
-                 '--proc', '/proc', '--dir', '/dev',
+                 # Pinned bwrap creates a fresh device tmpfs and devpts instance,
+                 # including pts/ptmx and the standard fd links. Never bind the
+                 # surrounding device tree or share its terminal namespace.
+                 '--proc', '/proc', '--dev', '/dev',
                  '--perms', '1777', '--tmpfs', '/tmp',
                  '--dir', STATE]
-        for device in ('null', 'zero', 'random', 'urandom'):
-            args += ['--dev-bind', '/dev/' + device, '/dev/' + device]
         seccomp_fd = filter_descriptor()
         fds.append(seccomp_fd)
-        args += ['--symlink', '/proc/self/fd', '/dev/fd', '--chdir', spec['cwd'],
+        args += ['--chdir', spec['cwd'],
                  '--seccomp', str(seccomp_fd), '--',
                  '/usr/bin/python3', '-I', '-S', TOOLS + '/launcher.py', '--drop-capabilities',
-                 *loader, TOOLS + '/bin/nono', 'run', '--silent', '--sandbox-policy', 'landlock',
-                 '--block-net', '--allow', '/tmp', '--read', TOOLS,
-                 '--no-rollback', '--no-audit', '--no-diagnostics']
-        # The pinned image's sudo library, plugin and configuration have
-        # demonstrated native read denials under nono's default policy.
-        # Grant exact files in immutable mounts, never their parent directory or
-        # an agent-selected runtime path. Missing files fail nono admission.
-        for path in ('/usr/libexec/sudo/libsudo_util.so.0.0.0',
-                     '/usr/libexec/sudo/sudoers.so', '/etc/sudoers'):
-            args += ['--read-file', path]
-        # sudo's includedir directive must enumerate and read the image's
-        # configuration fragments. This fixed directory is already mounted
-        # read-only; do not grant /etc or allow agent-selected configuration.
-        args += ['--read', '/etc/sudoers.d']
-        # The retained native receipt shows EACCES on sudo's PAM config and
-        # every include. This fixed image configuration is already read-only;
-        # it must remain available across legitimate Unix-user transitions.
-        args += ['--read', '/etc/pam.d']
-        for access, flag, file_flag in (('read', '--read', '--read-file'),
-                                        ('write', '--allow', '--allow-file')):
-            for path in spec[access]:
-                # Use the already pinned inode, not another pathname lookup.
-                fd = fds[(*RUNTIME, TOOLS, *spec['read'], *spec['write']).index(path)]
-                args += [flag if stat.S_ISDIR(os.fstat(fd).st_mode) else file_flag, path]
-        for port in spec['connect_ports']:
-            args += ['--allow-connect-port', str(port)]
-        return args + ['--', *spec['argv']], fds
+                 *landlock_command(spec, {path for path, fd in zip(
+                     (*RUNTIME, TOOLS, *spec['read'], *spec['write']), fds)
+                     if path in spec['read'] + spec['write'] and stat.S_ISDIR(os.fstat(fd).st_mode)})]
+        return args, fds
     except BaseException:
         for fd in fds:
             os.close(fd)

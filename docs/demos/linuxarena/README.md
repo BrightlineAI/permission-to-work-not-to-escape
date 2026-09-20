@@ -169,13 +169,48 @@ protected useful work. Prior all-pair exposure remains disclosed.
 A separate [command-child checkpoint](AUTH-BOUNDARY-AND-HOLDOUTS.md#command-child-checkpoint-implemented-native-validation-pending)
 now stages the complete distribution-patched sudo source and inserts capability
 reduction/filter installation around the native UID transition. It remains closed
-to requested work. The native build failed before exercising the checkpoint.
+to requested work. The native build and closed pipe/PTY capability/filter checks passed.
 Configure arguments now preserve distribution quoting; a pre-build report refuses
 missing or incompatible headers/libraries while preserving every security option.
 The pinned image lacks the [required development inputs](AUTH-BOUNDARY-AND-HOLDOUTS.md#command-child-checkpoint-implemented-native-validation-pending);
-verified compatible staging remains unavailable. Rebuilt-frontend pipe/PTY and
-physical syscall validation must follow that infrastructure prerequisite. This checkpoint
-must establish actual child state before namespace and controller release integration.
+signed-snapshot acquisition and isolated header/linker staging are now implemented,
+with native checks verifying both indexes and all four archives, passing the
+header/link probes and completing configure. The child-object compile rule now
+supports the separate build directory. Native checks also passed actual pipe/PTY
+fork continuity and descriptor closure. The new [child placement fixture](AUTH-BOUNDARY-AND-HOLDOUTS.md#authenticated-child-namespace-placement-and-landlock)
+passed native root/dev pipe/PTY placement, descriptor closure, session cleanup and
+four synthetic writes while leaving original commands unexecuted. It now routes the
+closed static endpoint through the shared pinned nono/Landlock invocation, requiring
+a readable-before/denied-after canary and permitted tmp effects. Native root/dev
+pipe and real-PTY continuation checks passed, including restored cwd, private
+state, isolated devices and exactly-once cleanup after terminal reset output.
+The [controller admission checkpoint](AUTH-BOUNDARY-AND-HOLDOUTS.md#controller-admission-checkpoint)
+now holds the native command child until the existing controller records and
+admits it to the revocable subtree; native pipe/PTY development checks passed.
+[Original-request retention](AUTH-BOUNDARY-AND-HOLDOUTS.md#native-approved-request-retention)
+and final-session environment capture passed native checks. The one-use child
+handoff and final environment/UID checks passed native pipe/PTY validation.
+A second one-use controller check after credential setup reuses the original
+admission and cannot move or readmit a child. Native pipe and real-PTY checks passed
+with continuation after foreground assignment and before event dispatch. The
+compiled closed-endpoint file scope now comes from the issuing task, session and
+surviving parent grants. Both admission points recheck those grants and resource
+identities. Native validation of the permitted child resource and denied parent-only
+resource passed; see the [scope binding](AUTH-BOUNDARY-AND-HOLDOUTS.md#checkpoint-file-authority).
+A separate [requested-execution fixture](AUTH-BOUNDARY-AND-HOLDOUTS.md#requested-execution-prerequisite)
+now carries native-approved argv/cwd/environment through static Landlock stages.
+Native root/dev pipe/PTY requested-work checks passed. Extended root/dev pipe
+checks pass; the root PTY reaches input, Ctrl-C and EOF but stalls at stop/continue.
+The requested-release path now uses direct exec. Admission binds the trusted
+release mode to the build receipt and exact header before registration; native
+validation remains pending. Nested execution is unfinished.
+These deterministic checks cannot satisfy TRAIN. Validated package documentation,
+including executable examples, is discarded; documentation aliases stay within
+their documentation tree and are never followed. The dependency mount is restricted
+to compilation; native runtime libraries and authentication configuration stay intact.
+Existing rebuilt-frontend pipe/PTY and syscall assertions remain required alongside
+the new namespace-placement checks. The original namespace/account failure remains
+unresolved; the new fixture does not replace that gate or establish TRAIN success.
 
 ## Current access and claims
 

@@ -169,6 +169,19 @@ class ExecutionSubtree:
         finally:
             os.close(fd)
 
+    def continue_stopped(self, expected):
+        """Continue an already admitted trusted child; never move it again."""
+        if self.revoked or self.closed or expected.get('cgroup') != self.group:
+            raise Invalid('Continuation outside active execution subtree')
+        fd = os.pidfd_open(expected['pid'])
+        try:
+            if expected.get('state') != 'T' or process_identity(expected['pid']) != expected:
+                raise Invalid('Continuation child changed or was not stopped')
+            signal.pidfd_send_signal(fd, signal.SIGCONT)
+            return expected
+        finally:
+            os.close(fd)
+
     def terminate(self, timeout=3):
         if type(timeout) not in (int, float) or not 0 < timeout <= 10:
             raise Invalid('Invalid termination observation deadline')

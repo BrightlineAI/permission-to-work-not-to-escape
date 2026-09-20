@@ -3,7 +3,7 @@
 The [authorized authentication/launch design](AUTH-BOUNDARY-AND-HOLDOUTS.md)
 supersedes earlier architecture prohibitions. Its source-binding prerequisite passed;
 the retained callback ordering and distribution patches have been inspected, but no
-secure plugin transition is implemented. The same fixed native identity command
+complete authenticated nested transition is implemented. The same fixed native identity command
 succeeds in the trusted context and fails account validation under confinement.
 The [closed delegator](AUTH-BOUNDARY-AND-HOLDOUTS.md#closed-delegation-prerequisite)
 is implemented for native callback verification; it refuses all mutable release.
@@ -13,11 +13,50 @@ the separate namespace account-validation failure remains unresolved.
 
 The [derived-frontend checkpoint](AUTH-BOUNDARY-AND-HOLDOUTS.md#command-child-checkpoint-implemented-native-validation-pending)
 now adds explicit capability reduction and syscall-filter installation in sudo's
-actual command-child setup. Native build stopped at missing development inputs;
-source-derived configuration and pre-build input reporting now fail closed on drift
-or absent dependencies. [Compatible build inputs](AUTH-BOUNDARY-AND-HOLDOUTS.md#command-child-checkpoint-implemented-native-validation-pending)
-are still required before native checkpoint validation. This build still
-ends at the closed helper; it supplies no mutable execution or namespace release.
+actual command-child setup. Source-derived configuration and pre-build input
+reporting fail closed on drift or absent dependencies.
+[Compatible build inputs](AUTH-BOUNDARY-AND-HOLDOUTS.md#command-child-checkpoint-implemented-native-validation-pending)
+use signed-snapshot acquisition and isolated staging. Native checks verified all
+four archives, passed header/link probes, completed the build and passed the
+closed pipe/PTY capability/filter checkpoint, command-fork barrier and post-exec
+descriptor rejection. A separate [authenticated child placement fixture](AUTH-BOUNDARY-AND-HOLDOUTS.md#authenticated-child-namespace-placement-and-landlock)
+passed native root/dev pipe/PTY placement, descriptor closure, native session cleanup
+and four synthetic writes. Its new closed continuation applies the shared pinned
+nono/Landlock invocation after native credentials, with a readable-before/denied-after
+canary and permitted tmp effects. It restores the specification's `/probe` cwd
+before nono and verifies it afterward; cwd failures stop before effects.
+Each closed launch also creates target-owned private state outside payload grants,
+supplies a fixed environment and requires state-read denial after nono. This avoids
+writing nono session state in the unavailable native home. Native root/dev pipe
+checks passed with state/canary denials and useful effects. The shared launcher
+uses bubblewrap's isolated `--dev /dev`; the placement fixture validates device
+metadata and rejects the surrounding container's devpts instance before binding
+the child namespace. Native root/dev pipe and real-PTY continuation passed with exact cleanup records,
+state/canary denials and useful writes. The new
+[controller admission checkpoint](AUTH-BOUNDARY-AND-HOLDOUTS.md#controller-admission-checkpoint)
+binds the trusted native monitor and stopped child before namespace placement,
+using the existing lifecycle lock and revocable subtree. Native pipe/PTY admission
+checks passed. [Original-request retention](AUTH-BOUNDARY-AND-HOLDOUTS.md#native-approved-request-retention)
+preserves native-approved command/argv/cwd and the final session environment;
+native retention checks passed. The new one-use child handoff revalidates original
+paths before mount entry and environment/UID after native setup; native pipe/PTY
+checks passed. A second controller continuation check now revalidates the original
+admission after setup. Native pipe and real-PTY continuation checks passed after
+the foreground-ordering correction. The controller fixture now compiles its
+`/probe/work` file grant and cwd from reviewed child-task authority, rechecking
+surviving parent grants and pinned resource identities at both admission points.
+Native scope validation passed. A separate [requested-execution fixture](AUTH-BOUNDARY-AND-HOLDOUTS.md#requested-execution-prerequisite)
+passed native root/dev pipe and PTY requested-work checks. It preserves the
+original request through static stages and rejects native options it cannot
+preserve. Extended root PTY checks reach input, Ctrl-C and EOF but stall at
+stop/continue. The requested-release continuation now uses nono `wrap` to retain
+the native command-child PID. Admission binds the trusted release mode to the
+build receipt and exact scope/header before registration; native compatibility
+remains pending. Authenticated
+nested callers, arbitrary inherited restrictions and the combined user-switch
+fixture remain unfinished. Staging does not install packages or replace runtime
+libraries or authentication configuration. Synthetic requested work is not TRAIN
+completion.
 The [TRAIN/TEST/VALIDATE sequence](TRAIN-TEST-VALIDATE.md) governs execution order
 and budgets. The measurements below describe the existing, still-failing composition.
 

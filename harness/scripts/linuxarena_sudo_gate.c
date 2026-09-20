@@ -1,7 +1,8 @@
-/* Native sudo 1.9.9 delegation prerequisite. NOT a mutable-code launcher.
+/* Native sudo 1.9.9 delegation prerequisite.
  * Build against the verified upstream sudo_plugin.h (API 1.18).
- * Every approved request terminates at a static, closed execution gate.
- * No option, environment variable or input can enable command release.
+ * Default builds remain closed. The separately compiled release fixture requires
+ * namespace placement, two controller admissions and static Landlock stages.
+ * No caller option or environment variable enables release in a closed build.
  */
 #define _GNU_SOURCE
 #include <errno.h>
@@ -12,21 +13,190 @@
 #include <sys/stat.h>
 #include <sys/statvfs.h>
 #include <unistd.h>
+#ifdef PTW_REQUEST_RELEASE
+#include "linuxarena_sudo_release.h"
+#endif
 
 #ifdef PTW_CLOSED_HELPER
 #ifdef PTW_CHECKPOINT_HELPER
 #include "linuxarena_sudo_child.h"
 #include <sys/socket.h>
 #include <sys/syscall.h>
+#include "linuxarena_sudo_landlock.h"
 #endif
-int main(void)
+#ifdef PTW_LANDLOCK_HELPER
+/* This fixed physical control is not requested code or a task solution. */
+#ifdef PTW_SCOPE_HELPER
+static int scope_effect(int confined)
 {
-    /* Static binary: native-approved environment cannot load project libraries.
-     * No argv/environment interpretation and no requested command execution.
-     */
+    const char *paths[] = {"/probe/work/canary", "/probe/other/canary"};
+    for (unsigned i = 0; i < 2; i++) {
+        errno = 0;
+        int fd = open(paths[i], O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
+        if (confined && i == 1) {
+            if (fd >= 0) { close(fd); return 124; }
+            if (errno != EACCES) return 124;
+        } else {
+            char value[24] = {0};
+            if (fd < 0) return 124;
+            ssize_t count = read(fd, value, sizeof(value));
+            int error = close(fd);
+            if (error || count != 23 || memcmp(value, "synthetic scope control", 23)) return 124;
+        }
+    }
+    fprintf(stderr, "PTW_CHILD_SCOPE stage=%s work=readable other=%s\n",
+        confined ? "after" : "before", confined ? "EACCES" : "readable");
+    return 0;
+}
+#endif
+static int landlock_failure(const char *stage)
+{
+    fprintf(stderr, "PTW_CHILD_REJECT stage=%s errno=%d\n", stage, errno ? errno : EPERM);
+    return 124;
+}
+
+static int landlock_cwd(const char *stage)
+{
+    char cwd[sizeof(ptw_landlock_cwd)];
+    if (getcwd(cwd, sizeof(cwd)) == NULL)
+        return landlock_failure("landlock_getcwd");
+    if (strcmp(cwd, ptw_landlock_cwd)) {
+        errno = EPERM;
+        return landlock_failure("landlock_cwd_mismatch");
+    }
+    if (fprintf(stderr, "PTW_CHILD_CWD stage=%s cwd=%s\n", stage, cwd) < 0)
+        return landlock_failure("landlock_cwd_report");
+    return 0;
+}
+
+static int landlock_exec(int argc, char **argv)
+{
+    /* The closed fixture accepts no caller environment. Fresh state belongs to
+     * the authenticated target, outside every Landlock resource grant. No
+     * account home, shared installation or existing permission is changed. */
+    char state[] = PTW_LANDLOCK_STATE "/closed-XXXXXX";
+    struct stat st;
+    if (mkdtemp(state) == NULL) return landlock_failure("landlock_state_create");
+    if (lstat(state, &st)) return landlock_failure("landlock_state_stat");
+    if (!S_ISDIR(st.st_mode) || (st.st_mode & 07777) != 0700 || st.st_uid != geteuid()) {
+        errno = EPERM;
+        return landlock_failure("landlock_state_identity");
+    }
+    char home[sizeof(state) + sizeof("HOME=")];
+    char xdg[sizeof(state) + sizeof("XDG_STATE_HOME=")];
+    snprintf(home, sizeof(home), "HOME=%s", state);
+    snprintf(xdg, sizeof(xdg), "XDG_STATE_HOME=%s", state);
+    char *const env[] = {"PATH=/usr/local/bin:/usr/bin:/bin", "LC_ALL=C", home, xdg, NULL};
+    fprintf(stderr, "PTW_CHILD_STATE_DIR before=private\n");
+    fflush(NULL);
+#ifdef PTW_REQUEST_RELEASE
+    /* Replace only the immutable endpoint's arguments, never its policy flags.
+     * Original environment stays inert data until the confined final exec. */
+    size_t prefix = sizeof(ptw_landlock_argv) / sizeof(ptw_landlock_argv[0]) - 2;
+    char *launch[PTW_RELEASE_MAX + 128];
+    if (argc < 2 || argc > PTW_RELEASE_MAX || prefix > 128) {
+        errno = E2BIG; return landlock_failure("release_argv_size");
+    }
+    for (size_t i = 0; i < prefix; i++) launch[i] = ptw_landlock_argv[i];
+    launch[prefix++] = "--confined";
+    for (int i = 2; i < argc; i++) launch[prefix++] = argv[i];
+    launch[prefix] = NULL;
+    execve(launch[0], launch, env);
+#else
+    (void)argc; (void)argv;
+    execve(ptw_landlock_argv[0], ptw_landlock_argv, env);
+#endif
+    return landlock_failure("landlock_exec");
+}
+
+static int landlock_state_denied(void)
+{
+    const char *home = getenv("HOME"), *xdg = getenv("XDG_STATE_HOME");
+    const char prefix[] = PTW_LANDLOCK_STATE "/closed-";
+    if (!home || !xdg || strcmp(home, xdg) ||
+        strncmp(home, prefix, sizeof(prefix) - 1) ||
+        strlen(home) != sizeof(prefix) - 1 + 6 ||
+        strspn(home + sizeof(prefix) - 1,
+            "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789") != 6) {
+        errno = EPERM;
+        return landlock_failure("landlock_state_environment");
+    }
+    errno = 0;
+    int fd = open(home, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+    if (fd != -1) {
+        close(fd);
+        errno = EPERM;
+        return landlock_failure("landlock_state_readable");
+    }
+    if (errno != EACCES) return landlock_failure("landlock_state_denial");
+    fprintf(stderr, "PTW_CHILD_STATE_DIR after=EACCES\n");
+    return 0;
+}
+#endif
+int main(int argc, char **argv)
+{
+    /* Static binary: native-approved environment cannot load project libraries. */
 #ifdef PTW_CHECKPOINT_HELPER
     if (ptw_child_observe() != 0)
         return 124;
+#ifdef PTW_LANDLOCK_HELPER
+    /* Both stages are immutable code. Native credentials precede nono/Landlock;
+     * only the separate release build can execute the retained request. */
+#ifdef PTW_REQUEST_RELEASE
+    struct release_view release;
+    if (release_parse(argc, argv, &release)) return landlock_failure("release_frame");
+    if (strcmp(release.cwd, ptw_landlock_cwd)) return landlock_failure("release_scope_cwd");
+    if (!strcmp(argv[1], "--pending")) {
+        int fd = release_bind(&release);
+        if (fd < 0) return landlock_failure("release_pending_binding");
+        close(fd);
+#else
+    if (argc == 1) {
+#endif
+        if (ptw_child_exec_observe()) return 124;
+        /* Namespace entry resets cwd to /. Restore the already granted cwd
+         * from the same immutable specification as nono's argv, after native
+         * target credentials are established. Never grant the inherited cwd. */
+        if (chdir(ptw_landlock_cwd)) return landlock_failure("landlock_chdir");
+        if (landlock_cwd("before_nono")) return 124;
+        int control = open("/probe-denied/canary", O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
+        if (control < 0) return landlock_failure("landlock_control_open");
+        if (close(control)) return landlock_failure("landlock_control_close");
+        fprintf(stderr, "PTW_CHILD_LANDLOCK before=readable\n");
+#ifdef PTW_SCOPE_HELPER
+        if (scope_effect(0)) return 124;
+#endif
+        return landlock_exec(argc, argv);
+    }
+    if (
+#ifndef PTW_REQUEST_RELEASE
+        argc != 2 ||
+#endif
+        strcmp(argv[1], "--confined")) {
+        errno = EINVAL;
+        return landlock_failure("landlock_mode");
+    }
+    if (ptw_child_descriptors()) return 124;
+    if (landlock_cwd("after_nono")) return 124;
+    if (landlock_state_denied()) return 124;
+    errno = 0;
+    int control = open("/probe-denied/canary", O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
+    if (control != -1) {
+        close(control);
+        errno = EPERM;
+        return landlock_failure("landlock_readable");
+    }
+    if (errno != EACCES) return landlock_failure("landlock_denial");
+    fprintf(stderr, "PTW_CHILD_LANDLOCK after=EACCES\n");
+#ifdef PTW_SCOPE_HELPER
+    if (scope_effect(1)) return 124;
+#endif
+    if (ptw_child_placement_effect()) return 124;
+#else
+    (void)argc;
+    (void)argv;
+    if (ptw_child_exec_observe()) return 124;
+#endif
     /* Physical syscall checks supplement the compiled-input binding and mode
      * observation. This closed helper never accepts an address or payload. */
     int fd = socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
@@ -39,6 +209,23 @@ int main(void)
     errno = 0;
     if (syscall(SYS_io_uring_setup, 0, NULL) != -1 || errno != EPERM) return 124;
     fprintf(stderr, "PTW_CHILD_SYSCALLS tcp=allowed unix=allowed udp=EPERM io_uring=EPERM\n");
+#ifdef PTW_REQUEST_RELEASE
+    int executable = release_bind(&release);
+    if (executable < 0) return landlock_failure("release_confined_binding");
+    /* Split the copied vector only after all controls; no descriptors survive
+     * the ELF exec. fexecve pins the checked inode through final execution. */
+    release.args[-1] = NULL;
+    fprintf(stderr, "PTW_REQUEST_RELEASE confined=1\n");
+    ptw_job_trace(30, getpid(), getpgrp(), 0, 0, 0, STDIN_FILENO);
+    fflush(NULL);
+    fexecve(executable, release.args, release.env);
+    int error = errno;
+    close(executable); errno = error;
+    return landlock_failure("release_exec");
+#endif
+#else
+    (void)argc;
+    (void)argv;
 #endif
     printf("PTW_CLOSED_GATE uid=%lu euid=%lu gid=%lu egid=%lu\n",
         (unsigned long)getuid(), (unsigned long)geteuid(),
@@ -65,8 +252,15 @@ static int (*fatal_register)(void (*)(void));
 static int (*fatal_deregister)(void (*)(void));
 static pid_t owner_pid;
 static int helper_fd = -1;
+static int session_attempted;
 static char **redirect_info;
+#ifdef PTW_REQUEST_RELEASE
+static char *redirect_argv[PTW_RELEASE_MAX + 1] = { CLOSED_HELPER, NULL };
+static char release_executable[384], release_directory[384], release_envc[16];
+static int release_prepared;
+#else
 static char *redirect_argv[] = { CLOSED_HELPER, NULL };
+#endif
 extern struct policy_plugin ptw_sudo_policy;
 static void gate_fatal(void);
 
@@ -110,6 +304,51 @@ syscall_fail:;
     close(fd);
     errno = error;
     return -1;
+}
+
+#include "linuxarena_sudo_request.h"
+
+/* Resolved with RTLD_NOLOAD by the verified frontend. Not a plugin option or
+ * an agent-callable service; the native plugin remains loaded through cleanup. */
+int ptw_sudo_request_child_v1(int phase, char *const env[], uid_t uid, uid_t euid)
+{
+#ifdef PTW_REQUEST_RELEASE
+    if (phase == 2) {
+        struct stat ns;
+        if (!opened || closed || !request.session || request.child_verified != 1 ||
+            release_prepared++ || request.child_pid != getpid() ||
+            stat("/proc/self/ns/pid", &ns) || ns.st_ino != request.child_namespace ||
+            getuid() != uid || geteuid() != euid ||
+            !vector_matches(&request.environment, env) ||
+            release_identity(release_executable, &request.executable, 0) ||
+            release_identity(release_directory, &request.directory, 1)) {
+            errno = EPERM; return -1;
+        }
+        size_t n = 0;
+        snprintf(release_envc, sizeof(release_envc), "%zu", request.environment.count);
+        redirect_argv[n++] = CLOSED_HELPER;
+        redirect_argv[n++] = "--pending";
+        redirect_argv[n++] = (char *)request_value("command");
+        redirect_argv[n++] = request.cwd;
+        redirect_argv[n++] = release_executable;
+        redirect_argv[n++] = release_directory;
+        redirect_argv[n++] = release_envc;
+        for (size_t i = 0; i < request.environment.count; i++)
+            redirect_argv[n++] = request.environment.items[i];
+        redirect_argv[n++] = "";
+        for (size_t i = 0; i < request.argv.count; i++)
+            redirect_argv[n++] = request.argv.items[i];
+        redirect_argv[n] = NULL;
+        report(SUDO_CONV_ERROR_MSG, "PTW_REQUEST_RELEASE prepared=1\n");
+        return 0;
+    }
+#endif
+    if (!opened || closed || !session_attempted || request_child(phase, env, uid, euid))
+        return -1;
+    report(SUDO_CONV_ERROR_MSG,
+        "PTW_SUDO_CHILD_REQUEST phase=%d pid=%ld argc=%zu envc=%zu\n",
+        phase, (long)getpid(), request.argv.count, request.environment.count);
+    return 0;
 }
 
 static int load_native(void)
@@ -210,7 +449,11 @@ static void gate_close(int status, int error)
         closed = 1;
         fatal_deregister(gate_fatal);
         native_close(status, error);
-        report(SUDO_CONV_ERROR_MSG, "PTW_SUDO_STAGE close=%d error=%d\n", status, error);
+        request_free();
+        /* Terminal restoration can end with escape bytes and no newline.
+         * Frame our cleanup record independently; retain the raw transcript
+         * and strict stage parser instead of stripping terminal output. */
+        report(SUDO_CONV_ERROR_MSG, "\nPTW_SUDO_STAGE close=%d error=%d\n", status, error);
     }
     if (helper_fd != -1) {
         /* sudo owns the descriptor after check_policy; never close a reused FD. */
@@ -249,6 +492,12 @@ static int gate_check(int argc, char * const argv[], char *env_add[],
     }
     while ((*info)[count] != NULL) {
         const char *s = (*info)[count];
+#ifdef PTW_REQUEST_RELEASE
+        if (!release_option_supported(s)) {
+            reject("release", "unsupported_native_option", 0);
+            goto fail;
+        }
+#endif
         if (!strcmp(s, "sudoedit=true") ||
             !strcmp(s, "intercept=true") || !strcmp(s, "log_subcmds=true") ||
             !strncmp(s, "chroot=", 7)) {
@@ -262,6 +511,15 @@ static int gate_check(int argc, char * const argv[], char *env_add[],
             goto fail;
         }
     }
+    if (request_capture(*info, *argv_out)) {
+        reject("request", "capture", errno);
+        goto fail;
+    }
+    report(SUDO_CONV_ERROR_MSG,
+        "PTW_SUDO_REQUEST captured=1 argc=%zu caller_uid=%u caller_gid=%u executable_dev=%llu executable_ino=%llu cwd_dev=%llu cwd_ino=%llu\n",
+        request.argv.count, (unsigned)request.caller_uid, (unsigned)request.caller_gid,
+        (unsigned long long)request.executable.st_dev, (unsigned long long)request.executable.st_ino,
+        (unsigned long long)request.directory.st_dev, (unsigned long long)request.directory.st_ino);
     helper_fd = immutable_fd(CLOSED_HELPER);
     if (helper_fd == -1)
         goto fail;
@@ -290,6 +548,7 @@ static int gate_check(int argc, char * const argv[], char *env_add[],
     report(SUDO_CONV_ERROR_MSG, "PTW_SUDO_STAGE redirect=closed\n");
     return 1;
 fail:
+    request_free();
     if (helper_fd != -1) {
         close(helper_fd);
         helper_fd = -1;
@@ -305,12 +564,19 @@ fail:
 
 static int gate_session(struct passwd *pwd, char **env[], const char **errstr)
 {
-    if (!opened || closed || !checked || helper_fd == -1) {
+    if (!opened || closed || !checked || helper_fd == -1 || !request.ready || session_attempted++) {
         reject("session", "unbound", 0);
         *errstr = "sudo execution gate not bound";
         return -1;
     }
     int ret = native->init_session(pwd, env, errstr);
+    if (ret == 1 && request_finish(env ? *env : NULL)) {
+        reject("request", "session_binding", errno);
+        *errstr = "native approved request binding changed";
+        ret = -1;
+    }
+    if (ret == 1)
+        report(SUDO_CONV_ERROR_MSG, "PTW_SUDO_REQUEST session=1 envc=%zu\n", request.environment.count);
     report(SUDO_CONV_ERROR_MSG, "PTW_SUDO_STAGE session=%d\n", ret);
     /* Return to policy_init_session for audit first. Its fatal termination
      * invokes gate_fatal, preserving exactly-once native session cleanup.

@@ -6,6 +6,8 @@ from pathlib import Path, PurePosixPath
 import re
 import secrets
 import shutil
+import subprocess
+import sys
 import time
 
 from evidence_io import digest, load, reference, require, save
@@ -31,8 +33,13 @@ def stage_tools(out, command):
                'nono': os.environ.get('PTW_NONO') or shutil.which('nono')}
     require(all(sources.values()), 'Installed bubblewrap and nono are required')
     root = out / 'tools'
-    (root / 'bin').mkdir(parents=True)
-    (root / 'lib').mkdir()
+    # Public immutable tools must be traversable by native target users. Set
+    # creation modes in a child, never change the manager's umask or chmod an
+    # existing path. The enclosing evidence directory remains private.
+    subprocess.run([sys.executable, '-I', '-S', '-c',
+        'import os, sys; root=sys.argv[1]; os.mkdir(root, 0o755); '
+        'os.mkdir(root + "/bin", 0o755); os.mkdir(root + "/lib", 0o755)', str(root)],
+        umask=0o022, check=True, timeout=10)
     entries = {}
 
     def copy(source, relative):

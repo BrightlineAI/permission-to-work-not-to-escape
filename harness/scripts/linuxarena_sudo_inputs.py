@@ -62,7 +62,7 @@ def file_identity(path):
         return {'path': str(path), 'error': type(exc).__name__}
 
 
-def prerequisites(out):
+def prerequisites(out, *, staged=None):
     """Retain all four header/link probes before rejecting missing inputs.
 
     Compile/link only: the resulting programs (including PAM/audit calls) are
@@ -83,6 +83,27 @@ def prerequisites(out):
         record['log'] = file_identity(log)
         return record
     try:
+        manifest = None
+        if staged is not None:
+            staged = Path(staged)
+            manifest = json.loads((staged / 'verified.json').read_text())
+            if (manifest.get('schema') != 1 or set(manifest.get('packages', {})) !=
+                    {row[0] for row in REQUIRED} or not manifest.get('headers')):
+                raise ValueError('Invalid staged development manifest')
+            actual = {}
+            for path in staged.rglob('*'):
+                if path.is_symlink():
+                    raise ValueError('Linked staged development input')
+                if path.is_file() and path != staged / 'verified.json':
+                    name = str(path.relative_to(staged / 'include'))
+                    actual[name] = hashlib.sha256(path.read_bytes()).hexdigest()
+            if actual != manifest['headers']:
+                raise ValueError('Staged development headers changed')
+            report['staged_manifest'] = file_identity(staged / 'verified.json')
+            links = out / 'development-links'
+            links.mkdir()
+            report['build_environment'] = {
+                'CPPFLAGS': '-I' + str(staged / 'include'), 'LDFLAGS': '-L' + str(links)}
         query = command(['/usr/bin/dpkg-query', '-W',
             '-f=${binary:Package}\t${Version}\t${Status}\n'], 'prerequisite-packages')
         report['package_query'] = query
@@ -105,10 +126,34 @@ def prerequisites(out):
                    'library': file_identity('/usr/lib/x86_64-linux-gnu/lib' + library + '.so')}
             report['requirements'].append(row)
             expected = {'version': version, 'status': 'install ok installed'}
-            row['inputs_present'] = (all(value == expected for value in row['packages'].values())
-                and all('sha256' in row[key] for key in ('header', 'library')))
+            extra = []
+            if manifest is not None:
+                entry = manifest['packages'][dev]
+                metadata, target = entry['metadata'], entry['runtime_library']
+                if (any(metadata.get(k) != v for k, v in
+                        {'Package': dev, 'Version': version, 'Architecture': 'amd64'}.items()) or
+                        not re.fullmatch(r'/(usr/)?lib/x86_64-linux-gnu/lib' + library +
+                                         r'\.so\.[0-9.]+', target)):
+                    raise ValueError('Staged development identity mismatch')
+                row['staged_package'] = metadata
+                row['header'] = file_identity(staged / 'include' / header)
+                row['library'] = file_identity(target)
+                row['inputs_present'] = (packages.get(runtime) == expected and
+                    header in manifest['headers'] and
+                    all('sha256' in row[key] for key in ('header', 'library')))
+                if row['inputs_present']:
+                    # A linker script references the native runtime; no staged
+                    # runtime DSO, rpath or LD_LIBRARY_PATH can change probe loading.
+                    link = links / ('lib' + library + '.so')
+                    with link.open('x') as stream:
+                        stream.write('INPUT ( ' + target + ' )\n')
+                    row['linker_input'] = file_identity(link)
+                    extra = ['-I' + str(staged / 'include'), '-L' + str(links)]
+            else:
+                row['inputs_present'] = (all(value == expected for value in row['packages'].values())
+                    and all('sha256' in row[key] for key in ('header', 'library')))
             if row['inputs_present']:
-                row['link_probe'] = command(['/usr/bin/cc', '-x', 'c', '-', '-o',
+                row['link_probe'] = command(['/usr/bin/cc', *extra, '-x', 'c', '-', '-o',
                     str(out / ('prerequisite-' + library)), '-l' + library],
                     'prerequisite-' + library,
                     source=('#include <' + header + '>\n' + program + '\n').encode())
