@@ -125,6 +125,8 @@ open('/probe/sudo-exec.json', 'w').write(json.dumps({
     'argv': dev.args, 'returncode': dev.returncode,
     'stdout': dev.stdout[:32768], 'stderr': dev.stderr[:32768],
     'truncated': len(dev.stdout) > 32768 or len(dev.stderr) > 32768}))
+if 'PAM account management error' in dev.stderr:
+    open('/probe/pam-account-hook.json', 'w').write(json.dumps(diagnostics['account_process_record']()))
 assert dev.returncode != 0 and 'private/secret' in dev.stderr, dev.stderr
 assert open('/tmp/dev-useful').read() == 'dev result'
 observed['dev_uid'] = os.stat('/tmp/dev-useful').st_uid
@@ -207,7 +209,8 @@ def probe(command, out, daemon):
                                   daemon_id=daemon['daemon_id'], control=control)
         spec = namespace.validate({'read': ['/public'], 'write': ['/probe'], 'cwd': '/probe',
                                    'argv': ['/usr/bin/python3', '-I', '-S', '-c',
-                                            'LOADER_INVENTORY = ' + repr(loader_inventory) + '\n' + PAYLOAD],
+                                            'LOADER_INVENTORY = ' + repr(
+                                                loader_diagnostics.confined_inventory(loader_inventory)) + '\n' + PAYLOAD],
                                    'connect_ports': [32001]})
         encoded = json.dumps(spec, sort_keys=True)
         save(out / 'namespace-spec.json', spec)
@@ -282,7 +285,8 @@ def probe(command, out, daemon):
                 # the actual image and staged launcher/tools. Missing outputs
                 # remain missing; they cannot establish compatibility.
                 names = ('namespace/loader-image.json', 'namespace/probe/loader-confined.json',
-                         'namespace/probe/sudo-exec.json', 'namespace/observer/stdout',
+                         'namespace/probe/sudo-exec.json', 'namespace/probe/pam-account-hook.json',
+                         'namespace/observer/stdout',
                          'namespace/observer/stderr', 'namespace/observer/exit', 'namespace-spec.json')
                 save(out / 'namespace-diagnostics.json', {
                     'container_id': cid, 'image_id': daemon['image_id'], 'daemon_id': daemon['daemon_id'],

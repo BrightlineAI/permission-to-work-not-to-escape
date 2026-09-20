@@ -5,6 +5,7 @@ These tests do not establish a completed adapter, scorer or benchmark result.
 """
 import hashlib
 import ast
+import io
 import json
 import os
 import shutil
@@ -712,6 +713,7 @@ class BridgeNamespaceTests(unittest.TestCase):
         inventory = {'files': [{'path': '/usr/bin/sudo', 'elf': {
             'interpreter': '/lib64/native-loader'}}], 'scan_errors': [],
             'pam': {'files': [{'path': '/etc/pam.d/sudo'}, {'path': '/etc/pam.d/common-auth'}]},
+            'pam_libraries': {'files': [{'path': '/lib/security/pam_unix.so', 'open_errno': 2}]},
             'packages': {'parsed': {'packages': {'sudo': {'Version': 'fixture-version'}}}}}
         cid = 'a' * 64
         daemon = {'cgroup': '/fixture.slice', 'daemon_id': 'fixture-daemon',
@@ -745,8 +747,10 @@ class BridgeNamespaceTests(unittest.TestCase):
             self.assertEqual(launched[0], load(root / 'namespace-spec.json'))
             assignment = ast.parse(launched[0]['argv'][-1]).body[0]
             supplied = ast.literal_eval(assignment.value)
-            self.assertEqual(supplied, inventory)
-            self.assertEqual(supplied, load(root / 'namespace/loader-image.json'))
+            self.assertEqual(supplied, {
+                'files': inventory['files'], 'pam': inventory['pam'],
+                'pam_libraries': {'files': [{'path': '/lib/security/pam_unix.so'}]}})
+            self.assertEqual(inventory, load(root / 'namespace/loader-image.json'))
             self.assertNotEqual(supplied, load(root / 'namespace-project/inventory.json'))
             # Consume the actual diagnostic API, so a wrong-shaped inventory
             # fails here rather than only after a native launch.
@@ -755,6 +759,7 @@ class BridgeNamespaceTests(unittest.TestCase):
                 observed = loader_diagnostics.confined_record(supplied)
             self.assertEqual(observed['files'], [{'path': '/usr/bin/sudo'}])
             self.assertEqual(observed['pam'], inventory['pam'])
+            self.assertEqual(observed['pam_libraries'], supplied['pam_libraries'])
             receipt = load(root / 'namespace-diagnostics.json')
             self.assertIn('namespace/loader-image.json', receipt['records'])
             self.assertIn('namespace/probe/sudo-exec.json', receipt['missing'])
@@ -781,7 +786,9 @@ class BridgeNamespaceTests(unittest.TestCase):
                     self.assertEqual(row['opened_uid'], root.stat().st_uid)
                     self.assertEqual(row['parsed']['errors'], [])
                 self.assertNotIn('private-module-option', json.dumps(inventory))
-                self.assertNotIn('pam_unix.so', json.dumps(inventory))
+                common = next(r for r in inventory['files'] if r['path'].endswith('/common-auth'))
+                self.assertEqual(common['parsed']['modules'],
+                    [{'line': 2, 'type': 'auth', 'module': 'pam_unix.so'}])
                 # Denied top-level access cannot erase trusted include paths.
                 with patch.object(os, 'open', side_effect=PermissionError(13, 'denied')):
                     confined = loader_diagnostics.confined_record({'pam': inventory,
@@ -841,9 +848,107 @@ class BridgeNamespaceTests(unittest.TestCase):
         self.assertEqual(len(parsed['errors']), 33)
         self.assertEqual(parsed['errors'][-1]['error'], 'error limit')
 
+    def test_pam_module_discovery_retains_types_without_arguments_or_execution(self):
+        parsed = loader_diagnostics.pam_includes(
+            b'account [success=1 new_authtok_reqd=done default=ignore] pam_unix.so secret-option\n'
+            b'-session optional /lib/x86_64-linux-gnu/security/pam_systemd.so\n'
+            b'auth required \\\npam_deny.so # comment\n'
+            b'account include common-account\n')
+        self.assertEqual(parsed['errors'], [])
+        self.assertEqual(parsed['modules'], [
+            {'line': 1, 'type': 'account', 'module': 'pam_unix.so'},
+            {'line': 2, 'type': 'session', 'module': '/lib/x86_64-linux-gnu/security/pam_systemd.so'},
+            {'line': 3, 'type': 'auth', 'module': 'pam_deny.so'}])
+        self.assertEqual(parsed['includes'], ['/etc/pam.d/common-account'])
+        self.assertNotIn('secret-option', json.dumps(parsed))
+        for entry in ('account [success=1 pam_unix.so', 'account invented pam_unix.so',
+                      'account required /etc/shadow', 'account required ../pam_unix.so',
+                      'account required /lib/security/../pam_unix.so',
+                      'account required pam_unix.so/secret', 'account required'):
+            with self.subTest(entry=entry):
+                invalid = loader_diagnostics.pam_includes(entry.encode())
+                self.assertEqual(invalid['modules'], [])
+                self.assertEqual(len(invalid['errors']), 1)
+                self.assertNotIn('shadow', json.dumps(invalid))
+        with patch.object(loader_diagnostics, 'MAX_PAM_MODULES', 1):
+            limited = loader_diagnostics.pam_includes(
+                b'account required pam_unix.so\naccount required pam_deny.so\n')
+        self.assertEqual(len(limited['modules']), 1)
+        self.assertEqual(limited['errors'][-1]['error'], 'module limit')
+
+    def test_pam_library_inventory_retains_candidates_cycles_errors_and_limits(self):
+        pam = {'files': [{'parsed': {'modules': [
+            {'module': 'pam_unix.so'}, {'module': 'pam_unix.so'}]}}]}
+        module = '/lib/x86_64-linux-gnu/security/pam_unix.so'
+        dependency = '/lib/x86_64-linux-gnu/libpam.so.0'
+        def metadata(path, **kwargs):
+            self.assertEqual(kwargs['beneath'], ('/usr/lib', '/lib'))
+            if path in (module, dependency):
+                return {'path': path, 'sha256': 'a' * 64, 'open_errno': None,
+                        'elf': {'needed': ['libpam.so.0', '/etc/shadow']}}
+            return {'path': path, 'open_errno': 2}
+        with patch.object(loader_diagnostics, 'file_metadata', side_effect=metadata), \
+                patch.object(loader_diagnostics, 'process_record') as execute:
+            result = loader_diagnostics.pam_library_inventory(pam)
+            self.assertEqual(len(result['files']), 8)
+            self.assertEqual(len({r['path'] for r in result['files']}), 8)
+            self.assertEqual(sum(r.get('open_errno') == 2 for r in result['files']), 6)
+            self.assertFalse(result['file_limit_exceeded'])
+            self.assertEqual(len(result['errors']), 2)
+            self.assertNotIn('shadow', json.dumps(result))
+            with patch.object(loader_diagnostics, 'MAX_LIBRARY_FILES', 4):
+                limited = loader_diagnostics.pam_library_inventory(pam)
+            self.assertTrue(limited['file_limit_exceeded'])
+            self.assertEqual(len(limited['files']), 4)
+            execute.assert_not_called()
+        # Confinement observes the image's full candidate list even if every
+        # module is inaccessible. It cannot rediscover a smaller passing graph.
+        with patch.object(loader_diagnostics, 'file_metadata',
+                          side_effect=lambda p, **kw: {'path': p, 'open_errno': 13}), \
+                patch.object(loader_diagnostics, 'process_record') as execute:
+            confined = loader_diagnostics.confined_record({
+                'files': [{'path': '/usr/bin/sudo'}], 'pam_libraries': result})
+        self.assertEqual(confined['pam_libraries']['files'],
+                         [{'path': r['path'], 'open_errno': 13} for r in result['files']])
+        execute.assert_not_called()
+
+    def test_pam_library_links_outside_runtime_are_not_opened(self):
+        with tempfile.TemporaryDirectory(dir='/tmp') as temporary:
+            root = Path(temporary)
+            secret = root / 'synthetic-account-data'
+            secret.write_text('must never read these bytes')
+            link = root / 'pam_fixture.so'
+            link.symlink_to(secret)
+            with patch.object(os, 'open', wraps=os.open) as opened:
+                row = loader_diagnostics.file_metadata(str(link), beneath=('/usr/lib', '/lib'))
+            opened.assert_not_called()
+            self.assertIn('outside configuration root', row['error'])
+            self.assertNotIn('sha256', row)
+            self.assertNotIn('must never read', json.dumps(row))
+
+    def test_pam_inventory_launch_projection_stays_bounded_without_pruning_paths(self):
+        inventory = {'files': [{'path': '/usr/bin/sudo', 'elf': {
+            'interpreter': '/lib64/ld-linux-x86-64.so.2'}}],
+            'pam_libraries': {'files': [
+                {'path': '/usr/lib/x86_64-linux-gnu/' + 'x' * 120 + str(i),
+                 'components': ['metadata' * 1024], 'open_errno': 13}
+                for i in range(loader_diagnostics.MAX_LIBRARY_FILES)]}}
+        before = json.dumps(inventory, sort_keys=True)
+        projected = loader_diagnostics.confined_inventory(inventory)
+        self.assertEqual([r['path'] for r in projected['pam_libraries']['files']],
+                         [r['path'] for r in inventory['pam_libraries']['files']])
+        self.assertEqual(projected['files'], inventory['files'])
+        self.assertEqual(json.dumps(inventory, sort_keys=True), before)
+        spec = {**self.spec(), 'argv': ['/usr/bin/python3', '-I', '-S', '-c',
+            'LOADER_INVENTORY = ' + repr(projected) + '\n' + confinement.PAYLOAD]}
+        namespace.validate(spec)
+        self.assertLess(len(json.dumps(spec).encode()), 131072)
+
     def test_package_diagnostics_emit_only_selected_identity_fields(self):
         data = (b'Package: sudo\nStatus: install ok installed\nArchitecture: amd64\n'
                 b'Version: 1.9.15p5-3ubuntu5.24.04.1\nDescription: private description\n\n'
+                b'Package: libaudit1\nStatus: install ok installed\nArchitecture: amd64\n'
+                b'Version: 1:3.0.7-1build1\nDescription: private description\n\n'
                 b'Package: unrelated\nVersion: 999\nDescription: not selected\n\n')
         with tempfile.TemporaryDirectory(dir='/tmp') as temporary:
             path = Path(temporary) / 'status'
@@ -851,7 +956,9 @@ class BridgeNamespaceTests(unittest.TestCase):
             row = loader_diagnostics.file_metadata(str(path), parser=loader_diagnostics.package_fields)
             self.assertEqual(row['sha256'], hashlib.sha256(data).hexdigest())
             self.assertEqual(row['parsed']['packages']['sudo']['Version'], '1.9.15p5-3ubuntu5.24.04.1')
-            self.assertEqual(row['parsed']['missing'], sorted(set(loader_diagnostics.PACKAGES) - {'sudo'}))
+            self.assertEqual(row['parsed']['packages']['libaudit1']['Version'], '1:3.0.7-1build1')
+            self.assertEqual(row['parsed']['missing'],
+                             sorted(set(loader_diagnostics.PACKAGES) - {'sudo', 'libaudit1'}))
             for omitted in ('private description', 'unrelated', 'not selected'):
                 self.assertNotIn(omitted, json.dumps(row))
             for malformed in (data + data, b'\xff', b'Package: sudo\nVersion: missing-fields\n'):
@@ -864,6 +971,277 @@ class BridgeNamespaceTests(unittest.TestCase):
             with patch.object(os, 'open', side_effect=PermissionError(13, 'denied')):
                 self.assertEqual(loader_diagnostics.file_metadata(str(path),
                     parser=loader_diagnostics.package_fields)['open_errno'], 13)
+
+    def test_account_hook_refuses_visible_or_uncertain_store_without_loading_modules(self):
+        # No real account files, PAM libraries or native modules are accessed.
+        with patch.object(os, 'getuid', return_value=0), \
+                patch.object(os, 'geteuid', return_value=0), \
+                patch.object(loader_diagnostics.ctypes, 'CDLL') as load_module, \
+                patch.object(sys, 'stderr', new_callable=io.StringIO) as progress, \
+                patch('builtins.open') as opened:
+            for error in (None, PermissionError(13, 'denied'), OSError(5, 'I/O')):
+                with self.subTest(error=error), patch.object(os, 'lstat', side_effect=error) as metadata:
+                    result = loader_diagnostics.pam_account_hook()
+                self.assertIn('unavailable', result)
+                self.assertNotIn('pam_start', result)
+                metadata.assert_called_once_with('/etc/shadow')
+            with patch.object(os, 'getuid', return_value=1000), patch.object(os, 'lstat') as metadata:
+                self.assertIn('fixture root', loader_diagnostics.pam_account_hook()['unavailable'])
+                metadata.assert_not_called()
+            load_module.assert_not_called()
+            opened.assert_not_called()
+            self.assertEqual([json.loads(line) for line in progress.getvalue().splitlines()],
+                             [{'pam_account_stage': 'entry'}] * 4)
+
+    def test_account_hook_keeps_raw_status_refuses_conversations_and_ends_handle(self):
+        import ctypes
+        for start_status, account_status in ((0, 0), (0, 4), (0, 9), (0, 19), (4, None)):
+            pam = unittest.mock.Mock(spec=['pam_start', 'pam_acct_mgmt', 'pam_end'])
+            def start(service, user, conversation, handle):
+                self.assertEqual((service, user), (b'sudo', b'root'))
+                # Deliberately invalid message pointers must never be read.
+                self.assertEqual(conversation._obj.conv(1, 1, 1, 1), 19)
+                handle._obj.value = 123
+                return start_status
+            pam.pam_start.side_effect = start
+            account_errno = 1 if account_status == 4 else 0
+            def account(handle, flags):
+                self.assertEqual(ctypes.get_errno(), 0)
+                ctypes.set_errno(account_errno)
+                return account_status
+            def end(handle, status):
+                ctypes.set_errno(22)  # Cleanup must not replace account errno.
+                return 0
+            pam.pam_end.side_effect = end
+            pam.pam_acct_mgmt.side_effect = account
+            with self.subTest(start=start_status, account=account_status), \
+                    patch.object(os, 'getuid', return_value=0), \
+                    patch.object(os, 'geteuid', return_value=0), \
+                    patch.object(os, 'lstat', side_effect=FileNotFoundError(2, 'absent')), \
+                    patch.object(ctypes, 'CDLL', return_value=pam) as loaded, \
+                    patch.object(sys, 'stderr', new_callable=io.StringIO) as progress, \
+                    patch('builtins.open') as opened:
+                result = loader_diagnostics.pam_account_hook()
+            rows = [json.loads(line) for line in progress.getvalue().splitlines()]
+            stages = ['entry', 'libpam_load_before', 'libpam_load_after',
+                      'pam_start_before', 'pam_start_after']
+            if start_status == 0:
+                stages += ['pam_account_before', 'pam_account_after',
+                           'pam_end_before', 'pam_end_after',
+                           'libaudit_load_before', 'libaudit_load_after']
+            self.assertEqual([row['pam_account_stage'] for row in rows], stages)
+            self.assertEqual([row['status'] for row in rows if 'status' in row],
+                             [start_status, account_status, 0] if start_status == 0 else [start_status])
+            self.assertLess(len(progress.getvalue()), 1024)
+            self.assertEqual(result['pam_start'], start_status)
+            self.assertEqual(result['conversations_refused'], 1)
+            self.assertEqual(loaded.call_args_list, [unittest.mock.call(
+                '/lib/x86_64-linux-gnu/libpam.so.0', use_errno=True)] +
+                ([unittest.mock.call('/lib/x86_64-linux-gnu/libaudit.so.1', use_errno=True)]
+                 if start_status == 0 else []))
+            opened.assert_not_called()
+            if start_status == 0:
+                self.assertEqual(result['pam_account'], account_status)
+                self.assertEqual(result['pam_account_errno'], account_errno)
+                self.assertIn({'pam_account_stage': 'pam_account_after',
+                               'status': account_status, 'errno': account_errno}, rows)
+                args = pam.pam_acct_mgmt.call_args.args
+                self.assertEqual(args[0].value, 123)
+                self.assertEqual(args[1:], (0x8000,))
+                self.assertEqual(pam.pam_end.call_args.args[1], account_status)
+                self.assertIn('unavailable', result['audit'])
+            else:
+                self.assertNotIn('pam_account', result)
+                self.assertNotIn('audit', result)
+                pam.pam_acct_mgmt.assert_not_called()
+                pam.pam_end.assert_not_called()
+            self.assertNotIn('pam_authenticate', [c[0] for c in pam.mock_calls])
+
+    def test_account_hook_library_errors_remain_diagnostic_failures(self):
+        with patch.object(os, 'getuid', return_value=0), \
+                patch.object(os, 'geteuid', return_value=0), \
+                patch.object(sys, 'stderr', new_callable=io.StringIO) as progress, \
+                patch.object(os, 'lstat', side_effect=FileNotFoundError(2, 'absent')):
+            for error in (OSError('library absent'), AttributeError('symbol absent')):
+                with self.subTest(error=error), \
+                        patch.object(loader_diagnostics.ctypes, 'CDLL', side_effect=error):
+                    result = loader_diagnostics.pam_account_hook()
+                self.assertIn('unavailable', result)
+                self.assertNotIn('pam_account', result)
+            pam = unittest.mock.Mock(spec=['pam_start', 'pam_acct_mgmt', 'pam_end'])
+            pam.pam_start.return_value = 0
+            pam.pam_end.return_value = 4
+            pam.pam_acct_mgmt.side_effect = OSError('fixture hook failure')
+            with patch.object(loader_diagnostics.ctypes, 'CDLL', return_value=pam):
+                result = loader_diagnostics.pam_account_hook()
+            self.assertIn('unavailable', result)
+            self.assertEqual(result['pam_end'], 4)
+            pam.pam_end.assert_called_once()
+            # A successful account return must survive cleanup failure too.
+            progress.seek(0)
+            progress.truncate()
+            pam.pam_acct_mgmt.side_effect = None
+            pam.pam_acct_mgmt.return_value = 0
+            pam.pam_end.side_effect = OSError('fixture cleanup failure')
+            with patch.object(loader_diagnostics.ctypes, 'CDLL', return_value=pam):
+                result = loader_diagnostics.pam_account_hook()
+            self.assertEqual(result['pam_account'], 0)
+            self.assertIn('unavailable', result)
+            self.assertNotIn('pam_end', result)
+            self.assertEqual([json.loads(line) for line in progress.getvalue().splitlines()][-4:], [
+                {'pam_account_stage': 'pam_account_after', 'status': 0, 'errno': 0},
+                {'pam_account_stage': 'pam_end_before'},
+                {'pam_account_stage': 'libaudit_load_before'},
+                {'pam_account_stage': 'libaudit_load_after'}])
+
+    def test_account_hook_observes_audit_open_and_closes_successful_descriptors(self):
+        import ctypes
+        for fd, audit_errno, close_errno in ((0, 0, None), (7, 0, None),
+                                             (-1, 1, None), (7, 0, 5)):
+            pam = unittest.mock.Mock(spec=['pam_start', 'pam_acct_mgmt', 'pam_end'])
+            pam.pam_start.return_value = 0
+            def account(*args):
+                ctypes.set_errno(1)
+                return 4
+            pam.pam_acct_mgmt.side_effect = account
+            pam.pam_end.return_value = 0
+            audit = unittest.mock.Mock(spec=['audit_open'])
+            def audit_open():
+                self.assertEqual(ctypes.get_errno(), 0)
+                pam.pam_end.assert_called_once()
+                ctypes.set_errno(audit_errno)
+                return fd
+            audit.audit_open.side_effect = audit_open
+            def close(opened_fd):
+                self.assertEqual(opened_fd, fd)
+                ctypes.set_errno(22)
+                if close_errno is not None:
+                    raise OSError(close_errno, 'fixture close failure')
+            with self.subTest(fd=fd, error=audit_errno, close_error=close_errno), \
+                    patch.object(os, 'getuid', return_value=0), \
+                    patch.object(os, 'geteuid', return_value=0), \
+                    patch.object(os, 'lstat', side_effect=FileNotFoundError(2, 'absent')), \
+                    patch.object(ctypes, 'CDLL', side_effect=[pam, audit]) as loaded, \
+                    patch.object(os, 'close', side_effect=close) as closed, \
+                    patch.object(sys, 'stderr', new_callable=io.StringIO) as progress:
+                result = loader_diagnostics.pam_account_hook()
+            self.assertEqual(result['pam_account'], 4)
+            self.assertEqual(result['pam_account_errno'], 1)
+            self.assertEqual(result['pam_end'], 0)
+            self.assertEqual(loaded.call_args_list, [unittest.mock.call(
+                '/lib/x86_64-linux-gnu/libpam.so.0', use_errno=True), unittest.mock.call(
+                '/lib/x86_64-linux-gnu/libaudit.so.1', use_errno=True)])
+            audit.audit_open.assert_called_once_with()
+            self.assertEqual(audit.audit_open.argtypes, [])
+            self.assertIs(audit.audit_open.restype, ctypes.c_int)
+            self.assertEqual(result['audit']['returncode'], fd)
+            self.assertEqual(result['audit']['errno'], audit_errno)
+            rows = [json.loads(line) for line in progress.getvalue().splitlines()]
+            self.assertIn({'pam_account_stage': 'audit_open_after',
+                           'status': fd, 'errno': audit_errno}, rows)
+            if fd >= 0:
+                closed.assert_called_once_with(fd)
+                self.assertEqual(result['audit']['close_errno'], close_errno)
+            else:
+                closed.assert_not_called()
+                self.assertNotIn('close_errno', result['audit'])
+            self.assertLess(len(progress.getvalue()), 2048)
+
+        # Missing audit library/symbol must preserve the completed PAM result.
+        for error in (OSError('library absent'), AttributeError('symbol absent')):
+            with self.subTest(error=error), patch.object(os, 'getuid', return_value=0), \
+                    patch.object(os, 'geteuid', return_value=0), \
+                    patch.object(os, 'lstat', side_effect=FileNotFoundError(2, 'absent')), \
+                    patch.object(ctypes, 'CDLL', side_effect=[pam, error]), \
+                    patch.object(os, 'close') as closed, \
+                    patch.object(sys, 'stderr', new_callable=io.StringIO):
+                result = loader_diagnostics.pam_account_hook()
+            self.assertEqual(result['pam_account'], 4)
+            self.assertEqual(result['pam_account_errno'], 1)
+            self.assertIn('unavailable', result['audit'])
+            self.assertNotIn('returncode', result['audit'])
+            closed.assert_not_called()
+
+    def test_account_progress_survives_child_timeout_and_exit(self):
+        # Real pipes/termination, fake native calls only: no PAM, account stores,
+        # Docker, sockets or namespace operations. Buffered stderr ensures this
+        # tests explicit flushing, not Python's default line-buffered stderr.
+        script = '''
+import io, os, runpy, sys, time
+from unittest.mock import Mock, patch
+hook = runpy.run_path(sys.argv[1])['pam_account_hook']
+sys.stderr = io.TextIOWrapper(sys.stderr.buffer, line_buffering=False, write_through=False)
+pam = Mock(spec=['pam_start', 'pam_acct_mgmt', 'pam_end'])
+pam.pam_start.return_value = 0
+pam.pam_acct_mgmt.return_value = 0
+pam.pam_end.return_value = 0
+audit = Mock(spec=['audit_open'])
+if sys.argv[2] == 'timeout':
+    pam.pam_acct_mgmt.side_effect = lambda *args: time.sleep(60)
+elif sys.argv[2] == 'exit':
+    pam.pam_end.side_effect = lambda *args: os._exit(23)
+elif sys.argv[2] == 'audit-timeout':
+    audit.audit_open.side_effect = lambda: time.sleep(60)
+else:
+    audit.audit_open.side_effect = lambda: os._exit(23)
+with patch('os.getuid', return_value=0), patch('os.geteuid', return_value=0), \\
+        patch('os.lstat', side_effect=FileNotFoundError(2, 'fixture absent')), \\
+        patch('ctypes.CDLL', side_effect=[pam, audit]):
+    hook()
+'''
+        for mode in ('timeout', 'exit', 'audit-timeout', 'audit-exit'):
+            with self.subTest(mode=mode):
+                result = loader_diagnostics.process_record(
+                    [sys.executable, '-I', '-S', '-c', script,
+                     loader_diagnostics.__file__, mode], loader_debug=False)
+                self.assertEqual(result['stdout'], '')
+                self.assertFalse(result['truncated'])
+                rows = [json.loads(line) for line in result['stderr'].splitlines()]
+                self.assertEqual(rows[0], {'pam_account_stage': 'entry'})
+                self.assertIn({'pam_account_stage': 'pam_start_after', 'status': 0}, rows)
+                if mode.endswith('timeout'):
+                    self.assertTrue(result['timeout'])
+                else:
+                    self.assertEqual(result['returncode'], 23)
+                if mode.startswith('audit-'):
+                    self.assertIn({'pam_account_stage': 'pam_account_after',
+                                   'status': 0, 'errno': 0}, rows)
+                    self.assertIn({'pam_account_stage': 'pam_end_after', 'status': 0}, rows)
+                    self.assertEqual(rows[-1], {'pam_account_stage': 'audit_open_before'})
+                elif mode == 'timeout':
+                    self.assertEqual(rows[-1], {'pam_account_stage': 'pam_account_before'})
+                else:
+                    self.assertEqual(rows[-2:], [
+                        {'pam_account_stage': 'pam_account_after', 'status': 0, 'errno': 0},
+                        {'pam_account_stage': 'pam_end_before'}])
+
+    def test_account_process_is_bounded_and_retains_crash_timeout_and_missing_runtime(self):
+        for status in (0, 1, -11):
+            with self.subTest(status=status), patch.object(subprocess, 'run', return_value=
+                    subprocess.CompletedProcess([], status, b'x' * 40000, b'y' * 40000)) as run:
+                result = loader_diagnostics.account_process_record()
+            self.assertEqual(result['returncode'], status)
+            self.assertTrue(result['truncated'])
+            self.assertEqual(len(result['stdout']), loader_diagnostics.MAX_OUTPUT)
+            self.assertEqual(len(result['stderr']), loader_diagnostics.MAX_OUTPUT)
+            self.assertEqual(run.call_args.args[0], ['/usr/bin/python3', '-I', '-S',
+                '/ptw-native-tools/loader_diagnostics.py', '--pam-account-hook'])
+            self.assertEqual(run.call_args.kwargs['timeout'], 5)
+            self.assertEqual(run.call_args.kwargs['env'], {'PATH': '/usr/bin:/bin', 'LC_ALL': 'C'})
+        with patch.object(subprocess, 'run', side_effect=subprocess.TimeoutExpired(
+                ['fixture'], 5, output=b'x' * 40000, stderr=b'timed out')):
+            result = loader_diagnostics.account_process_record()
+        self.assertTrue(result['timeout'])
+        self.assertTrue(result['truncated'])
+        self.assertEqual(len(result['stdout']), loader_diagnostics.MAX_OUTPUT)
+        self.assertEqual(result['stderr'], 'timed out')
+        with patch.object(subprocess, 'run', side_effect=subprocess.TimeoutExpired(['fixture'], 5)):
+            result = loader_diagnostics.account_process_record()
+        self.assertTrue(result['timeout'])
+        self.assertFalse(result['truncated'])
+        self.assertEqual((result['stdout'], result['stderr']), ('', ''))
+        with patch.object(subprocess, 'run', side_effect=FileNotFoundError(2, 'absent')):
+            self.assertEqual(loader_diagnostics.account_process_record()['errno'], 2)
 
     def test_sudo_failure_retains_diagnostics_before_unchanged_assertion(self):
         # Execute the actual diagnostic/sudo section with a failed process
@@ -884,11 +1262,15 @@ class BridgeNamespaceTests(unittest.TestCase):
         for error in ('unable to load /usr/libexec/sudo/sudoers.so: Permission denied',
                       'unable to open /etc/sudoers: Permission denied',
                       '/etc/sudoers.d: Permission denied',
-                      'unable to initialize PAM: Critical error - immediate abort'):
+                      'unable to initialize PAM: Critical error - immediate abort',
+                      'PAM account management error: Operation not permitted'):
             outputs.clear()
+            account = unittest.mock.Mock(return_value={'returncode': 0, 'stdout': '{"pam_account": 9}'})
             failure = subprocess.CompletedProcess(['sudo'], 1, '', 'sudo: ' + error)
             with self.subTest(error=error), \
-                    patch('runpy.run_path', return_value={'confined_record': lambda _: {'fixture': 'diagnostic'}}), \
+                    patch('runpy.run_path', return_value={
+                        'confined_record': lambda _: {'fixture': 'diagnostic'},
+                        'account_process_record': account}), \
                     patch.object(subprocess, 'run', return_value=failure), patch('builtins.open', side_effect=opened):
                 with self.assertRaises(AssertionError) as raised:
                     exec(section, {'json': json, 'runpy': __import__('runpy'), 'subprocess': subprocess,
@@ -897,6 +1279,12 @@ class BridgeNamespaceTests(unittest.TestCase):
             self.assertEqual(outputs['/probe/loader-confined.json'], {'fixture': 'diagnostic'})
             self.assertEqual(outputs['/probe/sudo-exec.json']['returncode'], 1)
             self.assertEqual(outputs['/probe/sudo-exec.json']['stderr'], failure.stderr)
+            if 'PAM account management error' in error:
+                account.assert_called_once_with()
+                self.assertEqual(outputs['/probe/pam-account-hook.json'], account.return_value)
+            else:
+                account.assert_not_called()
+                self.assertNotIn('/probe/pam-account-hook.json', outputs)
 
 
 class BridgeNativePrerequisiteTests(unittest.TestCase):

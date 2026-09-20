@@ -1,7 +1,7 @@
 # Native execution boundary
 
 The controller lifecycle has passed native development checks. The new
-`linuxarena_namespace` launcher is a confinement seam awaiting native validation,
+`linuxarena_namespace` launcher is a confinement seam with a failing native user-switch check,
 not a completed LinuxArena adapter. Use the prerequisite command in the
 [bridge guide](README.md); it makes no model calls.
 
@@ -25,7 +25,7 @@ not model tools; production binding to the approved task policy is unfinished.
 Nono's private home/state directory is separate from writable `/tmp`; no resource
 grant may overlap it. A trusted outer waiter retains the payload exit status so
 initialization failures identify the private stderr receipt instead of waiting
-for a physical-effect timeout. Native compatibility remains pending.
+for a physical-effect timeout. Native compatibility remains unresolved.
 
 The prerequisite retains bounded private sudo loader diagnostics before asserting
 user switching: image paths, symlinks, owner/mode, hashes, ELF interpreter,
@@ -42,54 +42,86 @@ differ from setuid execution and is not evidence of successful user switching.
 Only the unchanged useful-dev-work and denied-private-read assertions qualify.
 No runtime grant or library substitution is inferred from these diagnostics.
 
-The fixed sudo runtime reads are `/usr/libexec/sudo/libsudo_util.so.0.0.0`,
-`/usr/libexec/sudo/sudoers.so` and `/etc/sudoers` (nono `--read-file`), plus
-`/etc/sudoers.d` (`--read`), all within existing read-only mounts. Sudo must
-enumerate and read its [include directory](https://raw.githubusercontent.com/sudo-project/sudo/main/docs/sudoers.man.in);
-the retained native failure reached that directory after reading the main
-configuration. The [pinned nono options](https://raw.githubusercontent.com/nolabs-ai/nono/v0.77.0/crates/nono-cli/src/cli.rs)
-provide these file/directory reads. No `/etc` grant, runtime write or added
-capability is required by this change. Resource arguments cannot select or
-override these trusted paths.
+The fixed sudo reads are its image library/plugin under `/usr/libexec/sudo`,
+`/etc/sudoers`, `/etc/sudoers.d` and `/etc/pam.d`, all mounted read-only. These
+address demonstrated native denials; resource arguments cannot override them.
+There is no broad `/etc` grant or extra capability. The synthetic namespace
+creates `/etc` with mode `0755` and its private `/tmp` with mode `1777` for
+ordinary user traversal and temporary files. No host directory mode changes.
+PAM/sudoers write attempts and forged includes remain required denial probes.
 
-Image and confined diagnostics inspect plugin/configuration metadata and a bounded
-include-directory listing with explicit access errors; configuration contents are
-never emitted. Native validation must still establish useful dev-user work,
-denied private access and rejected configuration writes/forged include files.
-The mapping alone does not establish complete sudo compatibility.
+The inventory follows trusted PAM includes within `/etc/pam.d` (at most 32 files,
+64 KiB per file and 1,024 logical lines), recording metadata, hashes, include
+identities and selected modules without emitting options or configuration text.
+It retains malformed/missing/denied entries and limits. Selected module
+`DT_NEEDED` candidates are inspected recursively in the pinned Debian x86_64
+library directories (32 module entries per configuration, 256 library paths).
+Links outside `/usr/lib` and `/lib` are rejected before opening. This is bounded
+candidate discovery, not dynamic-loader emulation or account-hook execution.
+Package identities (including `libaudit1`) and hostname/NSS/resolver metadata are recorded separately;
+there are no DNS probes. Full metadata stays in private receipts; only the
+complete path list and interpreter enter the bounded launch argument.
 
-PAM diagnostics compare `/etc/pam.d/sudo`, `/etc/pam.d/other` and their
-trusted-image includes against the same confined paths, including paths whose
-parent configuration was denied. Discovery supports `@include`, `include` and
-`substack` within `pam.d`, bounded to 32 files, 64 KiB per file and 1,024 logical
-lines. Missing/denied files, malformed includes, links outside that directory and
-limits remain explicit; this is not a full PAM policy validator. Only metadata,
-hashes and include identities are recorded, never configuration contents.
-The image receipt also records selected sudo/PAM package identities from the
-local Debian package database. These identify package records, not proof that
-an upstream source version matches every installed binary.
+The retained native check found all seven PAM configuration files, eight present
+sudo runtime files and 46 present PAM module/library candidates readable under
+confinement with matching image hashes. Sudo nevertheless failed during account
+management, before useful dev-user work. These observations do not justify
+another library grant. Hostname/audit warnings are separate observations.
 
-Hostname, hosts, NSS and resolver files receive separate metadata observations
-without DNS or network probes. Diagnostics themselves add no permissions
-or mounts. A PAM initialization error remains a failed compatibility check;
-it cannot satisfy the useful-user-work/private-read-denial assertions. The
-[sudo PAM implementation](https://raw.githubusercontent.com/sudo-project/sudo/SUDO_1_9_15p5/plugins/sudoers/auth/pam.c)
-and [Linux-PAM initialization](https://raw.githubusercontent.com/linux-pam/linux-pam/v1.4.0/libpam/pam_start.c)
-explain that failure stage; [PAM include loading](https://raw.githubusercontent.com/linux-pam/linux-pam/v1.4.0/libpam/pam_handlers.c)
-motivates inspecting the configuration graph.
+After that specific sudo failure, the fixture runs one separate five-second
+PAM diagnostic inside the unchanged confinement. It uses the public
+`pam_acct_mgmt` API with the image's `sudo` account stack, a `root` handle and
+`PAM_SILENT`, matching sudo's account-call flag. It refuses every conversation
+without reading messages or supplying responses, and refuses to load PAM unless
+the confined `/etc/shadow` path is absent. No account store is copied, synthesized,
+mounted or granted. The configured modules remain subject to the existing ceiling.
 
-The runtime now grants read access to the existing read-only `/etc/pam.d` mount:
-native diagnostics found all seven image configuration/include files readable
-outside confinement and denied inside it. PAM writes and forged includes remain
-explicit denial probes. The synthetic namespace creates `/etc` with mode `0755`
-before mounting individual runtime files, and its private `/tmp` with mode `1777`.
-This preserves traversal and temporary-file creation after switching Unix user;
-it changes no host directory or image configuration. Bubblewrap's
-[directory and tmpfs options](https://raw.githubusercontent.com/containers/bubblewrap/v0.12.0/bubblewrap.c)
-define these modes. The native fixture asserts both modes, a dev-owned useful
-file, readable account metadata and denied private access. Full sudo/PAM
-compatibility still requires that fixture to pass; hostname warnings are
-recorded separately and do not justify broader runtime grants.
+The private `pam-account-hook.json` retains numeric start/account/end returns,
+account-call errno, conversation count, missing prerequisites, timeout, crash and
+bounded output. Immediately flushed stage markers preserve completed returns and
+errno before cleanup can replace them. A last marker locates progress, not the
+cause of a stall. The evidence envelope binds the receipt to source and image.
+This is not full sudo equivalence: it does not reproduce all sudo PAM items,
+authentication or session setup. Only the original useful-dev-work and
+private-read-denial assertions qualify; diagnostic success cannot satisfy them.
+
+The retained public-API diagnostic completed: start=0, account=4 with errno=1,
+end=0, no conversations or timeout. The same child measured `audit_open=-1`,
+errno=1 (EPERM). The image identifies `libaudit1` as `1:3.0.7-1build1`, PAM as
+`1.4.0-11ubuntu2.6` and sudo as `1.9.9-1ubuntu2.5`. This does not establish an
+account-stack failure or success:
+[PAM auditing](https://raw.githubusercontent.com/linux-pam/linux-pam/v1.4.0/libpam/pam_audit.c)
+can replace that result when opening its audit connection fails.
+After preserving the account result and attempting PAM cleanup, the same guarded
+child observes one image `libaudit.so.1` `audit_open` call, recording its return
+and errno immediately and closing any returned descriptor, including zero.
+Close errors and missing libraries/symbols remain explicit. The observation uses
+the existing five-second deadline and flushed markers, sends no audit requests,
+reads no audit records and changes no audit configuration or capabilities.
+[Upstream audit_open](https://raw.githubusercontent.com/linux-audit/audit-userspace/v3.0.7/lib/netlink.c)
+opens a NETLINK_AUDIT socket; the image library hash is already in the runtime
+inventory. Earlier direct-module-call diagnostics were invalid because they
+bypassed public PAM dispatch; their timeouts do not establish the cause.
+
+The installed binary reports nono 0.77.0. Its published
+[TCP-only static filter](https://github.com/nolabs-ai/nono/blob/v0.77.0/crates/nono/src/sandbox/linux.rs)
+rejects netlink with EPERM in the selected `auto` policy. This explains the
+observed audit-open denial, although the receipt is not a syscall trace of the
+installed binary. PAM converts that audit-open failure to a system error;
+[sudo also treats it as an audit failure](https://raw.githubusercontent.com/sudo-project/sudo/SUDO_1_9_9/plugins/sudoers/linux_audit.c).
+The installed CLI exposes no audit-protocol exception. Its `landlock` and
+`external` modes are not equivalent replacements for this static network filter.
+
+The required native root-to-dev route is therefore **unsupported by the current
+adapter**. No admissible correction has been established within the pinned
+confinement interface. Removing network filtering, granting audit/admin
+capabilities, changing PAM, or translating EPERM into an unsupported-protocol
+error to avoid PAM's failure is not an accepted fix. The latter would change
+audit failure handling even while denying the socket. No such workaround is
+implemented. A reviewed confinement integration that preserves required native
+authentication and network denial is needed before further adapter work. Keep
+the useful-dev-work and private-read assertions mandatory; do not replace native
+sudo/cron behavior with a successful diagnostic or trusted preselected UID.
 
 Host bubblewrap requires a newer libc than the pinned image. The fixture therefore
 copies the already installed bubblewrap/nono binaries and their resolved shared

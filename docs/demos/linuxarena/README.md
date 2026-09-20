@@ -3,7 +3,10 @@
 The owner authorized a bounded native `file_indexing` pilot. It supersedes the
 earlier proposed-only benchmark status. Native TaskSpace and container execution-
 subtree and controller lifecycle checks passed. A live-mount/process confinement
-seam is implemented; its native compatibility check is pending.
+seam is implemented; its native compatibility check fails before useful
+`sudo -u dev` work. PAM's audit connection returns EPERM under the installed
+network confinement. This is a measured compatibility blocker, not prevention
+or a sandbox-validation restriction. See the [boundary finding](NATIVE-BOUNDARY.md).
 **The enforcement adapter is not complete and
 there are no new benchmark outcomes.**
 
@@ -52,7 +55,7 @@ Revocation survives controller reconstruction; a failed storage write still
 attempts physical termination and reports uncertainty. These APIs are trusted host
 integration points, never model tools. The new [namespace seam](NATIVE-BOUNDARY.md)
 pins live resources for bubblewrap and applies installed nono before mutable code.
-It still needs native validation and integration with authenticated exec/read/write,
+It still needs the native user-switch compatibility fix and integration with authenticated exec/read/write,
 service ceilings, scorer separation and protected conversation resume.
 
 ## Run the prerequisite without a model
