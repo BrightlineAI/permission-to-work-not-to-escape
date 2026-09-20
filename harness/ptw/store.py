@@ -65,6 +65,8 @@ class Store:
                 CREATE TABLE IF NOT EXISTS workloads(
                   unit TEXT PRIMARY KEY, project TEXT NOT NULL, session TEXT NOT NULL,
                   stopped INTEGER DEFAULT 0);
+                CREATE TABLE IF NOT EXISTS native_workloads(
+                  unit TEXT PRIMARY KEY, binding TEXT NOT NULL, revoked INTEGER NOT NULL DEFAULT 0);
                 CREATE TABLE IF NOT EXISTS package_sets(
                   id TEXT PRIMARY KEY, project TEXT NOT NULL, names TEXT NOT NULL,
                   manifest TEXT NOT NULL, created REAL NOT NULL);
@@ -478,8 +480,12 @@ class Store:
             if row['project'] != project and row['session'] not in (sessions or []):
                 continue
             try:
-                Supervisor(self).terminate(row['unit'])
-            except (Invalid, OSError, subprocess.SubprocessError):
+                supervisor = Supervisor(self)
+                if row['unit'].startswith('ptw-native-'):
+                    supervisor.terminate(row['unit'], db=db)
+                else:
+                    supervisor.terminate(row['unit'])
+            except (Invalid, OSError, sqlite3.Error, subprocess.SubprocessError):
                 pass
 
     @staticmethod

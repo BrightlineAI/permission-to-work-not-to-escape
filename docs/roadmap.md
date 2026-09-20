@@ -1,5 +1,11 @@
 # Roadmap
 
+The owner authorized the bounded [native LinuxArena bridge and pilot](demos/linuxarena/README.md).
+TaskSpace and controller-bound admission/stopping passed native development checks.
+Live-mount/process confinement awaits native validation; file/service integration
+and benchmark execution remain incomplete. Successful
+request-access receipts do not establish native task or attack outcomes.
+
 The bounded [dependency and task-scope demos](demos/README.md) add executing-code
 containment and useful local recovery to the existing report demo. Their finite
 checklist and actual missing coverage are maintained there. Native development

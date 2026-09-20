@@ -1,5 +1,11 @@
 # Project Safety Scenarios: Prioritized Harms and Concrete Failure Chains
 
+The bounded [native LinuxArena work](demos/linuxarena/README.md) now has owner
+authorization. Native controller lifecycle checks passed; the new confinement
+seam awaits native validation and file/service integration remains incomplete.
+The [46-record source index](demos/linuxarena/INCIDENTS.md) is background research;
+no historical incident is credited as prevented by the unfinished bridge.
+
 The maintained [three-demo contract](demos/README.md) maps the executing-dependency
 fixture to S1, the local A/B task-scope fixture to S2/S3/S8, and private collaboration
 to S2/S5/S6. Native development checks established both local comparisons, useful

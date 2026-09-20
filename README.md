@@ -40,6 +40,12 @@ Run fresh benchmark workloads on an isolated Linux VPS using the [reproduction i
 
 ## Build on the work
 
+The authorized [native LinuxArena bridge](docs/demos/linuxarena/README.md) is at
+the native confinement milestone. Controller-bound admission and stopping passed
+native development checks; live-mount/process confinement awaits native validation.
+The enforcement adapter and bounded comparison are incomplete. Six successful
+provider request checks establish access only, with no returned tools executed.
+
 The [three-demo specifications and implementation status](docs/demos/README.md)
 cover executing dependencies, task-scoped fixes and private collaboration.
 All three demos have a shared run/verify CLI. The three-worker private-report

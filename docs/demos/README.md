@@ -2,6 +2,12 @@
 
 ## Implementation status
 
+The later owner amendment authorizes a bounded [native LinuxArena bridge and
+pilot](linuxarena/README.md). Native controller lifecycle checks passed; the
+confinement seam awaits native validation. The adapter and pilot are incomplete. This supersedes the proposed-only
+benchmark language in the historical delivery section below. See the
+[46 incident source records](linuxarena/INCIDENTS.md) for research context.
+
 These maintained specifications describe required outcomes. A storyboard is not
 a measured result. [Alternatives](ALTERNATIVES.md) are documentation comparisons,
 not performance measurements.

@@ -1,0 +1,985 @@
+"""Staged native bridge acceptance; currently tests the prerequisite milestone.
+
+No optional skips: native prerequisites fail if the approved runtime is absent.
+These tests do not establish a completed adapter, scorer or benchmark result.
+"""
+import hashlib
+import ast
+import json
+import os
+import shutil
+from pathlib import Path
+import sys
+import tempfile
+import concurrent.futures
+import threading
+import unittest
+import struct
+import subprocess
+from unittest.mock import patch
+
+SCRIPTS = Path(__file__).resolve().parents[1] / 'scripts'
+if str(SCRIPTS) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS))
+
+import linuxarena_preflight as preflight
+from evidence_io import load
+from ptw.linuxarena_cgroup import ExecutionSubtree, container_group
+from ptw.policy import Invalid
+from ptw import linuxarena_lifecycle as lifecycle
+from ptw.policy import approve, compile_policy, digest as policy_digest
+from ptw.sample import create as create_sample
+from ptw.store import Store
+from ptw.supervisor import Supervisor
+from ptw import linuxarena_namespace as namespace
+import linuxarena_confinement as confinement
+import linuxarena_loader_diagnostics as loader_diagnostics
+
+
+class BridgePrerequisiteTests(unittest.TestCase):
+    def test_reopen_requires_original_inode_and_never_removes_a_replacement(self):
+        import ptw.linuxarena_cgroup as cgroups
+        with tempfile.TemporaryDirectory(dir='/tmp') as directory:
+            root = Path(directory)
+            cid = 'a' * 64
+            group = '/docker-' + cid + '.scope'
+            leaf = root / group[1:] / ('ptw-' + 'b' * 24)
+            leaf.mkdir(parents=True)
+            (leaf / 'cgroup.type').write_text('domain\n')
+            info = leaf.stat()
+            identity = dict(container_id=cid, cgroup=group + '/' + leaf.name,
+                            device=info.st_dev, inode=info.st_ino, boot_id=cgroups.boot_identity())
+            with patch.object(cgroups, 'CGROUP_ROOT', root):
+                opened = ExecutionSubtree.reopen(identity)
+                opened.close(remove=False)
+                self.assertTrue(leaf.is_dir())
+                leaf.rename(leaf.with_name('retained-original'))
+                leaf.mkdir()
+                with self.assertRaisesRegex(Invalid, 'replaced'):
+                    ExecutionSubtree.reopen(identity)
+                self.assertTrue(leaf.is_dir())
+
+    def test_reopen_rejects_boot_and_path_replacements_before_kernel_access(self):
+        from ptw.linuxarena_cgroup import boot_identity
+        cid = 'a' * 64
+        identity = dict(container_id=cid, cgroup='/user.slice/docker-' + cid + '.scope/ptw-' + 'b' * 24,
+                        device=2, inode=3, boot_id=boot_identity())
+        with patch('os.open') as opened:
+            with self.assertRaisesRegex(Invalid, 'stale'):
+                ExecutionSubtree.reopen({**identity, 'boot_id': 'not-current-boot'})
+            for group in ('/', identity['cgroup'] + '/child', '/user.slice/ptw-' + 'b' * 24):
+                with self.subTest(group=group), self.assertRaises(Invalid):
+                    ExecutionSubtree.reopen({**identity, 'cgroup': group})
+            opened.assert_not_called()
+
+    def test_only_exact_container_scope_is_admitted(self):
+        cid = 'a' * 64
+        scope = '/user.slice/session.slice/docker-' + cid + '.scope'
+        self.assertEqual(str(container_group(scope, cid)), '/sys/fs/cgroup' + scope)
+        for group, identity in (
+            ('/', cid), ('/user.slice', cid), (scope + '/child', cid),
+            (scope, 'b' * 64), (scope, 'short'), (scope, None),
+            ('/user.slice/../' + Path(scope).name, cid), ('/' + scope, cid),
+            (scope + '/', cid), (scope[1:], cid), (None, cid),
+        ):
+            with self.subTest(group=group, identity=identity), self.assertRaises(Invalid):
+                container_group(group, identity)
+
+    def test_revoked_subtree_rejects_admission_before_process_access(self):
+        subtree = ExecutionSubtree.__new__(ExecutionSubtree)
+        subtree.revoked, subtree.closed = True, False
+        with patch('os.pidfd_open') as opened, self.assertRaises(Invalid):
+            subtree.admit_stopped({'pid': os.getpid()})
+        opened.assert_not_called()
+
+    def test_actual_source_bytes_checked_against_pin(self):
+        with tempfile.TemporaryDirectory(dir='/tmp') as directory:
+            root = Path(directory)
+            content = b'print("trusted source")\n'
+            (root / 'module.py').write_bytes(content)
+            oid = hashlib.sha1(b'blob ' + str(len(content)).encode() + b'\0' + content).hexdigest()
+            def command(argv):
+                if 'rev-parse' in argv:
+                    return (preflight.CT_PIN + '\n').encode()
+                return b'100644 blob ' + oid.encode() + b'\tmodule.py\0'
+            result = preflight.source_tree(root, preflight.CT_PIN, command)
+            self.assertEqual(result['files_sha256']['module.py'], hashlib.sha256(content).hexdigest())
+            # A clean-looking revision is insufficient, including staged bytes.
+            (root / 'module.py').write_text('changed')
+            with self.assertRaisesRegex(ValueError, 'content differs'):
+                preflight.source_tree(root, preflight.CT_PIN, command)
+            (root / 'module.py').unlink()
+            (root / 'target').write_bytes(content)
+            (root / 'module.py').symlink_to('target')
+            with self.assertRaisesRegex(ValueError, 'changed type'):
+                preflight.source_tree(root, preflight.CT_PIN, command)
+
+    def test_credential_free_child_environment_and_closed_provider(self):
+        with patch.dict(os.environ, {'OPENROUTER_API_KEY': 'must-not-propagate',
+                                     'AWS_SECRET_ACCESS_KEY': 'must-not-propagate',
+                                     'PYTHONPATH': '/attacker', 'DOCKER_HOST': 'tcp://untrusted'}):
+            env = preflight.child_environment(Path('/retained'), Path('/receipts'))
+        self.assertNotIn('AWS_SECRET_ACCESS_KEY', env)
+        self.assertNotIn('PYTHONPATH', env)
+        self.assertNotIn('DOCKER_HOST', env)
+        self.assertEqual(env['OPENROUTER_BASE_URL'], 'http://127.0.0.1:1/api/v1')
+        self.assertNotEqual(env['OPENROUTER_API_KEY'], 'must-not-propagate')
+        self.assertEqual(env['HOME'], '/receipts/home')
+
+    def test_output_rejects_reuse_links_and_checkout(self):
+        with tempfile.TemporaryDirectory(dir='/tmp') as directory:
+            root = Path(directory)
+            destination = preflight.private_output(root / 'new')
+            self.assertEqual(destination.stat().st_mode & 0o777, 0o700)
+            with self.assertRaises(FileExistsError):
+                preflight.private_output(destination)
+            (root / 'alias').symlink_to(destination, target_is_directory=True)
+            with self.assertRaises(ValueError):
+                preflight.private_output(root / 'alias/escape')
+            (root / '.git').mkdir()
+            (root / '.git/HEAD').write_text('ref: refs/heads/main\n')
+            with self.assertRaisesRegex(ValueError, 'outside checkouts'):
+                preflight.private_output(root / 'inside')
+            self.assertFalse((root / 'inside').exists())
+
+    def test_empty_git_sentinel_is_not_a_checkout(self):
+        with tempfile.TemporaryDirectory(dir='/tmp') as directory:
+            root = Path(directory)
+            (root / '.git').mkdir()
+            self.assertEqual(preflight.private_output(root / 'new'), root / 'new')
+            # An empty nearer marker cannot hide a checkout ancestor.
+            (root / 'new/.git').mkdir()
+            (root / '.git/HEAD').write_text('ref: refs/heads/main\n')
+            with self.assertRaisesRegex(ValueError, 'outside checkouts'):
+                preflight.private_output(root / 'new/nested')
+            self.assertFalse((root / 'new/nested').exists())
+
+    def test_gitfiles_and_linked_metadata_rejected_before_creation(self):
+        with tempfile.TemporaryDirectory(dir='/tmp') as directory:
+            root = Path(directory)
+            marker = root / '.git'
+            # Worktree gitfiles, malformed files and even empty files remain
+            # denied; only an actually empty directory is a sentinel.
+            for content in ('gitdir: /not-followed\n', 'invalid', ''):
+                with self.subTest(content=content):
+                    marker.write_text(content)
+                    with self.assertRaisesRegex(ValueError, 'outside checkouts'):
+                        preflight.private_output(root / 'new')
+                    self.assertFalse((root / 'new').exists())
+                    marker.unlink()
+            for target in (root / 'absent', root / 'empty'):
+                (root / 'empty').mkdir(exist_ok=True)
+                marker.symlink_to(target)
+                with self.assertRaisesRegex(ValueError, 'outside checkouts'):
+                    preflight.private_output(root / 'new')
+                self.assertFalse((root / 'new').exists())
+                marker.unlink()
+
+    def test_source_checkout_rejected_even_with_masked_metadata(self):
+        destination = SCRIPTS.parents[1] / 'must-not-create-receipts'
+        with self.assertRaisesRegex(ValueError, 'outside checkouts'):
+            preflight.private_output(destination)
+        self.assertFalse(destination.exists())
+
+    def test_missing_runtime_does_not_start_commands(self):
+        with tempfile.TemporaryDirectory(dir='/tmp') as directory, patch.object(preflight, 'Commands') as commands:
+            with self.assertRaises(ValueError):
+                preflight.run(Path(directory) / 'missing', Path(directory) / 'new')
+            commands.assert_not_called()
+
+    def test_failed_native_taskspace_is_retained_without_docker(self):
+        with tempfile.TemporaryDirectory(dir='/tmp') as directory:
+            root = Path(directory)
+            runtime = root / 'runtime'
+            runtime.mkdir()
+            with patch.object(preflight, 'source_tree', return_value={'commit': 'test fixture'}), \
+                    patch.object(preflight.Commands, '__call__', side_effect=ValueError('native import failure')), \
+                    patch.object(preflight, 'daemon_environment') as docker:
+                with self.assertRaisesRegex(ValueError, 'native import failure'):
+                    preflight.run(runtime, root / 'attempt')
+            docker.assert_not_called()
+            receipt = load(root / 'attempt/attempt.json')
+            self.assertEqual(receipt['status'], 'failed')
+            self.assertEqual(receipt['error_type'], 'ValueError')
+            self.assertEqual(receipt['paid_calls'], 0)
+            self.assertIn('ended_epoch', receipt)
+
+
+class BridgeLifecycleTests(unittest.TestCase):
+    """Real controller persistence, mocked kernel boundary; not physical proof."""
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(prefix='ptw-native-lifecycle-', dir='/tmp')
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        create_sample(self.root / 'fixture')
+        policy = load(self.root / 'fixture/policy.json')
+        inventory = load(self.root / 'fixture/inventory.json')
+        self.store = Store(self.root / 'state')
+        self.store.activate(approve(policy, inventory, policy_digest(compile_policy(policy, inventory)),
+                                   'deterministic lifecycle test'))
+        self.actor = self.store.register('website', 'frontend')
+        self.other = self.store.register('website', 'operations')
+        self.cid, self.nonce = 'a' * 64, 'b' * 24
+        self.group = '/user.slice/docker-' + self.cid + '.scope'
+        self.control = dict(pid=123, starttime=456, state='S', cgroup=self.group,
+                            pid_namespace='pid:[1]', user_namespace='user:[2]')
+        self.expected = dict(self.control, pid=124, state='T')
+        self.kernel = unittest.mock.Mock()
+        self.kernel.closed = self.kernel.revoked = False
+        self.kernel.populated.return_value = False
+        self.kernel.parent, self.kernel.name = container_group(self.group, self.cid), 'ptw-' + self.nonce
+        self.kernel.identity = dict(container_id=self.cid, cgroup=self.group + '/ptw-' + self.nonce,
+                                    device=2, inode=3, boot_id='fixture-boot')
+        self.kernel.admit_stopped.return_value = dict(self.expected, cgroup=self.kernel.identity['cgroup'])
+        self.kernel.terminate.return_value = {**self.kernel.identity, 'confirmed_stopped': True}
+        for name, value in (('process_identity', lambda pid: self.control),
+                            ('ExecutionSubtree.reopen', lambda identity: self.kernel)):
+            mock = patch('ptw.linuxarena_lifecycle.' + name, side_effect=value)
+            mock.start()
+            self.addCleanup(mock.stop)
+        self.unit = lifecycle.register(self.store, self.actor['token'], self.kernel,
+                                       daemon_id='verified-fixture-daemon', control=self.control)
+
+    def test_authenticated_reopen_preserves_intent_and_rejects_replay(self):
+        store = Store(self.root / 'state')
+        observed = lifecycle.admit(store, self.actor['token'], self.unit, self.expected)
+        self.assertEqual(observed['cgroup'], self.kernel.identity['cgroup'])
+        with self.assertRaisesRegex(Invalid, 'already attempted'):
+            lifecycle.admit(store, self.actor['token'], self.unit, self.expected)
+        self.assertEqual(self.kernel.admit_stopped.call_count, 1)
+        events = store.audit_export('website')['events']
+        launch = next(e for e in events if e['request']['action'] == 'workload_launch')
+        self.assertEqual(launch['state'], 'complete')
+        self.assertEqual(launch['result']['effect'], 'workload_started')
+        self.assertNotIn(self.actor['token'], json.dumps(events))
+
+    def test_forged_other_closed_and_stopped_sessions_never_release(self):
+        for token in ('forged-' * 8, self.other['token']):
+            with self.assertRaises(Invalid):
+                lifecycle.admit(self.store, token, self.unit, self.expected)
+        self.store.close_session(self.actor['token'], outcome='surrender')
+        with self.assertRaises(Invalid):
+            lifecycle.admit(self.store, self.actor['token'], self.unit, self.expected)
+        self.kernel.admit_stopped.assert_not_called()
+        outcomes = Supervisor(self.store).reconcile()
+        self.assertTrue(outcomes[0]['confirmed_stopped'])
+        self.assertFalse(self.store.status('website')['stopped'])
+
+    def test_project_stop_and_reconcile_use_native_backend_without_systemd(self):
+        self.assertFalse(Supervisor(self.store).observe(self.unit)['confirmed_stopped'])
+        self.store.stop('website')
+        with patch('ptw.supervisor.run') as systemd:
+            result = Supervisor(Store(self.root / 'state')).reconcile()
+        systemd.assert_not_called()
+        self.assertTrue(result[0]['confirmed_stopped'])
+        self.assertTrue(Supervisor(self.store).observe(self.unit)['confirmed_stopped'])
+        with self.store.locked() as db:
+            self.assertEqual(db.execute('SELECT revoked FROM native_workloads').fetchone()[0], 1)
+            self.assertEqual(db.execute('SELECT stopped FROM workloads').fetchone()[0], 1)
+        with self.assertRaises(Invalid):
+            lifecycle.admit(self.store, self.actor['token'], self.unit, self.expected)
+        self.kernel.admit_stopped.assert_not_called()
+
+    def test_explicit_surrender_reobserves_native_work_and_preserves_sibling(self):
+        from ptw.workflow import end_session
+        for index in range(2):
+            result = end_session(self.store, self.actor['token'], 'surrender')
+            self.assertTrue(result['confirmed_stopped'])
+            self.assertTrue(result['admission_closed'])
+            self.assertFalse(result['completion_verified'])
+        with self.store.locked() as db:
+            self.assertEqual(self.store.session(db, self.other['token'])['id'], self.other['session'])
+        self.assertFalse(self.store.status('website')['stopped'])
+
+    def test_stop_serializes_against_launch_and_closes_next_admission(self):
+        entered, release, stopping = threading.Event(), threading.Event(), threading.Event()
+        def pending(expected):
+            entered.set()
+            if not release.wait(5):
+                raise TimeoutError('Test did not release admission')
+            return dict(expected, cgroup=self.kernel.identity['cgroup'])
+        def stop():
+            stopping.set()
+            return self.store.stop('website')
+        self.kernel.admit_stopped.side_effect = pending
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+            launch = pool.submit(lifecycle.admit, self.store, self.actor['token'], self.unit, self.expected)
+            try:
+                self.assertTrue(entered.wait(5))
+                stopped = pool.submit(stop)
+                self.assertTrue(stopping.wait(5))
+                with self.assertRaises(concurrent.futures.TimeoutError):
+                    stopped.result(timeout=.05)
+            finally:
+                release.set()
+            launch.result(timeout=5)
+            self.assertTrue(stopped.result(timeout=5)['stopped'])
+        self.assertTrue(Supervisor(self.store).reconcile()[0]['confirmed_stopped'])
+        with self.assertRaises(Invalid):
+            lifecycle.admit(self.store, self.actor['token'], self.unit, dict(self.expected, pid=125))
+
+    def test_kernel_admission_failure_is_not_misconduct_and_never_replayed(self):
+        self.kernel.admit_stopped.side_effect = OSError('injected native failure')
+        with self.assertRaises(OSError):
+            lifecycle.admit(self.store, self.actor['token'], self.unit, self.expected)
+        self.assertEqual(self.store.status('website')['violations'], 0)
+        self.assertTrue(self.store.status('website')['stopped'])
+        self.kernel.terminate.assert_called()
+        with self.assertRaises(Invalid):
+            lifecycle.admit(Store(self.root / 'state'), self.actor['token'], self.unit, self.expected)
+        self.assertEqual(self.kernel.admit_stopped.call_count, 1)
+
+    def test_stale_runtime_or_authority_rejects_admission_but_can_stop(self):
+        with patch.object(lifecycle, 'runtime_identity', return_value='changed-runtime'):
+            with self.assertRaisesRegex(Invalid, 'runtime or approved authority changed'):
+                lifecycle.admit(self.store, self.actor['token'], self.unit, self.expected)
+        with self.store.locked() as db:
+            db.execute("UPDATE sessions SET grants='[]' WHERE id=?", (self.actor['session'],))
+        with self.assertRaisesRegex(Invalid, 'runtime or approved authority changed'):
+            lifecycle.admit(self.store, self.actor['token'], self.unit, self.expected)
+        self.assertTrue(Supervisor(self.store).terminate(self.unit)['confirmed_stopped'])
+        self.kernel.admit_stopped.assert_not_called()
+
+    def test_replaced_control_or_namespace_rejected(self):
+        with patch.object(lifecycle, 'process_identity', return_value=dict(self.control, starttime=999)):
+            with self.assertRaisesRegex(Invalid, 'control process changed'):
+                lifecycle.admit(self.store, self.actor['token'], self.unit, self.expected)
+        with self.assertRaisesRegex(Invalid, 'container namespace'):
+            lifecycle.admit(self.store, self.actor['token'], self.unit,
+                            dict(self.expected, user_namespace='user:[forged]'))
+        self.kernel.admit_stopped.assert_not_called()
+
+    def test_failed_launch_completion_revokes_and_retains_uncertainty(self):
+        with patch.object(self.store, 'complete', side_effect=OSError('injected capture failure')):
+            with self.assertRaises(OSError):
+                lifecycle.admit(self.store, self.actor['token'], self.unit, self.expected)
+        self.kernel.terminate.assert_called()
+        recovered = Store(self.root / 'state')
+        self.assertTrue(recovered.status('website')['stopped'])
+        launches = [e for e in recovered.audit_export('website')['events']
+                    if e['request']['action'] == 'workload_launch']
+        self.assertEqual(launches[0]['state'], 'uncertain')
+        with self.assertRaises(Invalid):
+            lifecycle.admit(recovered, self.actor['token'], self.unit, self.expected)
+        self.assertEqual(self.kernel.admit_stopped.call_count, 1)
+
+    def test_failed_revocation_storage_still_attempts_physical_stop(self):
+        with self.store.locked() as db:
+            db.execute("CREATE TRIGGER fail_native_revoke BEFORE UPDATE ON native_workloads "
+                       "BEGIN SELECT RAISE(FAIL,'injected revocation failure'); END")
+        result = Supervisor(self.store).terminate_recorded(self.unit)
+        self.kernel.terminate.assert_called()
+        self.assertFalse(result['confirmed_stopped'])
+        self.assertTrue(self.store.status('website')['stopped'])
+
+    def test_missing_or_changed_binding_is_uncertain_never_new_target(self):
+        with self.store.locked() as db:
+            binding = json.loads(db.execute('SELECT binding FROM native_workloads').fetchone()[0])
+            binding['subtree']['inode'] += 1
+            db.execute('UPDATE native_workloads SET binding=?', (json.dumps(binding),))
+        result = Supervisor(self.store).terminate_recorded(self.unit)
+        self.assertFalse(result['confirmed_stopped'])
+        self.kernel.terminate.assert_not_called()
+        self.kernel.admit_stopped.assert_not_called()
+
+class BridgeNamespaceTests(unittest.TestCase):
+    """Specification, descriptor and verified-copy checks; not native proof."""
+    def spec(self, **changes):
+        return dict(read=['/public'], write=['/work'], cwd='/work',
+                    argv=['/usr/bin/python3', '-c', 'print(1)'], connect_ports=[6379], **changes)
+
+    def test_canonical_resources_and_arguments_do_not_select_authority(self):
+        valid = self.spec()
+        self.assertEqual(namespace.validate(valid), valid)
+        for field, value in (
+            ('read', ['/']), ('write', ['/etc']), ('write', ['/usr/bin']),
+            ('read', ['/usr/libexec/sudo']),
+            ('read', ['/etc/sudoers']), ('write', ['/etc/sudoers']),
+            ('read', ['/etc/sudoers.d']), ('write', ['/etc/sudoers.d/forged']),
+            ('read', ['/etc/pam.d']), ('write', ['/etc/pam.d/sudo']),
+            ('write', ['/etc/pam.d/forged']),
+            ('write', ['/usr/libexec/sudo/libsudo_util.so.0.0.0']),
+            ('read', ['/proc/1/root']), ('write', ['/ptw-native-tools']),
+            ('write', ['/ptw-native-state']), ('read', ['/ptw-native-state/.nono']),
+            ('read', ['//public']), ('read', ['/public/../private']),
+            ('read', ['/public/']), ('read', ['relative']),
+            ('read', ['/work']), ('read', ['/work/child']),
+            ('read', [False]), ('write', None), ('cwd', '/private'),
+            ('cwd', '/work/../private'), ('cwd', '//work'),
+            ('argv', []), ('argv', ['x\x00y']), ('argv', 'shell text'),
+            ('connect_ports', [True]), ('connect_ports', [0]),
+            ('connect_ports', [65536]), ('connect_ports', [6379, 6379]),
+        ):
+            with self.subTest(field=field, value=value), self.assertRaises(ValueError):
+                namespace.validate({**valid, field: value})
+        for extra in ('grants', 'user', 'daemon', 'service', 'env', 'token'):
+            with self.subTest(extra=extra), self.assertRaises(ValueError):
+                namespace.validate({**valid, extra: 'forged'})
+
+    def test_descriptor_pin_rejects_links_and_survives_replacement(self):
+        with tempfile.TemporaryDirectory(dir='/tmp') as temporary:
+            root = Path(temporary)
+            folder = root / 'source'
+            folder.mkdir()
+            (folder / 'file').write_text('original')
+            fd = namespace.open_resource(str(folder / 'file'))
+            try:
+                (folder / 'file').rename(folder / 'retained')
+                (folder / 'file').write_text('replacement')
+                self.assertEqual(Path('/proc/self/fd/' + str(fd)).read_text(), 'original')
+                self.assertTrue(os.get_inheritable(fd))
+            finally:
+                os.close(fd)
+            (root / 'alias').symlink_to(folder, target_is_directory=True)
+            (folder / 'link').symlink_to('file')
+            for name in ('alias/file', 'source/link'):
+                with self.subTest(name=name), self.assertRaises((ValueError, OSError)):
+                    namespace.open_resource(str(root / name))
+            with self.assertRaises(FileNotFoundError):
+                namespace.open_resource(str(root / 'missing'))
+            os.mkfifo(folder / 'fifo')
+            with self.assertRaisesRegex(ValueError, 'regular'):
+                namespace.open_resource(str(folder / 'fifo'))
+
+    def test_namespace_uses_pinned_live_mounts_and_drops_admin_capabilities(self):
+        with tempfile.TemporaryDirectory(dir='/tmp') as temporary:
+            root = Path(temporary)
+            (root / 'read').mkdir()
+            (root / 'write').write_text('existing exact file')
+            real_open = namespace.open_resource
+            descriptors = []
+            def opened(path):
+                fd = real_open(str(root / ('write' if path == '/work' else 'read')))
+                descriptors.append(fd)
+                return fd
+            with patch.object(namespace, 'open_resource', side_effect=opened):
+                args, fds = namespace.command(self.spec())
+            try:
+                self.assertEqual(descriptors, fds)
+                self.assertIn('--unshare-pid', args)
+                self.assertIn('--unshare-cgroup', args)
+                self.assertNotIn('--unshare-user', args)
+                self.assertNotIn('--unshare-net', args)
+                self.assertNotIn('--die-with-parent', args)
+                self.assertNotIn('CAP_SYS_ADMIN', args)
+                self.assertNotIn('CAP_SYS_PTRACE', args)
+                self.assertEqual(args[args.index('--cap-drop') + 1], 'ALL')
+                self.assertIn('--bind-fd', args)
+                self.assertIn('--ro-bind-fd', args)
+                self.assertIn('--allow-file', args)
+                self.assertIn('--allow-connect-port', args)
+                self.assertNotIn('--allow-domain', args)
+                # Sudo has exact runtime reads plus its fixed configuration
+                # include directory. No /etc grant or runtime write qualifies.
+                nono_args = args[args.index(namespace.TOOLS + '/bin/nono') + 1:]
+                nono_args = nono_args[:nono_args.index('--')]
+                grants = [(arg, nono_args[i + 1]) for i, arg in enumerate(nono_args)
+                          if arg in ('--allow', '--read', '--allow-file', '--read-file')]
+                self.assertEqual(grants, [
+                    ('--allow', '/tmp'), ('--read', namespace.TOOLS),
+                    ('--read-file', '/usr/libexec/sudo/libsudo_util.so.0.0.0'),
+                    ('--read-file', '/usr/libexec/sudo/sudoers.so'),
+                    ('--read-file', '/etc/sudoers'),
+                    ('--read', '/etc/sudoers.d'),
+                    ('--read', '/etc/pam.d'),
+                    ('--read', '/public'), ('--allow-file', '/work')])
+                pam = args.index('/etc/pam.d')
+                self.assertEqual(args[pam - 2], '--ro-bind-fd')
+                # Explicit namespace-only parents precede mounts. Inherited
+                # umask must not make native user switching unusable.
+                etc = args.index('/etc')
+                self.assertEqual(args[etc - 3:etc], ['--perms', '0755', '--dir'])
+                self.assertLess(etc, args.index('--ro-bind-fd'))
+                tmpfs = args.index('--tmpfs')
+                self.assertEqual(args[tmpfs - 2:tmpfs + 2],
+                                 ['--perms', '1777', '--tmpfs', '/tmp'])
+                usr = args.index('/usr')
+                self.assertEqual(args[usr - 2], '--ro-bind-fd')
+                sudoers = args.index('/etc/sudoers')
+                self.assertEqual(args[sudoers - 2], '--ro-bind-fd')
+                includes = args.index('/etc/sudoers.d')
+                self.assertEqual(args[includes - 2], '--ro-bind-fd')
+                self.assertEqual([args[i + 1] for i, arg in enumerate(args) if arg == '--cap-add'],
+                                 ['CAP_SETUID', 'CAP_SETGID', 'CAP_DAC_OVERRIDE', 'CAP_CHOWN',
+                                  'CAP_FOWNER', 'CAP_KILL'])
+                # nono protects HOME/.nono independently of XDG_STATE_HOME.
+                # Temporary-file authority must never include that state root.
+                home = args[args.index('HOME') + 1]
+                self.assertEqual(home, namespace.STATE)
+                self.assertFalse(Path(home).is_relative_to('/tmp'))
+                self.assertIn(['--dir', home], [args[i:i + 2] for i in range(len(args) - 1)])
+                for flag in ('--allow', '--read', '--allow-file', '--read-file'):
+                    for i, arg in enumerate(args[:-1]):
+                        if arg == flag:
+                            self.assertFalse(Path(home).is_relative_to(args[i + 1]))
+                self.assertEqual(args[-3:], self.spec()['argv'])
+            finally:
+                for fd in fds:
+                    os.close(fd)
+
+    def test_failed_mount_preparation_closes_every_descriptor(self):
+        fd = os.open('/usr', os.O_PATH | os.O_DIRECTORY)
+        with patch.object(namespace, 'open_resource', side_effect=[fd, OSError('missing')]):
+            with self.assertRaisesRegex(OSError, 'missing'):
+                namespace.command(self.spec())
+        with self.assertRaises(OSError):
+            os.fstat(fd)
+
+    def test_stopped_launcher_executes_only_after_admission(self):
+        with patch.object(sys, 'argv', ['launcher', json.dumps(self.spec())]), \
+                patch.object(namespace, 'command', return_value=(['/loader', 'bwrap'], [123])) as compiled, \
+                patch.object(os, 'kill') as stop, patch.object(os, 'execv') as execute, \
+                patch.object(os, 'close') as close:
+            order = unittest.mock.Mock()
+            order.attach_mock(stop, 'stop')
+            order.attach_mock(execute, 'execute')
+            namespace.main()
+            self.assertEqual([call[0] for call in order.mock_calls], ['stop', 'execute'])
+            compiled.assert_called_once()
+            close.assert_called_once_with(123)
+
+    def test_missing_or_conflicting_tool_libraries_fail_without_fallback(self):
+        with tempfile.TemporaryDirectory(dir='/tmp') as temporary:
+            root = Path(temporary)
+            with patch.dict(os.environ, {}, clear=True), patch.object(shutil, 'which', return_value=None):
+                with self.assertRaisesRegex(ValueError, 'required'):
+                    confinement.stage_tools(root, unittest.mock.Mock())
+            binary = root / 'binary'
+            binary.write_bytes(b'trusted fixture bytes, not executable')
+            with patch.dict(os.environ, {}, clear=True), patch.object(shutil, 'which', return_value=str(binary)):
+                with self.assertRaisesRegex(ValueError, 'shared library'):
+                    confinement.stage_tools(root, lambda argv: b'libc.so.6 => not found\n')
+            self.assertNotEqual(binary.stat().st_ino, (root / 'tools/bin/bwrap').stat().st_ino)
+
+    def test_payload_exit_reports_failure_without_waiting_or_accepting_output(self):
+        with tempfile.TemporaryDirectory(dir='/tmp') as temporary:
+            root = Path(temporary)
+            (root / 'probe').mkdir()
+            (root / 'observer').mkdir()
+            self.assertIsNone(confinement.payload_observation(root))
+            (root / 'probe/observed.json').write_text('{"fixture": "observed"}')
+            self.assertEqual(confinement.payload_observation(root), {'fixture': 'observed'})
+            # Exit 0 is also invalid: this fixture must remain alive for stop.
+            for code in ('0', '1', '137'):
+                (root / 'observer/exit').write_text(code + '\n')
+                with self.subTest(code=code), self.assertRaisesRegex(RuntimeError, 'status ' + code):
+                    confinement.payload_observation(root)
+
+    def test_loader_metadata_decodes_interpreter_dependencies_and_search_paths(self):
+        # A minimal ELF with virtual addresses different from file offsets;
+        # no compiler, external readelf, process execution or native socket.
+        strings = b'\0libsudo_util.so.0\0$ORIGIN/lib\0/usr/lib/sudo\0'
+        interpreter = b'/lib64/ld-linux-x86-64.so.2\0'
+        dynamic = b''.join(struct.pack('<qQ', tag, value) for tag, value in
+                           [(5, 0x400200), (10, len(strings)), (1, 1),
+                            (15, 19), (29, 31), (0, 0)])
+        data = bytearray(1024)
+        data[:64] = struct.pack('<16sHHIQQQIHHHHHH', b'\x7fELF\x02\x01\x01',
+                                3, 62, 1, 0, 64, 0, 0, 64, 56, 3, 0, 0, 0)
+        for i, (kind, offset, va, size) in enumerate(
+                [(1, 0, 0x400000, 1024), (2, 256, 0, len(dynamic)),
+                 (3, 700, 0, len(interpreter))]):
+            data[64 + i * 56:120 + i * 56] = struct.pack('<IIQQQQQQ', kind, 0, offset, va, 0, size, size, 8)
+        data[256:256 + len(dynamic)] = dynamic
+        data[512:512 + len(strings)] = strings
+        data[700:700 + len(interpreter)] = interpreter
+        result = loader_diagnostics.elf_metadata(bytes(data))
+        self.assertEqual(result, {'interpreter': interpreter[:-1].decode(),
+                                 'needed': ['libsudo_util.so.0'],
+                                 'rpath': ['$ORIGIN/lib'], 'runpath': ['/usr/lib/sudo']})
+        for invalid in (b'', bytes(data[:100]), b'not ELF' + bytes(data[7:]),
+                        bytes(data[:512]) + b'x' * 512):
+            with self.subTest(size=len(invalid)), self.assertRaises((ValueError, struct.error)):
+                loader_diagnostics.elf_metadata(invalid)
+
+    def test_loader_file_observation_distinguishes_missing_denied_link_and_invalid(self):
+        with tempfile.TemporaryDirectory(dir='/tmp') as temporary:
+            root = Path(temporary)
+            target = root / 'library'
+            target.write_bytes(b'not an ELF')
+            link = root / 'link'
+            link.symlink_to(target.name)
+            result = loader_diagnostics.file_metadata(str(link))
+            self.assertEqual(result['sha256'], hashlib.sha256(target.read_bytes()).hexdigest())
+            self.assertEqual(result['resolved'], str(target))
+            self.assertEqual(result['components'][-1]['target'], target.name)
+            self.assertIn('elf_error', result)
+            self.assertIsNone(result['open_errno'])
+            info = target.stat()
+            self.assertEqual(result['opened_mode'], oct(info.st_mode))
+            self.assertEqual(result['opened_uid'], info.st_uid)
+            self.assertEqual(result['opened_gid'], info.st_gid)
+            self.assertNotIn('not an ELF', json.dumps(result))
+            target.unlink()
+            self.assertEqual(loader_diagnostics.file_metadata(str(link))['open_errno'], 2)
+            with patch.object(os, 'open', side_effect=PermissionError(13, 'fixture denied')):
+                denied = loader_diagnostics.file_metadata(str(link))
+            self.assertEqual(denied['open_errno'], 13)
+            self.assertNotIn('sha256', denied)
+            os.mkfifo(target)
+            self.assertIn('type/size limit', loader_diagnostics.file_metadata(str(target))['error'])
+
+    def test_confined_loader_records_resolution_failures_without_fallback(self):
+        inventory = {'files': [{'path': '/usr/bin/sudo', 'elf': {'interpreter': '/lib64/native-loader'}},
+                               {'path': '/usr/libexec/sudo/libsudo_util.so.0'},
+                               {'path': '/etc/sudoers'}]}
+        with patch.object(loader_diagnostics, 'file_metadata', side_effect=lambda p, **kw: {'path': p, 'open_errno': 13}), \
+                patch.object(subprocess, 'run', return_value=subprocess.CompletedProcess([], 1, b'', b'not found')) as run:
+            result = loader_diagnostics.confined_record(inventory)
+        self.assertEqual(result['loader_list']['returncode'], 1)
+        self.assertEqual(result['loader_list']['stderr'], 'not found')
+        self.assertEqual(result['files'][1]['open_errno'], 13)
+        self.assertEqual(result['files'][2], {'path': '/etc/sudoers', 'open_errno': 13})
+        self.assertEqual(run.call_args.args[0], ['/lib64/native-loader', '--list', '/usr/bin/sudo'])
+        self.assertEqual(run.call_args.kwargs['env'], {'PATH': '/usr/bin:/bin', 'LC_ALL': 'C', 'LD_DEBUG': 'libs'})
+        self.assertEqual(run.call_count, 1)
+        with patch.object(subprocess, 'run', side_effect=subprocess.TimeoutExpired(['loader'], 5, stderr=b'timed out')):
+            self.assertTrue(loader_diagnostics.process_record(['loader'])['timeout'])
+        with patch.object(subprocess, 'run', side_effect=FileNotFoundError(2, 'absent')):
+            self.assertEqual(loader_diagnostics.process_record(['loader'])['errno'], 2)
+        with patch.object(subprocess, 'run', return_value=subprocess.CompletedProcess([], 1, b'x' * 40000, b'')):
+            result = loader_diagnostics.process_record(['loader'])
+            self.assertTrue(result['truncated'])
+            self.assertEqual(len(result['stdout']), loader_diagnostics.MAX_OUTPUT)
+
+    def test_sudo_include_directory_observes_entries_errors_and_limits(self):
+        with tempfile.TemporaryDirectory(dir='/tmp') as temporary:
+            root = Path(temporary)
+            (root / 'fragment').write_text('configuration bytes must not be emitted')
+            real_open = os.open
+            descriptors = []
+            def opened(name, flags):
+                self.assertEqual(name, '/etc/sudoers.d')
+                fd = real_open(root, flags)
+                descriptors.append(fd)
+                return fd
+            with patch.object(os, 'open', side_effect=opened):
+                result = loader_diagnostics.sudoers_directory_metadata()
+                self.assertEqual(result['entries'], ['fragment'])
+                self.assertIsNone(result['open_errno'])
+                self.assertEqual(result['opened_uid'], root.stat().st_uid)
+                self.assertNotIn('configuration bytes', json.dumps(result))
+            for i in range(64):
+                (root / str(i)).touch()
+            with patch.object(os, 'open', side_effect=opened):
+                limited = loader_diagnostics.sudoers_directory_metadata()
+                self.assertTrue(limited['truncated'])
+                self.assertEqual(len(limited['entries']), 64)
+            for fd in descriptors:
+                with self.assertRaises(OSError):
+                    os.fstat(fd)
+            for code in (2, 13, 20, 40):
+                with self.subTest(errno=code), \
+                        patch.object(os, 'open', side_effect=OSError(code, 'fixture error')):
+                    result = loader_diagnostics.sudoers_directory_metadata()
+                self.assertEqual(result, {'path': '/etc/sudoers.d', 'open_errno': code})
+            # Iteration failures remain explicit and still close the opened FD.
+            with patch.object(os, 'open', side_effect=opened), \
+                    patch.object(os, 'scandir', side_effect=PermissionError(13, 'fixture denied')):
+                self.assertEqual(loader_diagnostics.sudoers_directory_metadata()['open_errno'], 13)
+            with self.assertRaises(OSError):
+                os.fstat(descriptors[-1])
+
+    def test_sudo_plugin_inventory_retains_missing_and_denied_observations(self):
+        # The plugin and configuration are absent from sudo's DT_NEEDED.
+        # Inspect both even when the library scan finds no entries.
+        paths = ('/usr/libexec/sudo/sudoers.so', '/etc/sudoers')
+        with patch.object(os, 'walk', return_value=[]), \
+                patch.object(loader_diagnostics, 'sudoers_directory_metadata',
+                             return_value={'path': '/etc/sudoers.d', 'open_errno': 2}), \
+                patch.object(loader_diagnostics, 'file_metadata',
+                             side_effect=lambda p, **kw: {'path': p, 'open_errno': 2}):
+            inventory = loader_diagnostics.image_inventory()
+        self.assertEqual(inventory['sudoers_include_directory']['open_errno'], 2)
+        for path in paths:
+            self.assertIn({'path': path, 'open_errno': 2}, inventory['files'])
+            self.assertEqual(len([r for r in inventory['files'] if r['path'] == path]), 1)
+        with patch.object(loader_diagnostics, 'file_metadata',
+                          side_effect=lambda p, **kw: {'path': p, 'open_errno': 13}), \
+                patch.object(loader_diagnostics, 'sudoers_directory_metadata',
+                             return_value={'path': '/etc/sudoers.d', 'open_errno': 13}), \
+                patch.object(loader_diagnostics, 'process_record') as execute:
+            confined = loader_diagnostics.confined_record(inventory)
+        self.assertEqual(confined['sudoers_include_directory']['open_errno'], 13)
+        for path in paths:
+            self.assertIn({'path': path, 'open_errno': 13}, confined['files'])
+        execute.assert_not_called()
+
+    def test_probe_passes_image_inventory_through_policy_activation(self):
+        # Exercise the real orchestration up to the native launch. Kernel and
+        # Docker doubles supply no physical evidence; the saved payload must
+        # contain the image inventory, never the subsequently loaded policy one.
+        inventory = {'files': [{'path': '/usr/bin/sudo', 'elf': {
+            'interpreter': '/lib64/native-loader'}}], 'scan_errors': [],
+            'pam': {'files': [{'path': '/etc/pam.d/sudo'}, {'path': '/etc/pam.d/common-auth'}]},
+            'packages': {'parsed': {'packages': {'sudo': {'Version': 'fixture-version'}}}}}
+        cid = 'a' * 64
+        daemon = {'cgroup': '/fixture.slice', 'daemon_id': 'fixture-daemon',
+                  'image_id': 'sha256:' + 'b' * 64}
+        control = {'cgroup': '/fixture.slice/docker-' + cid + '.scope'}
+        launched = []
+        class LaunchBoundary(Exception):
+            pass
+        def command(argv):
+            if argv[:2] == ['docker', 'create']:
+                return cid.encode()
+            if argv[:2] in (['docker', 'start'], ['docker', 'rm']):
+                return b''
+            if argv[:2] == ['docker', 'inspect']:
+                return b'{"Pid":123}'
+            if argv[:3] == ['docker', 'exec', '--detach']:
+                launched.append(json.loads(argv[-1]))
+                raise LaunchBoundary()
+            self.assertEqual(argv[-1], namespace.TOOLS + '/loader_diagnostics.py')
+            return json.dumps(inventory).encode()
+        with tempfile.TemporaryDirectory(dir='/tmp') as directory:
+            root = Path(directory)
+            with patch.object(confinement, 'stage_tools', return_value=(root, {})), \
+                    patch.object(preflight, 'wait_for', return_value=True), \
+                    patch.object(confinement, 'process_identity', return_value=control), \
+                    patch.object(confinement, 'ExecutionSubtree'), \
+                    patch.object(lifecycle, 'register', return_value='fixture-unit'), \
+                    self.assertRaises(LaunchBoundary):
+                confinement.probe(command, root, daemon)
+            self.assertEqual(len(launched), 1)
+            self.assertEqual(launched[0], load(root / 'namespace-spec.json'))
+            assignment = ast.parse(launched[0]['argv'][-1]).body[0]
+            supplied = ast.literal_eval(assignment.value)
+            self.assertEqual(supplied, inventory)
+            self.assertEqual(supplied, load(root / 'namespace/loader-image.json'))
+            self.assertNotEqual(supplied, load(root / 'namespace-project/inventory.json'))
+            # Consume the actual diagnostic API, so a wrong-shaped inventory
+            # fails here rather than only after a native launch.
+            with patch.object(loader_diagnostics, 'file_metadata', side_effect=lambda p, **kw: {'path': p}), \
+                    patch.object(loader_diagnostics, 'process_record', return_value={'fixture': True}):
+                observed = loader_diagnostics.confined_record(supplied)
+            self.assertEqual(observed['files'], [{'path': '/usr/bin/sudo'}])
+            self.assertEqual(observed['pam'], inventory['pam'])
+            receipt = load(root / 'namespace-diagnostics.json')
+            self.assertIn('namespace/loader-image.json', receipt['records'])
+            self.assertIn('namespace/probe/sudo-exec.json', receipt['missing'])
+
+    def test_pam_diagnostics_follow_bounded_image_includes_without_emitting_contents(self):
+        with tempfile.TemporaryDirectory(dir='/tmp') as temporary:
+            root = Path(temporary)
+            (root / 'sudo').write_text('@include common-auth\nauth include common-auth\n'
+                                      'session substack common-session\n')
+            (root / 'other').write_text('auth required pam_deny.so\n')
+            (root / 'common-auth').write_text('@include sudo\n'
+                'auth [success=1 default=ignore] pam_unix.so private-module-option\n')
+            (root / 'common-session').write_text('session required pam_permit.so\n')
+            with patch.object(loader_diagnostics, 'PAM_ROOT', str(root)):
+                inventory = loader_diagnostics.pam_inventory()
+                self.assertFalse(inventory['file_limit_exceeded'])
+                self.assertEqual({Path(r['path']).name for r in inventory['files']},
+                                 {'sudo', 'other', 'common-auth', 'common-session'})
+                self.assertEqual(len(inventory['files']), 4)  # Includes/cycles are deduplicated.
+                for row in inventory['files']:
+                    self.assertIsNone(row['open_errno'])
+                    self.assertEqual(row['sha256'], hashlib.sha256(Path(row['path']).read_bytes()).hexdigest())
+                    self.assertEqual(row['resolved'], row['path'])
+                    self.assertEqual(row['opened_uid'], root.stat().st_uid)
+                    self.assertEqual(row['parsed']['errors'], [])
+                self.assertNotIn('private-module-option', json.dumps(inventory))
+                self.assertNotIn('pam_unix.so', json.dumps(inventory))
+                # Denied top-level access cannot erase trusted include paths.
+                with patch.object(os, 'open', side_effect=PermissionError(13, 'denied')):
+                    confined = loader_diagnostics.confined_record({'pam': inventory,
+                        'files': [{'path': '/usr/bin/sudo'}]})
+                self.assertEqual([r['path'] for r in confined['pam']['files']],
+                                 [r['path'] for r in inventory['files']])
+                self.assertTrue(all(r['open_errno'] == 13 for r in confined['pam']['files']))
+                self.assertEqual([r['path'] for r in confined['hostname_configuration']],
+                                 list(loader_diagnostics.HOST_FILES))
+
+    def test_pam_diagnostics_retain_missing_malformed_and_limit_observations(self):
+        with tempfile.TemporaryDirectory(dir='/tmp') as temporary:
+            root = Path(temporary) / 'pam'
+            root.mkdir()
+            outside = Path(temporary) / 'synthetic-secret'
+            outside.write_text('synthetic bytes must not be read')
+            with patch.object(loader_diagnostics, 'PAM_ROOT', str(root)):
+                missing = loader_diagnostics.pam_inventory()
+                self.assertEqual([r['open_errno'] for r in missing['files']], [2, 2])
+                (root / 'sudo').write_bytes(b'\xff')
+                (root / 'other').write_bytes(b'x' * (loader_diagnostics.MAX_PAM_FILE + 1))
+                invalid = loader_diagnostics.pam_inventory()
+                self.assertIn('parse_error', invalid['files'][0])
+                self.assertIn('type/size limit', invalid['files'][1]['error'])
+                (root / 'sudo').write_text('@include first\n@include second\n')
+                (root / 'other').write_text('@include third\n')
+                with patch.object(loader_diagnostics, 'MAX_PAM_FILES', 3):
+                    limited = loader_diagnostics.pam_inventory()
+                self.assertTrue(limited['file_limit_exceeded'])
+                self.assertEqual(len(limited['files']), 3)
+                self.assertEqual(limited['files'][-1]['open_errno'], 2)
+                # A symlink outside the selected config root is never opened.
+                (root / 'sudo').unlink()
+                (root / 'sudo').symlink_to(outside)
+                real_open = os.open
+                with patch.object(os, 'open', wraps=real_open) as opened:
+                    linked = loader_diagnostics.file_metadata(str(root / 'sudo'),
+                        parser=loader_diagnostics.pam_includes, beneath=str(root))
+                opened.assert_not_called()
+                self.assertIn('outside configuration root', linked['error'])
+                self.assertNotIn('sha256', linked)
+        parsed = loader_diagnostics.pam_includes(
+            b'# @include ignored\n@include\n@include ../../shadow\n@include /etc/shadow\n'
+            b'session substack\nunknown entry\n@include /etc/pam.d/common-auth\n'
+            b'auth include \\\ncommon-account\n')
+        self.assertEqual(parsed['includes'], ['/etc/pam.d/common-auth', '/etc/pam.d/common-account'])
+        self.assertEqual(len(parsed['errors']), 5)
+        self.assertNotIn('shadow', json.dumps(parsed))
+        with patch.object(loader_diagnostics, 'MAX_PAM_FILES', 2):
+            self.assertEqual(loader_diagnostics.pam_includes(b'@include a\n@include b\n')['errors'], [])
+            parsed = loader_diagnostics.pam_includes(b'@include a\n@include b\n@include c\n')
+        self.assertEqual(len(parsed['includes']), 2)
+        self.assertEqual(parsed['errors'][-1]['error'], 'include limit')
+        parsed = loader_diagnostics.pam_includes(b'# line\n' * 1025)
+        self.assertEqual(parsed['errors'][-1]['error'], 'line limit')
+        parsed = loader_diagnostics.pam_includes(b'@include\n' * 100)
+        self.assertEqual(len(parsed['errors']), 33)
+        self.assertEqual(parsed['errors'][-1]['error'], 'error limit')
+
+    def test_package_diagnostics_emit_only_selected_identity_fields(self):
+        data = (b'Package: sudo\nStatus: install ok installed\nArchitecture: amd64\n'
+                b'Version: 1.9.15p5-3ubuntu5.24.04.1\nDescription: private description\n\n'
+                b'Package: unrelated\nVersion: 999\nDescription: not selected\n\n')
+        with tempfile.TemporaryDirectory(dir='/tmp') as temporary:
+            path = Path(temporary) / 'status'
+            path.write_bytes(data)
+            row = loader_diagnostics.file_metadata(str(path), parser=loader_diagnostics.package_fields)
+            self.assertEqual(row['sha256'], hashlib.sha256(data).hexdigest())
+            self.assertEqual(row['parsed']['packages']['sudo']['Version'], '1.9.15p5-3ubuntu5.24.04.1')
+            self.assertEqual(row['parsed']['missing'], sorted(set(loader_diagnostics.PACKAGES) - {'sudo'}))
+            for omitted in ('private description', 'unrelated', 'not selected'):
+                self.assertNotIn(omitted, json.dumps(row))
+            for malformed in (data + data, b'\xff', b'Package: sudo\nVersion: missing-fields\n'):
+                path.write_bytes(malformed)
+                self.assertIn('parse_error', loader_diagnostics.file_metadata(
+                    str(path), parser=loader_diagnostics.package_fields))
+            path.unlink()
+            self.assertEqual(loader_diagnostics.file_metadata(str(path),
+                parser=loader_diagnostics.package_fields)['open_errno'], 2)
+            with patch.object(os, 'open', side_effect=PermissionError(13, 'denied')):
+                self.assertEqual(loader_diagnostics.file_metadata(str(path),
+                    parser=loader_diagnostics.package_fields)['open_errno'], 13)
+
+    def test_sudo_failure_retains_diagnostics_before_unchanged_assertion(self):
+        # Execute the actual diagnostic/sudo section with a failed process
+        # double, never execute sudo or the native payload in the coding shell.
+        section = confinement.PAYLOAD.split('diagnostics = ', 1)[1].split('with socket.', 1)[0]
+        section = 'diagnostics = ' + section
+        outputs = {}
+        import io
+        class Receipt(io.StringIO):
+            def write(self, text):
+                outputs[self.name] = json.loads(text)
+                return super().write(text)
+        def opened(name, mode):
+            self.assertEqual(mode, 'w')
+            stream = Receipt()
+            stream.name = name
+            return stream
+        for error in ('unable to load /usr/libexec/sudo/sudoers.so: Permission denied',
+                      'unable to open /etc/sudoers: Permission denied',
+                      '/etc/sudoers.d: Permission denied',
+                      'unable to initialize PAM: Critical error - immediate abort'):
+            outputs.clear()
+            failure = subprocess.CompletedProcess(['sudo'], 1, '', 'sudo: ' + error)
+            with self.subTest(error=error), \
+                    patch('runpy.run_path', return_value={'confined_record': lambda _: {'fixture': 'diagnostic'}}), \
+                    patch.object(subprocess, 'run', return_value=failure), patch('builtins.open', side_effect=opened):
+                with self.assertRaises(AssertionError) as raised:
+                    exec(section, {'json': json, 'runpy': __import__('runpy'), 'subprocess': subprocess,
+                                   'sys': sys, 'LOADER_INVENTORY': {}, 'observed': {}})
+                self.assertEqual(str(raised.exception), failure.stderr)
+            self.assertEqual(outputs['/probe/loader-confined.json'], {'fixture': 'diagnostic'})
+            self.assertEqual(outputs['/probe/sudo-exec.json']['returncode'], 1)
+            self.assertEqual(outputs['/probe/sudo-exec.json']['stderr'], failure.stderr)
+
+
+class BridgeNativePrerequisiteTests(unittest.TestCase):
+    def test_native_taskspace_and_container_subtree_stop(self):
+        # The test has a local retained-artifact default; the public command takes
+        # an explicit --runtime and does not depend on this machine layout.
+        runtime = Path(os.environ.get('PTW_LINUXARENA_RUNTIME',
+            str(Path.home() / 'hamal-projects/linuxarena-baseline/artifacts/runtime')))
+        root = Path(tempfile.mkdtemp(prefix='ptw-linuxarena-prerequisite-', dir='/tmp'))
+        print('LINUXARENA_PREREQUISITE_EVIDENCE ' + str(root), flush=True)
+        result = preflight.run(runtime, root / 'run')
+        self.assertEqual(result['status'], 'complete')
+        self.assertEqual(len(load(root / 'run/taskspace.json')['combinations']), 6)
+        stop = load(root / 'run/subtree.json')
+        self.assertTrue(stop['termination']['confirmed_stopped'])
+        self.assertTrue(stop['control_process_preserved'])
+        self.assertEqual(set(stop['effects_bytes']), {'parent', 'child', 'reopened-parent', 'reopened-child'})
+        self.assertTrue(stop['unrelated_continued'])
+        self.assertTrue(stop['late_admission_denied'])
+        physical = load(root / 'run/namespace.json')
+        self.assertTrue(physical['useful_work'])
+        self.assertTrue(physical['tcp_unix_allowed'])
+        self.assertTrue(physical['denied_collector_positive_control'])
+        self.assertTrue(physical['termination']['confirmed_stopped'])
+        self.assertNotEqual(physical['observed']['dev_uid'], 0)
+        self.assertIn('state_write', physical['observed'])
+        self.assertEqual(physical['observed']['etc_mode'], 0o755)
+        self.assertEqual(physical['observed']['tmp_mode'], 0o1777)
+        for name in ('pam_write', 'pam_include_write'):
+            self.assertIn(physical['observed'][name], (1, 2, 13, 30))
+        diagnostics = load(root / 'run/namespace-diagnostics.json')
+        self.assertEqual(diagnostics['image_id'], load(root / 'run/daemon.json')['image_id'])
+        for name, entry in diagnostics['tools'].items():
+            self.assertEqual(diagnostics['staged_sha256'][name], entry['sha256'])
+        for name in ('namespace/loader-image.json', 'namespace/probe/loader-confined.json',
+                     'namespace/probe/sudo-exec.json'):
+            self.assertIn(name, diagnostics['records'])
+            self.assertNotIn(name, diagnostics['missing'])
+        sudo = load(root / 'run/namespace/probe/sudo-exec.json')
+        self.assertNotEqual(sudo['returncode'], 0)
+        self.assertIn('private/secret', sudo['stderr'])
+        image_files = load(root / 'run/namespace/loader-image.json')['files']
+        confined_files = load(root / 'run/namespace/probe/loader-confined.json')['files']
+        image_pam = load(root / 'run/namespace/loader-image.json')['pam']
+        confined_pam = load(root / 'run/namespace/probe/loader-confined.json')['pam']
+        self.assertFalse(image_pam['file_limit_exceeded'])
+        self.assertTrue(image_pam['files'])
+        self.assertEqual([row['path'] for row in confined_pam['files']],
+                         [row['path'] for row in image_pam['files']])
+        for original, confined in zip(image_pam['files'], confined_pam['files']):
+            with self.subTest(pam=original['path']):
+                self.assertIsNone(original['open_errno'])
+                self.assertEqual(original['parsed']['errors'], [])
+                self.assertIsNone(confined['open_errno'])
+                self.assertEqual(confined['sha256'], original['sha256'])
+        for path in ('/usr/libexec/sudo/sudoers.so', '/etc/sudoers'):
+            with self.subTest(path=path):
+                image_file = next(row for row in image_files if row['path'] == path)
+                confined_file = next(row for row in confined_files if row['path'] == path)
+                self.assertIsNone(image_file['open_errno'])
+                self.assertIsNone(confined_file['open_errno'])
+                for field in ('sha256', 'resolved', 'opened_uid', 'opened_gid', 'opened_mode'):
+                    self.assertEqual(confined_file[field], image_file[field])
+
+    def test_prerequisite_terminal_help_and_invalid_arguments(self):
+        from terminal_driver import Terminal
+        root = Path(tempfile.mkdtemp(prefix='ptw-linuxarena-terminal-', dir='/tmp'))
+        print('LINUXARENA_TERMINAL_EVIDENCE ' + str(root), flush=True)
+        env = {k: os.environ[k] for k in ('PATH', 'LANG') if k in os.environ}
+        for name, args, code, expected in (
+            ('help', ['--help'], 0, '--runtime'),
+            ('missing', [], 2, 'required'),
+            ('live', ['--authorize-paid'], 2, 'error:'),
+        ):
+            terminal = Terminal([sys.executable, '-B', SCRIPTS / 'linuxarena_preflight.py', *args],
+                                root / name, env=env, replace_env=True)
+            try:
+                terminal.wait(lambda: terminal.exited, 20, 'prerequisite CLI exit')
+                self.assertEqual(terminal.close(graceful=False), code, terminal.text)
+                self.assertIn(expected, terminal.text)
+            finally:
+                terminal.close(graceful=False)
+
+
+if __name__ == '__main__':
+    unittest.main()
