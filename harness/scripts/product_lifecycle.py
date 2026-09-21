@@ -56,7 +56,7 @@ def cancellation(probe, ptw, env):
             probe.response(label + ' original PTY', reference(probe.evidence, terminal.folder / 'terminal.txt'))
             probe.response(label + ' original inputs', reference(probe.evidence, terminal.folder / 'inputs.json'))
             probe.response(label + ' process exit', {'exit_code': code})
-        probe.check(label + ' rejected', True, code != 0)
+        probe.check(label + ' cancellation exit', 130 if label in ('eof', 'interrupt') else 2, code)
         probe.check(label + ' no traceback', False, 'Traceback' in terminal.text)
         probe.check(label + ' preserves repository', before, snapshot(repo))
         probe.check(label + ' no active project', False, (directory / 'project.json').exists())

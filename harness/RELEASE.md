@@ -49,6 +49,12 @@ or existing repository run `~/.local/bin/ptw codex`, review the proposed scope,
 packages and warning/stop thresholds, then explicitly approve the exact review.
 Existing activity grants no authority. For explicit scope use
 `ptw codex --editable src,tests --files README.md,app.py --setup-only`.
+At the approval prompt, reject, cancel or blank input exits without activation;
+Ctrl-C or EOF cancels with exit 130. Retry the same command for a fresh explicit
+review. Run interactive setup in a foreground terminal. If cancellation hangs,
+retain the failure and inspect the launcher's signal handling; killing the
+process is cleanup, not evidence that Ctrl-C worked. Do not send an approval as
+a way to escape an unknown prompt.
 Continue through `ptw codex --resume ID`; edits, reviewed builds/tests, dependency
 changes and registered delegates retain project controls. Review a dependency
 change through `ptw deps add/remove/update`. Never use an unconfined fallback.

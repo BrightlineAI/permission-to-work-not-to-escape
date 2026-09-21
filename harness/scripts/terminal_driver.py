@@ -38,6 +38,11 @@ class Terminal:
         self._save_inputs()
         self.pid, self.fd = pty.fork()
         if self.pid == 0:
+            # A background launcher can ignore or block SIGINT across exec.
+            # This child owns a new foreground terminal: restore real Ctrl-C
+            # delivery without changing the parent or unrelated signal state.
+            signal.signal(signal.SIGINT, signal.SIG_DFL)
+            signal.pthread_sigmask(signal.SIG_UNBLOCK, {signal.SIGINT})
             if cwd:
                 os.chdir(cwd)
             os.execvpe(self.argv[0], self.argv, child_env)

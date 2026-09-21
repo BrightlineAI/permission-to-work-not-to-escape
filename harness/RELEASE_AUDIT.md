@@ -7,7 +7,30 @@ and all three original contracts remain unchanged.
 
 This finite checklist is the implementation handoff, not an acceptance claim.
 
-The completion-gate repair is limited to the shared demo observer's membership
+The current completion-gate repair is limited to the acceptance PTY driver's
+SIGINT inheritance, exact cancellation exit checks, regression coverage and
+documentation. A deterministic foreground PTY reproduced an echoed Ctrl-C and
+failure to exit when its launcher ignored or blocked SIGINT. Ordinary signal
+state exited through the fixture's interrupt handler with code 130. The driver
+now resets and unblocks SIGINT only in its forked child before exec; the parent
+and other signals retain their state. The regression checks normal, ignored,
+blocked and combined launcher states, actual foreground ownership, real Ctrl-C,
+exit 130 and original input/output/exit receipts. Lifecycle acceptance additionally
+requires 130 for Ctrl-C/EOF and 2 for reject/cancel/blank, so signal termination
+cannot be counted as successful cancellation. Cleanup still never types into an
+unknown prompt, and the original 30-second cancellation deadline is unchanged.
+
+The original failed native receipt did not capture signal disposition or mask.
+This reproducer establishes a driver defect and a plausible cause, not certainty
+about that historical run. Source and fresh-installed lifecycle acceptance must
+still validate the correction. Runtime/package bytes and the version are unchanged;
+fresh full-source acceptance is required because the driver and tests changed.
+No earlier successful receipt substitutes for it. Python's
+[signal documentation](https://docs.python.org/3/library/signal.html) describes
+SIGINT's dependence on parent state and the child mask operations used here.
+No dependency or external API change requires further research.
+
+The preceding completion-gate repair was limited to the shared demo observer's membership
 read lifecycle, its regression tests, troubleshooting and maintained hashes.
 The failed installed dependency run retained five complete namespace observations
 and an ENODEV error without a failing-operation label. Membership teardown is a

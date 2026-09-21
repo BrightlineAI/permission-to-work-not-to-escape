@@ -2035,6 +2035,58 @@ class NativeEvidenceTests(unittest.TestCase):
         self.root = Path(tempfile.mkdtemp(prefix='ptw-evidence-native-'))
         print('PRODUCT_GATE_NATIVE_EVIDENCE ' + str(self.root), flush=True)
 
+    def test_terminal_interrupt_ignores_launcher_signal_state(self):
+        # Deterministic terminal fixture, not a model or installed-user journey.
+        # Background launchers can ignore/block SIGINT across fork and exec.
+        save(self.root / 'source.json', native.sources())
+        script = '''import json, os, signal, sys
+print('STATE=' + json.dumps({
+    'ignored': signal.getsignal(signal.SIGINT) == signal.SIG_IGN,
+    'blocked': signal.SIGINT in signal.pthread_sigmask(signal.SIG_BLOCK, []),
+    'foreground': os.tcgetpgrp(0) == os.getpgrp()}), flush=True)
+try:
+    input('READY: ')
+except KeyboardInterrupt:
+    print('CANCELLED', flush=True)
+    sys.exit(130)
+sys.exit(23)
+'''
+        for label, ignored, blocked in (('normal', False, False), ('ignored', True, False),
+                                        ('blocked', False, True), ('both', True, True)):
+            with self.subTest(launcher=label):
+                terminal = None
+                handler = signal.getsignal(signal.SIGINT)
+                mask = signal.pthread_sigmask(signal.SIG_BLOCK, [])
+                try:
+                    signal.signal(signal.SIGINT, signal.SIG_IGN if ignored else signal.default_int_handler)
+                    expected_mask = (mask - {signal.SIGINT}) | ({signal.SIGINT} if blocked else set())
+                    signal.pthread_sigmask(signal.SIG_SETMASK, expected_mask)
+                    expected_handler = signal.getsignal(signal.SIGINT)
+                    try:
+                        terminal = Terminal([sys.executable, '-I', '-B', '-c', script], self.root / label)
+                        self.assertEqual(signal.getsignal(signal.SIGINT), expected_handler)
+                        self.assertEqual(signal.pthread_sigmask(signal.SIG_BLOCK, []), expected_mask)
+                    finally:
+                        signal.signal(signal.SIGINT, handler)
+                        signal.pthread_sigmask(signal.SIG_SETMASK, mask)
+                    terminal.expect('READY: ', 10)
+                    terminal.inputs.append({'control': 'interrupt',
+                                            'seconds': time.monotonic() - terminal.started})
+                    terminal._save_inputs()
+                    os.write(terminal.fd, b'\x03')
+                    terminal.wait(lambda: terminal.exited, 3, 'real Ctrl-C exit')
+                    row = next(s for s in terminal.text.splitlines() if s.startswith('STATE='))
+                    self.assertEqual(json.loads(row[6:]),
+                                     {'ignored': False, 'blocked': False, 'foreground': True})
+                    self.assertIn('CANCELLED', terminal.text)
+                    self.assertNotIn('Traceback', terminal.text)
+                finally:
+                    if terminal is not None:
+                        code = terminal.close(graceful=False)
+                self.assertEqual(code, 130)
+                self.assertEqual(load(terminal.folder / 'inputs.json'), terminal.inputs)
+                self.assertEqual(load(terminal.folder / 'exit.json')['exit_code'], 130)
+
     def test_bracketed_paste_submits_long_multiline_prompt_once(self):
         # A deterministic protocol receiver, never a model trajectory or UI proof.
         script = '''import hashlib, os, select, tty
