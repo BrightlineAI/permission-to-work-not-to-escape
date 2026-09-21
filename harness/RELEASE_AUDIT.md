@@ -7,7 +7,16 @@ and all three original contracts remain unchanged.
 
 This finite checklist is the implementation handoff, not an acceptance claim.
 
-The current completion-gate repair is limited to the acceptance PTY driver's
+The current completion-gate repair makes release asset references relative to
+the directory containing `release.json`, as required by the strict artifact
+reader. Offline tests validate the generated references, relocation, unrelated
+working directories and rejection of unsafe, linked, missing or changed files.
+The installed CLI test consumes the same validated references. The builder,
+runtime, four published asset contents and version are unchanged. Fresh manager
+acceptance and publication review remain required. This local producer/consumer
+contract needs no new dependency or external API research.
+
+The preceding acceptance PTY driver correction covers
 SIGINT inheritance, exact cancellation exit checks, regression coverage and
 documentation. A deterministic foreground PTY reproduced an echoed Ctrl-C and
 failure to exit when its launcher ignored or blocked SIGINT. Ordinary signal

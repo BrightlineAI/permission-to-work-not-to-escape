@@ -28,6 +28,14 @@ installation boundary. No mandatory native skip is accepted. See the
 [private candidate guide](RELEASE.md) for installation and everyday commands and
 the [release audit](RELEASE_AUDIT.md) for the finite coverage and remaining gates.
 
+`prepare_product_release.py --out PATH` writes the candidate's `release.json`.
+Each `assets[].path` is a filename relative to the directory containing that
+manifest, never the caller's working directory. Keep the manifest and its four
+assets together when moving a candidate. Consumers resolve references against
+that directory and verify SHA256 before use; absolute, escaping, linked, missing
+or changed assets fail validation. Rebuild into a new directory after a failed
+preparation; preserve original receipts and never rewrite a published release.
+
 ## Installed extension journeys
 
 `test_product_safety_acceptance` participates in ordinary full regression

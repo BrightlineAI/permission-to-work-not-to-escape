@@ -5,6 +5,7 @@ real builder, installation and all demo originals outside the source checkout.
 """
 import io
 import copy
+from contextlib import chdir
 import json
 import os
 from pathlib import Path
@@ -19,7 +20,7 @@ sys.path.insert(0, str(SCRIPTS))
 import build_product_release as builder
 import prepare_product_release as preparation
 import product_install as installer
-from evidence_io import capture, load, reference, save
+from evidence_io import artifact, capture, load, reference, save
 
 
 class ReleaseArtifactTests(unittest.TestCase):
@@ -45,10 +46,10 @@ class ReleaseArtifactTests(unittest.TestCase):
         self.assertEqual(load(out / 'release.json'), value)
         self.assertEqual(value['tag'], 'harness-v0.5.0')
         self.assertEqual(value['status'], 'private-candidate-unvalidated')
-        self.assertEqual({Path(a['path']).name for a in value['assets']},
+        self.assertEqual({a['path'] for a in value['assets']},
                          {'ptw-0.5.0-linux-x86_64.tar.gz', 'install.sh', 'RELEASE.md', 'SHA256SUMS'})
         for asset in value['assets']:
-            self.assertEqual(installer.sha(Path(asset['path']).read_bytes()), asset['sha256'])
+            self.assertEqual(artifact(out, asset), out / asset['path'])
         _, contents = installer.release_files(self.archive)
         self.assertEqual(set(contents) - {'permission_to_work_harness-0.5.0-py3-none-any.whl'},
                          {'requirements.lock', 'package.json', 'package-lock.json', 'product_install.py',
@@ -60,6 +61,42 @@ class ReleaseArtifactTests(unittest.TestCase):
             self.assertIn(required, notes)
         for private in ('Bearer ', '/home/loon/', 'session_meta', 'customer@example'):
             self.assertNotIn(private, notes)
+
+    def test_manifest_references_survive_relocation_and_unrelated_working_directory(self):
+        out = self.root / 'candidate'
+        with patch.object(preparation, 'build', side_effect=self.fake_build):
+            preparation.prepare(out)
+        original = (out / 'release.json').read_bytes()
+        relocated = self.root / 'relocated'
+        out.rename(relocated)
+        elsewhere = self.root / 'working'
+        elsewhere.mkdir()
+        with chdir(elsewhere):
+            value = load(relocated / 'release.json')
+            for item in value['assets']:
+                self.assertEqual(artifact(relocated, item), relocated / item['path'])
+        self.assertEqual((relocated / 'release.json').read_bytes(), original)
+        self.assertFalse(out.exists())
+
+    def test_manifest_consumer_rejects_unsafe_missing_linked_and_changed_assets(self):
+        out = self.root / 'candidate'
+        with patch.object(preparation, 'build', side_effect=self.fake_build):
+            value = preparation.prepare(out)
+        item = next(a for a in value['assets'] if a['path'] == 'RELEASE.md')
+        target = artifact(out, item)
+        original = target.read_bytes()
+        (self.root / 'outside.md').write_bytes(original)
+        (out / 'linked.md').symlink_to(target)
+        (out / 'linked-directory').symlink_to(self.root, target_is_directory=True)
+        for name in (str(target), '../outside.md', 'missing.md', 'linked.md',
+                     'linked-directory/outside.md'):
+            with self.subTest(path=name), self.assertRaises(ValueError):
+                artifact(out, {**item, 'path': name})
+        with self.assertRaisesRegex(ValueError, 'hash mismatch'):
+            artifact(out, {**item, 'sha256': '0' * 64})
+        target.write_bytes(original + b'\nChanged content\n')
+        with self.assertRaisesRegex(ValueError, 'hash mismatch'):
+            artifact(out, item)
 
     def test_missing_contracts_demo_runtime_and_changed_source_are_rejected(self):
         from product_safety_evidence import candidate_payload
@@ -308,7 +345,8 @@ class NativeReleaseTests(unittest.TestCase):
         try:
             value = preparation.prepare(root / 'candidate')
             env = installer.clean_env(root)
-            archive = next(Path(a['path']) for a in value['assets'] if a['path'].endswith('.tar.gz'))
+            assets = [artifact(root / 'candidate', a) for a in value['assets']]
+            archive = next(path for path in assets if path.name.endswith('.tar.gz'))
             commands, installation = root / 'commands', root / 'installation'
             result = capture(['bash', root / 'candidate/install.sh', '--artifact', archive,
                               '--root', installation, '--bin-dir', commands], root / 'install-process',

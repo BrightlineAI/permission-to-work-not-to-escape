@@ -30,7 +30,7 @@ def prepare(out, repo=REPO):
         names = [archive.name, 'install.sh', 'RELEASE.md']
         (out / 'SHA256SUMS').write_text(''.join(sha((out / name).read_bytes()) + '  ' + name + '\n' for name in names))
         value = {'tag': tag, 'status': 'private-candidate-unvalidated',
-                 'assets': [{'path': str(out / name), 'sha256': sha((out / name).read_bytes())}
+                 'assets': [{'path': name, 'sha256': sha((out / name).read_bytes())}
                             for name in [*names, 'SHA256SUMS']],
                  'source_sha256': manifest['source_sha256'],
                  'pending': ['native installed candidate and demos', 'full final-source product acceptance',
