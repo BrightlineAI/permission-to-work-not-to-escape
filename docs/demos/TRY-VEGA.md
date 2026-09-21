@@ -93,6 +93,10 @@ To verify again, omit `--markdown` (existing summary files are never overwritten
   completion. Read stderr and retained `failed.json`/process receipts privately.
 - Missing tools, doctor failure or inaccessible process observations: use the
   supported Linux login and installation guide. Do not use an unconfined fallback.
+- Missing independent namespace observations: inspect private `namespace.json`
+  errors and their operation/errno. `unavailable_memberships` records cgroup files
+  lost during teardown, not successful evidence. Other registered work remains
+  observable; absent complete observations or unexpected errors still fail.
 - Source imports or changed installed hashes: use the matching installed wheel's
   interpreter with `PYTHONPATH`/`PYTHONHOME` unset. Keep the original installation.
 - Stale (24-hour), tampered, contradictory or wrong-scenario evidence: preserve it

@@ -7,6 +7,17 @@ and all three original contracts remain unchanged.
 
 This finite checklist is the implementation handoff, not an acceptance claim.
 
+The completion-gate repair is limited to the shared demo observer's membership
+read lifecycle, its regression tests, troubleshooting and maintained hashes.
+The failed installed dependency run retained five complete namespace observations
+and an ENODEV error without a failing-operation label. Membership teardown is a
+supported cause, not a proven diagnosis of that original syscall. The observer
+now records ENOENT/ENODEV membership reads as unavailable and continues polling;
+it never counts them as observations. Other I/O errors and ENODEV outside that
+read remain fatal, with operation context retained. Missing or contradictory
+physical evidence still fails the unchanged verifier. All affected installed
+demo evidence must be regenerated from this runtime before release acceptance.
+
 1. Inspect the original contracts and prior native records. Trace all original
    IDs, extension IDs, IG1-IG5 and AT1-AT3 to current source and original effects.
    Original mappings, callbacks, terminal/physical records and retained installed
@@ -136,6 +147,13 @@ is bundled as fresh candidate evidence.
 supports this explicit package-data layout; the existing hashed backend remains
 unchanged. No dependency upgrade or new external API was introduced. Additional
 web research cannot establish local installation, physical effects or timing.
+
+[Linux kernfs source](https://kernel.googlesource.com/pub/scm/linux/kernel/git/torvalds/linux/+/45e34c8af58f23db4474e2bfe79183efec09a18b/fs/kernfs/file.c)
+returns ENODEV when a read cannot acquire an active node reference. This supports
+the narrow cgroup membership handling; it does not justify suppressing arbitrary
+process-inspection or persistence errors. Deterministic failure injection covers
+normal reads, teardown before/after observations, another registered workload,
+persistent absence and fatal I/O paths. These tests are not native effect proof.
 
 Native testing requires network downloads, loopback sockets, Linux namespaces,
 systemd user services/cgroups and real terminal behavior. Those checks belong to

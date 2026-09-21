@@ -34,6 +34,14 @@ originals. The Markdown output is a sanitized historical summary. Nothing is
 automatically uploaded. Keep raw logs, controller/session state and originals
 private. Do not publish credentials or customer data.
 
+If a demo reports missing independent namespace observations, inspect its private
+`namespace.json`. Disappearing cgroup membership files are recorded under
+`unavailable_memberships`; they are not successful observations. Sampling other
+registered work continues. A run still needs complete matching process evidence
+and no fatal observer errors. Fatal errors include their operation and errno.
+Preserve the failed run and use a fresh directory after resolving the cause;
+never remove an error or edit a receipt to make verification pass.
+
 ## New, existing and everyday projects
 
 Authenticate your own Codex client using `~/.local/bin/ptw-codex login`. In a new

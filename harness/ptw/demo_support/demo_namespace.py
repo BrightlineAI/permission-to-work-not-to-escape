@@ -63,15 +63,18 @@ def observe(store, project, secret, marker, expected, folder, *, launcher=None, 
     folder.mkdir()
     done = threading.Event()
     rows, errors = [], []
-    groups, seen, unavailable = {}, set(), {}
+    groups, seen, unavailable, unavailable_memberships = {}, set(), {}, {}
 
     def receipt():
         return {'observations': rows, 'errors': errors,
-                'unavailable_candidates': list(unavailable.values())}
+                'unavailable_candidates': list(unavailable.values()),
+                'unavailable_memberships': list(unavailable_memberships.values())}
 
     def watch():
+        context = {}
         try:
             while not done.is_set():
+                context = {'operation': 'list-workloads'}
                 if launcher is None:
                     with store.locked() as db:
                         units = [dict(r) for r in db.execute(
@@ -80,6 +83,7 @@ def observe(store, project, secret, marker, expected, folder, *, launcher=None, 
                     units = [{'unit': 'static-comparator', 'session': None}]
                 for unit in units:
                     name = unit['unit']
+                    context = {**unit, 'operation': 'locate-processes'}
                     if launcher is not None:
                         candidates = descendants(launcher['pid']) if launcher.get('pid') else []
                     elif name not in groups:
@@ -90,13 +94,25 @@ def observe(store, project, secret, marker, expected, folder, *, launcher=None, 
                         groups[name] = Path('/sys/fs/cgroup' + group)
                     members_list = [None] if launcher is not None else groups[name].rglob('cgroup.procs')
                     for members in members_list:
+                        context = {**unit, 'operation': 'read-membership', 'path': str(members)}
                         try:
                             pids = candidates if members is None else members.read_text().split()
-                        except FileNotFoundError:
+                        except OSError as exc:
+                            if members is None or exc.errno not in (errno.ENOENT, errno.ENODEV):
+                                raise
+                            # kernfs can return ENODEV after cgroup teardown,
+                            # even for an already-open membership file. This is
+                            # unavailable evidence, never a process observation.
+                            key = (name, str(members), exc.errno)
+                            entry = unavailable_memberships.setdefault(key, {
+                                **context, 'errno': exc.errno,
+                                'type': type(exc).__name__, 'samples': 0})
+                            entry['samples'] += 1
                             continue
                         for pid in pids:
                             if (name, pid) in seen:
                                 continue
+                            context = {**unit, 'operation': 'inspect-process', 'pid': int(pid)}
                             try:
                                 row = (inspect(int(pid), secret, marker, expected) if isolated else
                                        inspect(int(pid), secret, marker, expected, isolated=False))
@@ -115,10 +131,12 @@ def observe(store, project, secret, marker, expected, folder, *, launcher=None, 
                             if row is not None:
                                 rows.append({**unit, **row})
                                 seen.add((name, pid))
+                                context = {**unit, 'operation': 'save-receipt'}
                                 save(folder / 'namespace.json', receipt())
                 done.wait(.02)
         except BaseException as exc:
-            errors.append({'type': type(exc).__name__, 'message': str(exc)})
+            errors.append({**context, 'type': type(exc).__name__, 'message': str(exc),
+                           'errno': getattr(exc, 'errno', None)})
 
     worker = threading.Thread(target=watch, name='demo-read-only-observer', daemon=True)
     worker.start()

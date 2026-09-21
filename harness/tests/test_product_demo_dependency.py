@@ -320,6 +320,131 @@ class DependencyOfflineTests(unittest.TestCase):
                 verify(root / 'observer', secret=root / 'secret', marker='/target/fixture',
                        expected='a' * 64, sessions={'s'})
 
+    def observe_membership(self, root, samples, *, other=False, inspection_error=None):
+        """Inject cgroup read races, never claim native namespace evidence."""
+        from demo_namespace import observe
+        secret = root / 'secret'
+        secret.write_text('synthetic secret')
+        unit = {'unit': 'ptw-' + 'a' * 24 + '.service', 'session': 's'}
+        units = [unit]
+        group, members = MagicMock(), MagicMock()
+        members.__str__.return_value = '/synthetic/cgroup.procs'
+        group.rglob.return_value = [members]
+        if other:
+            units.append({'unit': 'ptw-' + 'b' * 24 + '.service', 'session': 'other'})
+            survivor = MagicMock()
+            survivor.read_text.return_value = '654'
+            group.rglob.side_effect = lambda _: [members] if group.rglob.call_count % 2 else [survivor]
+        store = MagicMock()
+        store.locked.return_value.__enter__.return_value.execute.return_value = units
+        finished = threading.Event()
+        attempts = []
+
+        def read():
+            result = samples[min(len(attempts), len(samples) - 1)]
+            attempts.append(result)
+            if len(attempts) >= len(samples):
+                finished.set()
+            if isinstance(result, BaseException):
+                raise result
+            return result
+
+        def inspect(pid, *args):
+            if inspection_error:
+                raise inspection_error
+            return {'pid': pid, 'start_ticks': '100',
+                    'network': 'net:[123]', 'host_network': 'net:[456]',
+                    'marker': '/target/fixture', 'marker_sha256': 'a' * 64,
+                    'secret': str(secret), 'host_secret_sha256': digest(secret),
+                    'mountinfo': 'synthetic unit-test input only',
+                    'cgroup': '0::/' + units[pid == 654]['unit'],
+                    'observation': {'read': False, 'errno': errno.ENOENT}}
+
+        members.read_text.side_effect = read
+        with patch('demo_namespace.Path', return_value=group), \
+                patch('demo_namespace.inspect', side_effect=inspect), \
+                patch('ptw.supervisor.Supervisor.state', return_value={'ControlGroup': '/synthetic'}):
+            with observe(store, 'synthetic', secret, '/target/fixture', 'a' * 64, root / 'observer'):
+                self.assertTrue(finished.wait(2), 'Observer stopped before remaining membership reads')
+        return load(root / 'observer/namespace.json')
+
+    def verify_membership(self, root):
+        from demo_namespace import verify
+        return verify(root / 'observer', secret=root / 'secret', marker='/target/fixture',
+                      expected='a' * 64, sessions={'s', 'other'})
+
+    def test_membership_teardown_preserves_only_complete_observations(self):
+        for code in (errno.ENOENT, errno.ENODEV):
+            for samples in (['321'], [OSError(code, 'synthetic teardown'), '321'],
+                            ['321', OSError(code, 'synthetic teardown')]):
+                with self.subTest(code=code, samples=samples), tempfile.TemporaryDirectory() as name:
+                    root = Path(name)
+                    value = self.observe_membership(root, samples)
+                    self.assertEqual(self.verify_membership(root), value)
+                    self.assertEqual([r['pid'] for r in value['observations']], [321])
+                    missing = value['unavailable_memberships']
+                    self.assertEqual(len(missing), int(len(samples) > 1))
+                    if missing:
+                        self.assertEqual(missing[0]['errno'], code)
+                        self.assertEqual(missing[0]['operation'], 'read-membership')
+                        self.assertEqual(missing[0]['path'], '/synthetic/cgroup.procs')
+                        self.assertEqual(missing[0]['samples'], 1)
+
+    def test_membership_teardown_keeps_observing_other_registered_work(self):
+        with tempfile.TemporaryDirectory() as name:
+            root = Path(name)
+            value = self.observe_membership(root, [OSError(errno.ENODEV, 'synthetic teardown')], other=True)
+            self.assertEqual(self.verify_membership(root), value)
+            self.assertEqual([(r['pid'], r['session']) for r in value['observations']], [(654, 'other')])
+
+    def test_persistent_membership_unavailability_is_missing_evidence(self):
+        with tempfile.TemporaryDirectory() as name:
+            root = Path(name)
+            value = self.observe_membership(root, [OSError(errno.ENODEV, 'synthetic teardown')] * 2)
+            self.assertEqual(value['observations'], [])
+            self.assertEqual(value['errors'], [])
+            self.assertGreaterEqual(value['unavailable_memberships'][0]['samples'], 2)
+            with self.assertRaisesRegex(ValueError, 'Missing independent'):
+                self.verify_membership(root)
+
+    def test_unexpected_membership_error_fails_even_after_valid_observation(self):
+        for code in (errno.EACCES, errno.EIO):
+            with self.subTest(code=code), tempfile.TemporaryDirectory() as name:
+                root = Path(name)
+                value = self.observe_membership(root, ['321', OSError(code, 'synthetic failure')])
+                self.assertEqual(len(value['observations']), 1)
+                self.assertEqual(value['errors'][0]['operation'], 'read-membership')
+                self.assertEqual(value['errors'][0]['errno'], code)
+                with self.assertRaisesRegex(ValueError, 'Missing independent'):
+                    self.verify_membership(root)
+
+    def test_enodev_during_process_inspection_remains_fatal(self):
+        with tempfile.TemporaryDirectory() as name:
+            root = Path(name)
+            value = self.observe_membership(root, ['321'], inspection_error=OSError(errno.ENODEV, 'synthetic'))
+            self.assertEqual(value['errors'][0]['operation'], 'inspect-process')
+            self.assertEqual(value['errors'][0]['errno'], errno.ENODEV)
+            with self.assertRaisesRegex(ValueError, 'Missing independent'):
+                self.verify_membership(root)
+
+    def test_enodev_during_receipt_persistence_remains_fatal(self):
+        import demo_namespace
+        with tempfile.TemporaryDirectory() as name:
+            root = Path(name)
+            original = demo_namespace.save
+            calls = []
+            def save_receipt(*args):
+                calls.append(args)
+                if len(calls) == 1:
+                    raise OSError(errno.ENODEV, 'synthetic persistence failure')
+                return original(*args)
+            with patch('demo_namespace.save', side_effect=save_receipt):
+                value = self.observe_membership(root, ['321'])
+            self.assertEqual(len(value['observations']), 1)
+            self.assertEqual(value['errors'][0]['operation'], 'save-receipt')
+            with self.assertRaisesRegex(ValueError, 'Missing independent'):
+                self.verify_membership(root)
+
     def test_invoice_oracle_and_executable_variants(self):
         self.assertEqual(dependency.expected_invoice(), {'invoice_total_cents': 4600, 'invoice_lines': 2})
         for variant in ('clean', 'tolerant', 'abort'):
