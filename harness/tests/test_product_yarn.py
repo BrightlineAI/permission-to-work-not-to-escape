@@ -740,10 +740,16 @@ class YarnNativeTests(unittest.TestCase):
         self.assertFalse((self.store.directory / 'package-sets').exists())
 
     def test_controller_combined_violations_stop_build_preserve_unrelated_job(self):
+        from ptw.store import operation_lease
         from ptw.supervisor import Supervisor
         from ptw.workspace import Workspace, request
         self.controller(script='node -e "setTimeout(() => {},60000)"', approve_build=True)
         child = self.store.register('yarn-fixture', 'narrow', parent_token=self.narrow['token'])
+        # Force the retained failure: denial must not wait for the build's
+        # bounded lease slot to become free before contributing to escalation.
+        misuse = next('parent-misuse-' + str(i) for i in range(10000)
+                      if operation_lease(self.narrow['session'], 'parent-misuse-' + str(i)) ==
+                      operation_lease(self.actor['session'], 'install'))
         unrelated = subprocess.Popen(['/usr/bin/sleep', '60'])
         def cleanup():
             unrelated.terminate()
@@ -762,7 +768,7 @@ class YarnNativeTests(unittest.TestCase):
                     self.fail('Build returned before supervision: ' + str(future.result()))
                 time.sleep(.05)
             self.assertTrue(units, 'build never registered')
-            first = self.controller_install(self.narrow, 'parent-misuse')
+            first = self.controller_install(self.narrow, misuse)
             self.assertFalse(first['allowed'], first)
             self.assertEqual(first['level'], 'warn')
             second = Workspace(self.store).request(child['token'], 'child-read', request('read', 'source'))

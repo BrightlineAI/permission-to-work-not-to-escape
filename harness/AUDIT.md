@@ -107,7 +107,10 @@ intent before execution. A controller-held operation lease spans preparation
 and publication while leaving the project lock available to stopping. A retry
 waits for the original operation and returns its retained result. Recovery skips
 live leases; an abandoned intent stops the affected project and remains uncertain.
-Leases use 64 fixed lock slots per controller. Different operations hashing to
+Leases use 64 fixed lock slots per controller. Package admission denials are
+recorded under the controller lock before waiting for a preparation lease, so
+a slot collision cannot delay their contribution to shared escalation until a
+build finishes. Admitted preparations and duplicate events hashing to
 the same slot wait in sequence; no lock file is unlinked or recreated while a
 waiter could still hold it. Fresh rejected event IDs cannot grow this pool.
 Install dispatch reserves its own and its package operation's slots together in

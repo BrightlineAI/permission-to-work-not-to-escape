@@ -87,6 +87,18 @@ class PackageControl:
                    "content": canonical(request_lock if plan else {"pins": selected, "extras": extras} if extras else selected)}
         request_hash = digest(request)
         try:
+            # Denials have no preparation effects to lease. Record them under
+            # the controller lock before waiting on a potentially colliding
+            # long-build slot, so shared escalation can stop that build.
+            # Existing events still take the lease for duplicate/recovery rules.
+            with self.store.locked() as db:
+                actor = self.store.session(db, token)
+                prior = db.execute('SELECT 1 FROM events WHERE session=? AND event=?',
+                                   (actor['id'], event)).fetchone()
+                if prior is None:
+                    _, _, _, result = self.inspect(db, token, event, selected, request, request_hash)
+                    if result is not None:
+                        return result
             with self.store.operation(token, event):
                 return self._install(token, event, selected, request, request_hash, plan=plan, extras=extras)
         finally:

@@ -5,7 +5,7 @@ real builder, installation and all demo originals outside the source checkout.
 """
 import io
 import copy
-from contextlib import chdir
+from contextlib import chdir, redirect_stderr, redirect_stdout
 import json
 import os
 from pathlib import Path
@@ -21,6 +21,101 @@ import build_product_release as builder
 import prepare_product_release as preparation
 import product_install as installer
 from evidence_io import artifact, capture, load, reference, save
+
+
+class ReleaseInstallerTimingTests(unittest.TestCase):
+    def stages(self, stream):
+        return [json.loads(line.removeprefix('PTW_INSTALL_STAGE '))
+                for line in stream.getvalue().splitlines()]
+
+    def test_stage_clock_and_failure_do_not_expose_exception_details(self):
+        for error in (None, installer.InstallError('private fixture detail'), KeyboardInterrupt()):
+            with self.subTest(error=type(error).__name__):
+                stream = io.StringIO()
+                with redirect_stderr(stream), patch.object(installer.time, 'monotonic', side_effect=[10., 12.5]):
+                    if error is None:
+                        with installer.install_stage('health'):
+                            pass
+                    else:
+                        with self.assertRaises(type(error)) as raised:
+                            with installer.install_stage('health'):
+                                raise error
+                        self.assertIs(raised.exception, error)
+                self.assertEqual(self.stages(stream), [
+                    {'stage': 'health', 'completed': error is None, 'seconds': 2.5}])
+                self.assertNotIn('private fixture detail', stream.getvalue())
+
+    def test_prepare_records_success_and_stops_at_failed_stage(self):
+        import test_product_install as fixtures
+        manifest, files = installer.release_files(fixtures.release_fixture())
+        binary = builder.deterministic_tar({'bin/uv': b'fixture', 'bin/nono': b'fixture'})
+        for failure in (None, 'download', 'python', 'npm', 'missing-platform'):
+            with self.subTest(failure=failure), tempfile.TemporaryDirectory() as temporary:
+                root, stream, commands = Path(temporary), io.StringIO(), []
+
+                def execute(command, **kwargs):
+                    command = [str(x) for x in command]
+                    commands.append(command)
+                    if '--version' in command:
+                        return installer.PINS[Path(command[0]).name][0]
+                    if ((failure == 'python' and '--require-hashes' in command) or
+                            (failure == 'npm' and command[0] == 'npm')):
+                        raise installer.InstallError('private fixture command output')
+                    if command[0] == 'npm' and failure != 'missing-platform':
+                        target = root / 'codex/node_modules/@openai/codex-linux-x64/vendor/x86_64-unknown-linux-musl/bin/codex'
+                        target.parent.mkdir(parents=True)
+                        target.write_bytes(b'fixture')
+                    return ''
+
+                with redirect_stderr(stream), patch.object(installer, 'run', side_effect=execute), \
+                        patch.object(installer, 'download', return_value=binary,
+                            side_effect=installer.InstallError('private fixture download') if failure == 'download' else None):
+                    if failure is None:
+                        installer.prepare(root, files, manifest)
+                    else:
+                        with self.assertRaises(installer.InstallError):
+                            installer.prepare(root, files, manifest)
+                rows = self.stages(stream)
+                expected = {'download-uv': True, 'download-nono': True,
+                            'python-environment': failure != 'python',
+                            'codex-environment': failure not in ('npm', 'missing-platform')}
+                if failure == 'download':
+                    expected = {'download-uv': False}
+                    self.assertEqual(commands, [])
+                else:
+                    # Both independent preparations finish before return, even
+                    # if one fails. Completion order is not an acceptance gate.
+                    self.assertEqual([r['stage'] for r in rows[:2]], ['download-uv', 'download-nono'])
+                    self.assertTrue(any(c[0] == 'npm' for c in commands))
+                self.assertEqual(len(rows), len(expected))
+                self.assertEqual({r['stage']: r['completed'] for r in rows}, expected)
+                self.assertFalse(any('doctor' in c for c in commands))
+                self.assertTrue(all(r['seconds'] >= 0 for r in rows))
+                self.assertNotIn(temporary, stream.getvalue())
+                self.assertNotIn('private fixture', stream.getvalue())
+
+    def test_health_failure_retains_failed_candidate_without_activation(self):
+        import test_product_install as fixtures
+        with tempfile.TemporaryDirectory() as temporary:
+            root, stream = Path(temporary), io.StringIO()
+            archive = root / 'candidate.tgz'
+            archive.write_bytes(fixtures.release_fixture())
+            with redirect_stderr(stream), redirect_stdout(io.StringIO()), \
+                    patch.object(installer, 'preflight'), patch.object(installer, 'in_use'), \
+                    patch.object(installer, 'prepare', side_effect=fixtures.prepare_fixture), \
+                    patch.object(installer, 'health', side_effect=installer.InstallError('private fixture health')):
+                with installer.locked(root / 'installation', root / 'commands') as state:
+                    with self.assertRaisesRegex(installer.InstallError, 'private fixture health'):
+                        installer.install(root / 'installation', state, str(archive), installer.sha(archive.read_bytes()))
+            state = load(root / 'installation/state.json')
+            self.assertIsNone(state['active'])
+            self.assertEqual([r['status'] for r in state['releases'].values()], ['failed'])
+            rows = self.stages(stream)
+            self.assertEqual([r['stage'] for r in rows],
+                             ['preflight', 'release-archive', 'payload-snapshot', 'health'])
+            self.assertFalse(rows[-1]['completed'])
+            self.assertNotIn('private fixture health', stream.getvalue())
+            self.assertFalse((root / 'commands/ptw').exists())
 
 
 class ReleaseArtifactTests(unittest.TestCase):

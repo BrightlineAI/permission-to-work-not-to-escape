@@ -376,6 +376,42 @@ class PackagePolicyTests(PackageFixture, unittest.TestCase):
                 self.assertEqual(pending.result(timeout=5)["level"], "stop")
         self.assertEqual(self.store.status("website")["violations"], 0)
 
+    def test_colliding_package_denials_stop_pending_preparation(self):
+        from ptw.store import operation_lease
+        started, resume = threading.Event(), threading.Event()
+        collision = [str(i) for i in range(10000)
+                     if operation_lease(self.b['session'], str(i)) ==
+                     operation_lease(self.a['session'], 'install')][:3]
+        self.assertEqual(len(collision), 3)
+
+        def delayed(name, version):
+            started.set()
+            self.assertTrue(resume.wait(5))
+            raise EvidenceError('synthetic canceled preparation')
+
+        def deny():
+            return [self.install(actor=self.b, event=event) for event in collision]
+
+        with patch.object(self.provider, 'assess', side_effect=delayed) as assess:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+                pending = pool.submit(self.install)
+                try:
+                    self.assertTrue(started.wait(2))
+                    denied = pool.submit(deny).result(timeout=2)
+                    self.assertEqual([r['level'] for r in denied], ['warn', 'warn', 'stop'])
+                    self.assertTrue(all(not r['allowed'] for r in denied))
+                    self.assertFalse(pending.done(), 'Denials waited for preparation')
+                    self.assertTrue(self.store.status('website')['stopped'])
+                    self.assertEqual(self.store.status('website')['violations'], 3)
+                finally:
+                    resume.set()
+                self.assertEqual(pending.result(timeout=5)['level'], 'stop')
+            self.assertEqual(assess.call_count, 1, 'Denied requests reached the provider')
+        self.assertFalse((self.store.directory / 'package-sets').exists())
+        for event in collision:
+            self.assertTrue(self.install(actor=self.b, event=event)['replayed'])
+        self.assertEqual(self.store.status('website')['violations'], 3)
+
     def test_evidence_identity_mismatch(self):
         self.provider.changes["idna"] = {"name": "different"}
         self.no_effect(self.install())

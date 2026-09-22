@@ -49,6 +49,26 @@ Run the candidate's absolute `venv/bin/ptw doctor` with its private `bin` on PAT
 for private troubleshooting, or retry from a normal login session with an active
 systemd user manager. No failure enables an unconfined execution fallback.
 
+Fresh installation prints `PTW_INSTALL_STAGE` records to stderr with fixed stage
+names, elapsed seconds and completion status. These distinguish tool downloads,
+Python/Codex preparation, health probes and payload integrity checks without
+printing command output, configuration or credentials. A failed or interrupted
+stage reports `completed: false` and still fails installation. Retain stderr when
+diagnosing slow setup. These partial stage timings do not replace the full
+installer-to-protected-ready measurement or its 30-second acceptance bound.
+After native tools pass checksum and version checks, Python and Codex prepare
+concurrently in separate environments and private caches. Their stage durations
+overlap and must not be summed. Both must finish successfully before health
+checks, payload verification or activation. On failure or interruption, the
+installer waits for the in-progress bounded preparation before returning, so
+retry/cleanup cannot race a writer. A failure still preserves the current release.
+Payload verification reports content/entry checks and membership enumeration
+separately. Each recorded file is hashed once per verification; the membership
+pass checks metadata without following links or rereading file contents. Added
+entries, changed contents or link targets, special files and unreadable inventory
+still prevent activation. These phases are nested inside `payload-verification`
+on fresh installation; do not add them to its duration.
+
 Health checks use a private temporary directory beside the release payload for
 temporary files and tool caches, including the
 [Node compile cache](https://nodejs.org/download/release/v22.13.1/docs/api/module.html#module-compile-cache)
@@ -294,6 +314,7 @@ evidence for the new path.
 - [Python virtual environments](https://docs.python.org/3/library/venv.html#how-venvs-work): environments embed absolute paths, so candidates are never moved after creation.
 - [Python interpreter options](https://docs.python.org/3/using/cmdline.html#cmdoption-B): `-B` disables bytecode writes explicitly, while `-I` ignores Python environment settings.
 - [Python signal timers](https://docs.python.org/3/library/signal.html#signal.setitimer): a real-time alarm interrupts blocked download operations; signal handlers run in the main thread.
+- [Python executor shutdown](https://docs.python.org/3/library/concurrent.futures.html#concurrent.futures.Executor.shutdown): the context waits for its worker on exit; result retrieval propagates worker failures. Native tool downloads stay on the main thread.
 - [Pinned build backend metadata](https://pypi.org/pypi/setuptools/82.0.1/json): wheel digest and declared backend compatibility.
 
 These sources establish interfaces, not successful local acceptance. Stable

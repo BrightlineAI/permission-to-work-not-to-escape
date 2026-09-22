@@ -72,6 +72,102 @@ def prepare_fixture(candidate, files, manifest):
     (candidate / "venv/bin/python").symlink_to(sys.executable)
 
 
+class IntegrityTests(unittest.TestCase):
+    def setUp(self):
+        self.base = Path(self.enterContext(tempfile.TemporaryDirectory(prefix="ptw-integrity-test-")))
+        self.candidate = self.base / "candidate"
+        self.candidate.mkdir()
+        (self.candidate / "nested").mkdir()
+        (self.candidate / "nested/payload").write_bytes(b"installed payload")
+        (self.candidate / "empty").write_bytes(b"")
+        external = self.base / "external"
+        external.mkdir()
+        (external / "unowned").write_bytes(b"never read through a link")
+        (self.candidate / "directory-link").symlink_to(external, target_is_directory=True)
+        (self.candidate / "broken-link").symlink_to("missing")
+        self.receipt = product.snapshot(self.candidate)
+        self.stderr = self.enterContext(contextlib.redirect_stderr(io.StringIO()))
+
+    def test_verification_hashes_each_file_once_without_following_links(self):
+        with patch.object(product, "sha", wraps=product.sha) as hashed:
+            product.verify(self.candidate, self.receipt)
+        self.assertCountEqual([call.args[0] for call in hashed.call_args_list],
+                              [b"installed payload", b""])
+        rows = [json.loads(line.removeprefix("PTW_INSTALL_STAGE "))
+                for line in self.stderr.getvalue().splitlines()]
+        self.assertEqual([r["stage"] for r in rows], ["verification-entries", "verification-membership"])
+        self.assertTrue(all(r["completed"] and r["seconds"] >= 0 for r in rows))
+        self.assertNotIn(str(self.base), self.stderr.getvalue())
+
+    def test_verification_rejects_added_files_directories_links_and_special_files(self):
+        for kind in ("file", "directory", "link", "fifo"):
+            with self.subTest(kind=kind):
+                added = self.candidate / "added"
+                if kind == "file":
+                    added.write_bytes(b"unrecorded")
+                elif kind == "directory":
+                    added.mkdir()
+                elif kind == "link":
+                    added.symlink_to("missing")
+                else:
+                    os.mkfifo(added)
+                try:
+                    with self.assertRaisesRegex(product.InstallError, "Unexpected installed"):
+                        product.verify(self.candidate, self.receipt)
+                finally:
+                    added.rmdir() if kind == "directory" else added.unlink()
+
+    def test_verification_rejects_changed_missing_and_retyped_entries(self):
+        target = self.candidate / "nested/payload"
+        for kind in ("content", "missing", "directory", "link", "fifo"):
+            with self.subTest(kind=kind):
+                target.unlink()
+                if kind == "content":
+                    target.write_bytes(b"tampered payload")
+                elif kind == "directory":
+                    target.mkdir()
+                elif kind == "link":
+                    target.symlink_to(self.base / "external/unowned")
+                elif kind == "fifo":
+                    os.mkfifo(target)
+                try:
+                    with self.assertRaisesRegex(product.InstallError, "Installed file changed"):
+                        product.verify(self.candidate, self.receipt)
+                finally:
+                    if kind == "directory":
+                        target.rmdir()
+                    else:
+                        target.unlink(missing_ok=True)
+                    target.write_bytes(b"installed payload")
+
+    def test_verification_rejects_changed_parent_link_and_link_target(self):
+        link = self.candidate / "broken-link"
+        link.unlink()
+        link.symlink_to("different-missing")
+        with self.assertRaisesRegex(product.InstallError, "Installed file changed"):
+            product.verify(self.candidate, self.receipt)
+        link.unlink()
+        link.symlink_to("missing")
+        (self.candidate / "nested").rename(self.base / "saved")
+        (self.candidate / "nested").symlink_to(self.base / "saved", target_is_directory=True)
+        with self.assertRaises(product.InstallError):
+            product.verify(self.candidate, self.receipt)
+
+    def test_verification_fails_closed_when_inventory_cannot_be_read(self):
+        def unreadable(directory, *, followlinks, onerror):
+            self.assertEqual(directory, self.candidate)
+            self.assertFalse(followlinks)
+            onerror(PermissionError("private fixture path"))
+
+        with patch.object(product.os, "walk", side_effect=unreadable):
+            with self.assertRaisesRegex(product.InstallError, "Could not enumerate"):
+                product.verify(self.candidate, self.receipt)
+        rows = [json.loads(line.removeprefix("PTW_INSTALL_STAGE "))
+                for line in self.stderr.getvalue().splitlines()]
+        self.assertEqual([r["completed"] for r in rows], [True, False])
+        self.assertNotIn("private fixture path", self.stderr.getvalue())
+
+
 class InstallerTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory(prefix="ptw-install-test-")
@@ -649,6 +745,72 @@ class ArchiveTests(unittest.TestCase):
 
 
 class HealthTests(unittest.TestCase):
+    def test_environment_preparation_overlaps_and_joins_before_return_or_failure(self):
+        """Deterministic tool doubles, not native download/timing evidence."""
+        manifest, files = product.release_files(release_fixture())
+        binary = builder.deterministic_tar({"bin/uv": b"verified uv", "bin/nono": b"verified nono"})
+        for failure in (None, "python", "npm", "interrupt"):
+            with self.subTest(failure=failure), tempfile.TemporaryDirectory() as temporary:
+                candidate = Path(temporary)
+                for name in ("cache", "npm-cache"):
+                    (candidate / name).mkdir()
+                python_ready, npm_ready = threading.Event(), threading.Event()
+                release_npm, returned = threading.Event(), threading.Event()
+                errors = []
+
+                def execute(command, **kwargs):
+                    command = [str(x) for x in command]
+                    if "--version" in command:
+                        return "uv 0.12.15" if command[0].endswith("/uv") else "nono 0.77.0"
+                    if command[0] == "npm":
+                        self.assertIn("--ignore-scripts", command)
+                        self.assertEqual(kwargs["timeout"], 300)
+                        npm_ready.set()
+                        self.assertTrue(release_npm.wait(5), "test did not release npm")
+                        # Failure cleanup must not remove a still-running writer's root.
+                        self.assertTrue((candidate / "npm-cache").is_dir())
+                        if failure == "npm":
+                            raise product.InstallError("npm fixture failed")
+                        native = candidate / "codex/node_modules/@openai/codex-linux-x64/vendor/x86_64-unknown-linux-musl/bin/codex"
+                        native.parent.mkdir(parents=True)
+                        native.write_text("synthetic platform binary")
+                    elif "venv" in command:
+                        self.assertTrue(npm_ready.wait(5), "Python and npm did not overlap")
+                        python_ready.set()
+                        if failure == "python":
+                            raise product.InstallError("python fixture failed")
+                        if failure == "interrupt":
+                            raise KeyboardInterrupt()
+                    return ""
+
+                def prepare():
+                    try:
+                        product.prepare(candidate, files, manifest)
+                    except BaseException as exc:
+                        errors.append(exc)
+                    finally:
+                        returned.set()
+
+                with patch.object(product, "download", return_value=binary), patch.object(product, "run", side_effect=execute):
+                    caller = threading.Thread(target=prepare)
+                    caller.start()
+                    try:
+                        self.assertTrue(python_ready.wait(5), "Python did not prepare alongside npm")
+                        self.assertFalse(returned.wait(.05), "preparation left an active npm writer")
+                        self.assertTrue((candidate / "npm-cache").is_dir())
+                    finally:
+                        release_npm.set()
+                        caller.join(5)
+                self.assertFalse(caller.is_alive())
+                if failure:
+                    self.assertEqual(len(errors), 1)
+                    self.assertIsInstance(errors[0], KeyboardInterrupt if failure == "interrupt" else product.InstallError)
+                    self.assertTrue((candidate / "npm-cache").is_dir())
+                else:
+                    self.assertEqual(errors, [])
+                    self.assertFalse((candidate / "cache").exists())
+                    self.assertFalse((candidate / "npm-cache").exists())
+
     def test_real_python_imports_and_service_commands_preserve_receipt(self):
         """Real private Python/source copy; service dispatch is captured, not native evidence."""
         from ptw import mcp_server, monitor, supervisor, terminal

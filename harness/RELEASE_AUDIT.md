@@ -7,14 +7,55 @@ and all three original contracts remain unchanged.
 
 This finite checklist is the implementation handoff, not an acceptance claim.
 
-The current completion-gate repair makes release asset references relative to
+Package admission now records a new scope denial before waiting for the bounded
+preparation lease. A retained Yarn failure showed a denied request sharing the
+active build's slot and waiting until publication before escalation. Admission
+is still checked under the lease and before publication; duplicate requests
+retain their existing serialization and recovery rules. Offline coverage forces
+the collision while preparation is pending, verifies warn1/stop3 and prevents
+publication. The native Yarn regression forces the same collision and retains
+physical stopping and unrelated-work assertions.
+The retained native collision regression now confirms those assertions, and
+fresh installed security/demo records match the changed runtime. Earlier
+receipts cannot substitute for full final-source acceptance.
+
+Read-only process sampling can miss short-lived native launch stages. A generic
+launch failure without the compiled command observation is insufficient proof
+and remains a failed attempt. The retained installed Python probe includes the
+compiled command, denied-executable diagnostic and unchanged protected files.
+This supports that run's boundary check; it does not repair the earlier missing
+observation or establish that every future sample will be complete.
+
+The release-path repair makes release asset references relative to
 the directory containing `release.json`, as required by the strict artifact
 reader. Offline tests validate the generated references, relocation, unrelated
 working directories and rejection of unsafe, linked, missing or changed files.
-The installed CLI test consumes the same validated references. The builder,
-runtime, four published asset contents and version are unchanged. Fresh manager
+The installed CLI test consumes the same validated references. That repair left
+the builder, runtime, four asset contents and version unchanged. Fresh manager
 acceptance and publication review remain required. This local producer/consumer
 contract needs no new dependency or external API research.
+
+Installer diagnostics report fixed-label stage durations on stderr so native
+startup failures can be attributed before changing download or activation logic.
+Verification hashes each recorded file once, then checks membership through a
+metadata-only traversal. It rejects added entries, changed contents and links,
+special files and enumeration failures. The initial snapshot, post-health
+verification and activation ordering remain intact. Separate entry/membership
+phase timings support native measurement. The latest retained product run
+completed useful work and protected resume in all seven journeys, but existing
+TypeScript took 30.748 seconds and failed the unchanged startup bound. Its
+installer spent 1.171 seconds preparing Python and 8.255 seconds preparing Codex
+sequentially. These independent frozen environments now prepare concurrently,
+after native-tool verification and before any health check or activation.
+Failure and interruption join the bounded worker before returning. Deterministic
+overlap/failure tests are not native timing proof; final-source startup acceptance
+remains pending. Exact originals remain in the private handoff.
+Failures and interruption remain failures; no timing is subtracted from the
+installer-to-protected-ready bound, and cold tool/package caches remain cold.
+This changes bootstrap/archive bytes, requiring a fresh private candidate and
+final-source acceptance. Never overwrite an earlier candidate or published
+version. Runtime modules, contract pins and version are unchanged. Stage timing
+uses the existing monotonic clock and adds no dependency or external interface.
 
 The preceding acceptance PTY driver correction covers
 SIGINT inheritance, exact cancellation exit checks, regression coverage and

@@ -2,6 +2,7 @@
 """Standalone release installer. Only the standard library runs before verification."""
 import argparse
 import contextlib
+from concurrent.futures import ThreadPoolExecutor
 import fcntl
 import hashlib
 import http.client
@@ -47,6 +48,19 @@ class InstallError(Exception):
 def require(condition, message):
     if not condition:
         raise InstallError(message)
+
+
+@contextlib.contextmanager
+def install_stage(name):
+    """Fixed-label timings, without command output, paths or configuration."""
+    started, completed = time.monotonic(), False
+    try:
+        yield
+        completed = True
+    finally:
+        sys.stderr.write("PTW_INSTALL_STAGE " + json.dumps({"stage": name, "completed": completed,
+                         "seconds": time.monotonic() - started}, sort_keys=True) + "\n")
+        sys.stderr.flush()
 
 
 def sha(data):
@@ -311,7 +325,8 @@ def prepare(candidate, files, manifest):
         (payload / name).write_bytes(value)
     (candidate / "bin").mkdir()
     for name, (_, url, expected) in PINS.items():
-        contents = archive_files(download(url, expected), directories=True)
+        with install_stage("download-" + name):
+            contents = archive_files(download(url, expected), directories=True)
         matches = [value for path, value in contents.items() if PurePosixPath(path).name == name]
         require(len(matches) == 1, "Unexpected " + name + " archive layout")
         binary = candidate / "bin" / name
@@ -324,25 +339,36 @@ def prepare(candidate, files, manifest):
     for name, (expected, _, _) in PINS.items():
         output = run([candidate / "bin" / name, "--version"], env=env, cwd=candidate, timeout=15)
         require(re.search(r"(?<![\d.])" + re.escape(expected) + r"(?![\d.])", output), "Wrong pinned tool version: " + name)
-    uv = candidate / "bin/uv"
-    run([uv, "--no-config", "venv", "--no-python-downloads", "--python", sys.executable, candidate / "venv"], env=env)
-    python = candidate / "venv/bin/python"
-    run([uv, "--no-config", "pip", "install", "--python", python, "--require-hashes", "--only-binary", ":all:",
-         "--index-url", "https://pypi.org/simple", "-r", payload / "requirements.lock"], env=env, cwd=payload, timeout=300)
-    wheel = payload / f"permission_to_work_harness-{manifest['version']}-py3-none-any.whl"
-    run([uv, "--no-config", "pip", "install", "--python", python, "--no-deps", wheel], env=env, cwd=payload)
+    # Separate frozen environments/caches can prepare concurrently. Downloads
+    # using SIGALRM above stay on the main thread. Join before returning, even
+    # on failure, so no writer can race failed-candidate cleanup or activation.
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        codex = executor.submit(prepare_codex, candidate, files, env)
+        uv = candidate / "bin/uv"
+        with install_stage("python-environment"):
+            run([uv, "--no-config", "venv", "--no-python-downloads", "--python", sys.executable, candidate / "venv"], env=env)
+            python = candidate / "venv/bin/python"
+            run([uv, "--no-config", "pip", "install", "--python", python, "--require-hashes", "--only-binary", ":all:",
+                 "--index-url", "https://pypi.org/simple", "-r", payload / "requirements.lock"], env=env, cwd=payload, timeout=300)
+            wheel = payload / f"permission_to_work_harness-{manifest['version']}-py3-none-any.whl"
+            run([uv, "--no-config", "pip", "install", "--python", python, "--no-deps", wheel], env=env, cwd=payload)
+        codex.result()
+    for name in ("cache", "npm-cache"):
+        shutil.rmtree(candidate / name, ignore_errors=True)
+
+
+def prepare_codex(candidate, files, env):
     package, lock = (json.loads(files[name]) for name in ("package.json", "package-lock.json"))
     validate_npm(package, lock)
     codex = candidate / "codex"
     codex.mkdir()
     for name in ("package.json", "package-lock.json"):
         (codex / name).write_bytes(files[name])
-    run(["npm", "ci", "--ignore-scripts", "--include=optional", "--no-audit", "--no-fund", "--registry=https://registry.npmjs.org"],
-        env=env, cwd=codex, timeout=300)
-    native = codex / "node_modules/@openai/codex-linux-x64/vendor/x86_64-unknown-linux-musl/bin/codex"
-    require(native.is_file() and not native.is_symlink(), "Required pinned Codex platform binary missing; no fallback permitted")
-    for name in ("cache", "npm-cache"):
-        shutil.rmtree(candidate / name, ignore_errors=True)
+    with install_stage("codex-environment"):
+        run(["npm", "ci", "--ignore-scripts", "--include=optional", "--no-audit", "--no-fund", "--registry=https://registry.npmjs.org"],
+            env=env, cwd=codex, timeout=300)
+        native = codex / "node_modules/@openai/codex-linux-x64/vendor/x86_64-unknown-linux-musl/bin/codex"
+        require(native.is_file() and not native.is_symlink(), "Required pinned Codex platform binary missing; no fallback permitted")
 
 
 def candidate_env(candidate, runtime):
@@ -405,10 +431,25 @@ def matches(path, entry):
 def verify(candidate, receipt):
     safe_path(candidate)
     require(candidate.is_dir(), "Installed release is missing")
-    for name, entry in receipt.items():
-        relative(name)
-        require(matches(candidate / name, entry), "Installed file changed: " + name)
-    require(set(snapshot(candidate)) == set(receipt), "Unexpected installed files; inspect before retry or rollback")
+    with install_stage("verification-entries"):
+        for name, entry in receipt.items():
+            relative(name)
+            require(matches(candidate / name, entry), "Installed file changed: " + name)
+
+    def scan_error(error):
+        raise InstallError("Could not enumerate installed files") from error
+
+    with install_stage("verification-membership"):
+        # Content was checked above. Enumerate without rereading it or following
+        # links, while retaining directories and special-file rejection.
+        names = set()
+        for base, directories, files in os.walk(candidate, followlinks=False, onerror=scan_error):
+            for name in directories + files:
+                path = Path(base) / name
+                kind = stat.S_IFMT(path.lstat().st_mode)
+                require(kind in (stat.S_IFREG, stat.S_IFDIR, stat.S_IFLNK), "Unexpected installed special file")
+                names.add(str(path.relative_to(candidate)))
+        require(names == set(receipt), "Unexpected installed files; inspect before retry or rollback")
 
 
 def in_use(root):
@@ -574,8 +615,10 @@ def select_release(root, state, identity):
 
 
 def install(root, state, source, digest, loopback=False):
-    preflight()
-    manifest, files = release_files(download(source, digest, loopback=loopback))
+    with install_stage("preflight"):
+        preflight()
+    with install_stage("release-archive"):
+        manifest, files = release_files(download(source, digest, loopback=loopback))
     for identity, record in state["releases"].items():
         if record["version"] == manifest["version"]:
             require(record["digest"] == digest, "Release version already recorded with different bytes; choose a new version")
@@ -601,9 +644,12 @@ def install(root, state, source, digest, loopback=False):
     try:
         print("Installing verified candidate; current release remains active.", flush=True)
         prepare(candidate, files, manifest)
-        receipt = snapshot(candidate)
-        report = health(candidate, manifest["version"])
-        verify(candidate, receipt)
+        with install_stage("payload-snapshot"):
+            receipt = snapshot(candidate)
+        with install_stage("health"):
+            report = health(candidate, manifest["version"])
+        with install_stage("payload-verification"):
+            verify(candidate, receipt)
         state["releases"][identity].update(status="ready", receipt=receipt, python=sys.executable)
         atomic(root / "state.json", state)
         publish_launchers(root, state)
