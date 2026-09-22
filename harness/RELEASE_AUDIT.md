@@ -9,6 +9,26 @@ extension and incident contracts and historical receipts remain byte-identical.
 
 This finite checklist is the implementation handoff, not an acceptance claim.
 
+Hosted CI requires the same pinned uv used by the installer. The
+[task26 CI annotations](https://github.com/BrightlineAI/permission-to-work-not-to-escape/actions/runs/35713412108)
+identify missing uv in dependency resolution and Python revisions. The workflow
+now provisions it before harness discovery, using the existing verified download
+and archive helpers. Failed verification never adds a PATH entry; the destination
+must be fresh. Tests exercise real fixture executable discovery and reject failed
+downloads, corrupt or malformed archives, missing/ambiguous binaries, failed
+execution and wrong versions. Discovery errors still fail and mandatory native
+cases remain in full discovery exactly once.
+
+This repair changes CI, tests and developer guidance only. Shipped runtime,
+installer, release asset sources and version remain unchanged; published assets
+must not be replaced. Fresh final-source manager acceptance and hosted CI remain
+required. The
+[GitHub PATH documentation](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-commands#adding-a-system-path)
+specifies that `GITHUB_PATH` affects subsequent steps. The
+[official uv CI guide](https://docs.astral.sh/uv/guides/integration/github/)
+supports explicit version pinning. Reusing the existing pin and verification
+helpers avoids another action dependency; no resolver fallback is introduced.
+
 The current startup maximum is inclusive: 60 seconds from the first installer
 invocation through protected readiness, including downloads and review. About
 40 seconds is desired, not another gate. The active contract pin and bundled

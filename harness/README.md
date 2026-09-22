@@ -230,7 +230,17 @@ the source-test environment for independent verification. Focused receipts, old
 source receipts and incomplete attempts cannot satisfy full product acceptance.
 
 Hosted CI runs `python harness/scripts/offline_checks.py` from an isolated editable
-source installation. It preserves discovered offline cases and explicitly reserves
+source installation. Before discovery, `harness/scripts/provision_ci_uv.py`
+downloads the installer's pinned uv 0.12.15 into a fresh runner-local directory,
+verifies its SHA-256, validates the archive and checks the executable version.
+Only then does it expose that directory to later workflow steps through
+`GITHUB_PATH`. An ambient uv installation is not used for this prerequisite.
+Download, integrity, archive or version failures stop the job before tests;
+retain the failed job and rerun on a fresh runner after resolving the cause.
+Do not bypass verification or skip resolver tests to address a missing tool.
+For manual source tests above, keep the installer's verified uv on PATH.
+
+CI preserves discovered offline cases and explicitly reserves
 the installed safety/demo/release classes for the manager's native gate. Existing
 per-test native prerequisites still apply there. CI success is not full product
 acceptance; normal `PTW_LINUX_TESTS=1` discovery still executes every mandatory

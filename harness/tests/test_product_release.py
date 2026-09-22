@@ -11,6 +11,7 @@ import os
 from pathlib import Path
 import sys
 import tempfile
+import tarfile
 import unittest
 from unittest.mock import patch
 import zipfile
@@ -21,6 +22,98 @@ import build_product_release as builder
 import prepare_product_release as preparation
 import product_install as installer
 from evidence_io import artifact, capture, load, reference, save
+
+
+class CIPrerequisiteTests(unittest.TestCase):
+    """Synthetic executable/transport fixtures, with real integrity and PATH checks."""
+
+    def setUp(self):
+        import provision_ci_uv
+        self.ci = provision_ci_uv
+        self.root = Path(self.enterContext(tempfile.TemporaryDirectory(prefix='ptw-ci-fixture-')))
+        self.path_file = self.root / 'github-path'
+        self.path_file.write_text('')
+        self.out = self.root / 'tools'
+        self.version = installer.PINS['uv'][0]
+
+    def executable(self, version=None):
+        return ('#!/bin/sh\nprintf "%s\\n" "uv ' + (version or self.version) + ' (fixture)"\n').encode()
+
+    def invoke(self, data, *, digest=None, failure=None):
+        # Mock the transport only: the production download hash and archive
+        # validators, executable invocation and PATH-file publication all run.
+        with patch.dict(installer.PINS, {'uv': (self.version, installer.PINS['uv'][1],
+                                               digest or installer.sha(data))}), \
+                patch.object(installer.urllib.request.OpenerDirector, 'open',
+                             side_effect=failure or (lambda *a, **k: io.BytesIO(data))) as opened, \
+                patch.dict(os.environ, {'GITHUB_PATH': str(self.path_file), 'PATH': ''}), \
+                patch.object(sys, 'argv', ['provision_ci_uv.py', '--out', str(self.out)]), \
+                redirect_stderr(io.StringIO()):
+            self.ci.main()
+        self.assertEqual(opened.call_args.args[0], installer.PINS['uv'][1])
+
+    def test_verified_tool_is_available_to_next_step_without_ambient_uv(self):
+        import shutil
+        data = builder.deterministic_tar({'uv-linux/uv': self.executable(), 'uv-linux/uvx': b'unused'})
+        self.invoke(data)
+        self.assertEqual(self.path_file.read_text(), str(self.out) + '\n')
+        executable = shutil.which('uv', path=self.path_file.read_text().strip())
+        self.assertEqual(executable, str(self.out / 'uv'))
+        self.assertEqual(installer.run(['uv', '--version'], env={'PATH': str(self.out)}),
+                         'uv ' + self.version + ' (fixture)')
+        self.assertFalse((self.out / 'uvx').exists())
+        # Selection must remain explicit even if a different ambient tool exists.
+        ambient = self.root / 'ambient'
+        ambient.mkdir()
+        (ambient / 'uv').write_bytes(self.executable('0.0.0'))
+        (ambient / 'uv').chmod(0o755)
+        self.assertEqual(installer.run(['uv', '--version'], env={'PATH': str(self.out) + os.pathsep + str(ambient)}),
+                         'uv ' + self.version + ' (fixture)')
+
+    def test_invalid_download_archive_or_binary_never_updates_path(self):
+        good = builder.deterministic_tar({'bin/uv': self.executable()})
+        cases = [
+            ('download', good, None, OSError('synthetic transport failure')),
+            ('digest', good, '0' * 64, None),
+            ('malformed', b'not a tar archive', None, None),
+            ('missing', builder.deterministic_tar({'bin/uvx': b'unused'}), None, None),
+            ('duplicate', builder.deterministic_tar({'a/uv': self.executable(), 'b/uv': self.executable()}), None, None),
+            ('invalid-executable', builder.deterministic_tar({'bin/uv': b'not executable'}), None, None),
+            ('nonzero', builder.deterministic_tar({'bin/uv': b'#!/bin/sh\nexit 1\n'}), None, None),
+            ('wrong-version', builder.deterministic_tar({'bin/uv': self.executable('0.0.0')}), None, None),
+            ('version-prefix', builder.deterministic_tar({'bin/uv': self.executable(self.version + '0')}), None, None),
+        ]
+        for name, data, digest, failure in cases:
+            with self.subTest(case=name):
+                self.out = self.root / name
+                with self.assertRaises((installer.InstallError, tarfile.TarError)):
+                    self.invoke(data, digest=digest, failure=failure)
+                self.assertEqual(self.path_file.read_text(), '')
+
+    def test_existing_destination_is_preserved_and_not_exported(self):
+        self.out.mkdir()
+        original = self.out / 'uv'
+        original.write_bytes(b'previous attempt')
+        with self.assertRaises(FileExistsError):
+            self.invoke(builder.deterministic_tar({'bin/uv': self.executable()}))
+        self.assertEqual(original.read_bytes(), b'previous attempt')
+        self.assertEqual(self.path_file.read_text(), '')
+
+    def test_workflow_provisions_before_offline_discovery_and_discovery_errors_fail(self):
+        import offline_checks
+        workflow = (builder.REPO / '.github/workflows/evidence.yml').read_text()
+        provision = 'python harness/scripts/provision_ci_uv.py --out "$RUNNER_TEMP/ptw-ci-uv"'
+        self.assertEqual(workflow.count(provision), 1)
+        self.assertLess(workflow.index(provision), workflow.index('harness/scripts/offline_checks.py'))
+        loader = unittest.TestLoader()
+        loader.errors.append('synthetic import failure')
+        with patch.dict(os.environ, {'PTW_LINUX_TESTS': '0'}), \
+                patch.object(offline_checks.unittest, 'TestLoader', return_value=loader), \
+                patch.object(loader, 'discover', return_value=unittest.TestSuite()), \
+                patch.object(offline_checks, 'partition') as partition, \
+                self.assertRaisesRegex(ValueError, 'Offline discovery failed'):
+            offline_checks.main()
+        partition.assert_not_called()
 
 
 class ReleaseInstallerTimingTests(unittest.TestCase):
