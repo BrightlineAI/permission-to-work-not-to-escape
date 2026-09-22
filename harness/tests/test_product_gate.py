@@ -1038,6 +1038,36 @@ class ProductRunnerTests(unittest.TestCase):
                          responses['sensitive fixtures after native launch'])
         self.assertIn('original boundary trace.json', responses)
         self.assertIn('host executable identities before native launch', responses)
+        self.assertIn('native compilation rejected', responses)
+
+    def test_resume_probe_preserves_compilation_rejection_before_exit_assertion(self):
+        from product_lifecycle import resume_security
+        root, session, private, outside = self.resume_fixture('rejected-compilation')
+
+        def failure(argv, folder, **kwargs):
+            folder.mkdir()
+            save(folder / 'process.json', {'complete': True, 'exit_code': 1, 'synthetic': True})
+            return subprocess.CompletedProcess(argv, 1, b'', b'synthetic exec denial')
+
+        reason = 'Missing or ambiguous actual compiled native boundary'
+        with patch('product_lifecycle.resumed_sandbox_command',
+                   return_value=['wrapper', '--', 'sandbox', '--', 'fixture']), \
+                patch('product_lifecycle.capture', side_effect=failure), \
+                patch('native_boundary.compiled_command', side_effect=ValueError(reason)), \
+                patch('native_boundary.namespace_probe') as namespace, \
+                self.assertRaisesRegex(ValueError, 'actually executed'):
+            resume_security(root, {'synthetic': 'fixture'}, session, private, outside, {})
+        namespace.assert_not_called()
+        probe, responses = self.resume_records(root)
+        self.assertFalse(probe['complete'])
+        self.assertFalse((root / 'resume-security.json').exists())
+        self.assertEqual(responses['native compilation rejected'], {'error_type': 'ValueError', 'reason': reason})
+        events = [json.loads(line) for line in artifact(root, probe['output']).read_text().splitlines()]
+        rejection = next(i for i, row in enumerate(events) if row.get('label') == 'native compilation rejected')
+        assertion = next(i for i, row in enumerate(events) if row.get('name') == 'hostile command actually executed')
+        self.assertLess(rejection, assertion)
+        self.assertEqual(responses['sensitive fixtures before native launch'],
+                         responses['sensitive fixtures after native launch'])
 
     def test_resume_probe_interruption_retains_changed_and_missing_fixtures(self):
         from product_lifecycle import resume_security
@@ -1196,6 +1226,39 @@ class ProductRunnerTests(unittest.TestCase):
                 elif kind != 'timeout':
                     self.assertIn('diagnostic collection succeeded', str(raised.exception))
 
+    def test_resume_probe_timing_write_failure_preserves_originals(self):
+        from product_lifecycle import resume_security
+        root, session, private, outside = self.resume_fixture('timing-write-failure')
+
+        def failed_save(path, value):
+            if path.name == 'timing.json':
+                raise OSError('synthetic timing storage failure')
+            save(path, value)
+
+        def synthetic_capture(argv, folder, **kwargs):
+            trace = kwargs['on_spawn'].__self__
+            trace.pid = os.getpid()
+            trace.sample(trace.pid)
+            folder.mkdir()
+            save(folder / 'process.json', {'complete': True, 'exit_code': 0, 'synthetic': True})
+            output = {str(p): {'read': False, 'write': False} for p in (private, outside)}
+            return subprocess.CompletedProcess(argv, 0, json.dumps(output).encode(), b'')
+
+        with patch('product_lifecycle.resumed_sandbox_command', return_value=['fixture']), \
+                patch('product_lifecycle.capture', side_effect=synthetic_capture), \
+                patch('sandbox_diagnostics.save', side_effect=failed_save), \
+                self.assertRaisesRegex(ValueError, 'diagnostic collection succeeded'):
+            resume_security(root, {'synthetic': 'fixture'}, session, private, outside, {})
+        probe, responses = self.resume_records(root)
+        self.assertFalse(probe['complete'])
+        self.assertIn('original sandbox process', responses)
+        self.assertIn('original boundary 0.cmdline', responses)
+        self.assertIn('original boundary 0.mountinfo', responses)
+        self.assertFalse(load(artifact(root, responses['original boundary trace.json']))['complete'])
+        self.assertEqual(responses['native diagnostic collection errors'][0]['error_type'], 'OSError')
+        self.assertEqual(responses['sensitive fixtures before native launch'],
+                         responses['sensitive fixtures after native launch'])
+
     def test_resume_probe_unreadable_fixture_does_not_hide_other_effects(self):
         from product_lifecycle import resume_security
         root, session, private, outside = self.resume_fixture('unreadable-fixture')
@@ -1304,6 +1367,18 @@ class ProductRunnerTests(unittest.TestCase):
         observations = [json.loads(line) for line in (trace.folder / 'observations.jsonl').read_text().splitlines()]
         self.assertGreaterEqual(len({r['pid'] for r in observations}), 2)
         self.assertIn(int(ready.read_text()), {r['pid'] for r in observations})
+        timing = load(trace.folder / 'timing.json')
+        self.assertLessEqual(timing['started_monotonic'], timing['start_requested_monotonic'])
+        self.assertLessEqual(timing['start_requested_monotonic'], timing['collector_started_monotonic'])
+        self.assertEqual(timing['rows_omitted'], 0)
+        self.assertEqual(timing['children_omitted'], 0)
+        edge = next(r for r in timing['rows'] if int(ready.read_text()) in r['children'])
+        self.assertEqual(edge['pid'], receipt['root_pid'])
+        self.assertIn('start_ticks', edge['before'])
+        for row in timing['rows']:
+            self.assertLessEqual(timing['collector_started_monotonic'], row['start_monotonic'])
+            self.assertLessEqual(row['start_monotonic'], row['end_monotonic'])
+            self.assertLessEqual(row['end_monotonic'], timing['collection_closed_monotonic'])
         for row in observations:
             for kind in ('cmdline', 'mountinfo'):
                 path = trace.folder / (str(row['index']) + '.' + kind)
@@ -1319,6 +1394,101 @@ class ProductRunnerTests(unittest.TestCase):
         self.assertTrue(identities)
         self.assertTrue(all(p['sha256'] == digest(p['resolved']) for p in identities))
         self.assertEqual(executable_identity(self.root / 'missing')['error_type'], 'FileNotFoundError')
+
+    def test_boundary_timing_separates_discovery_reads_and_persistence(self):
+        from sandbox_diagnostics import BoundaryTrace
+        trace = BoundaryTrace(self.root / 'timed')
+        trace.pid = os.getpid()
+        base = Path('/proc') / str(trace.pid)
+        clock = [100.]
+        iterdir, read_bytes, write_bytes = Path.iterdir, Path.read_bytes, Path.write_bytes
+
+        def delayed_discovery(path):
+            if path == base / 'task':
+                clock[0] += 2
+            return iterdir(path)
+
+        def delayed_read(path):
+            if path.parent == base:
+                clock[0] += {'cmdline': 3, 'mountinfo': 5}[path.name]
+            return read_bytes(path)
+
+        def delayed_write(path, data):
+            clock[0] += 7
+            return write_bytes(path, data)
+
+        # Synthetic clock delays isolate attribution without sleeping or claiming
+        # measured native latency. Original bytes still come from this process.
+        with patch('sandbox_diagnostics.time.monotonic', side_effect=lambda: clock[0]), \
+                patch.object(Path, 'iterdir', delayed_discovery), \
+                patch.object(Path, 'read_bytes', delayed_read), \
+                patch.object(Path, 'write_bytes', delayed_write):
+            trace.sample(trace.pid)
+            trace.sample(trace.pid)
+        trace.close()
+        rows = load(trace.folder / 'timing.json')['rows']
+        first, unchanged = rows
+        self.assertEqual(first['discovery_end_monotonic'] - first['discovery_start_monotonic'], 2)
+        self.assertEqual(first['read_end_monotonic'] - first['read_start_monotonic'], 8)
+        self.assertEqual(first['persistence_end_monotonic'] - first['persistence_start_monotonic'], 14)
+        self.assertEqual(first['end_monotonic'] - first['start_monotonic'], 24)
+        self.assertEqual(first['observation'], 0)
+        self.assertEqual(first['before']['start_ticks'], first['after']['start_ticks'])
+        self.assertEqual(unchanged['classification'], 'unchanged')
+        self.assertNotIn('persistence_start_monotonic', unchanged)
+        self.assertTrue(load(trace.folder / 'trace.json')['complete'])
+        sample = json.loads((trace.folder / 'observations.jsonl').read_text())
+        self.assertEqual(digest(trace.folder / '0.cmdline'), sample['cmdline_sha256'])
+
+    def test_boundary_timing_limits_disclose_omissions_without_changing_discovery(self):
+        from sandbox_diagnostics import BoundaryTrace
+        trace = BoundaryTrace(self.root / 'bounded')
+        trace.pid = os.getpid()
+        trace.MAX_TIMING_ROWS, trace.MAX_TIMING_CHILDREN = 2, 1
+        read_text = Path.read_text
+
+        def children(path, *args, **kwargs):
+            if str(path).startswith('/proc/') and path.name == 'children':
+                return '101 102 103'  # Synthetic descendant IDs, never traversed.
+            return read_text(path, *args, **kwargs)
+
+        with patch.object(Path, 'read_text', children):
+            for _ in range(3):
+                self.assertEqual(trace.sample(trace.pid), {101, 102, 103})
+        trace.close()
+        timing = load(trace.folder / 'timing.json')
+        self.assertEqual(len(timing['rows']), 2)
+        self.assertEqual(timing['rows_omitted'], 1)
+        self.assertEqual(timing['children_omitted'], 6)
+        self.assertTrue(all(r['children'] == [101] and r['children_omitted'] == 2 for r in timing['rows']))
+        receipt = load(trace.folder / 'trace.json')
+        self.assertEqual(receipt['timing_rows_omitted'], 1)
+        self.assertEqual(receipt['timing_children_omitted'], 6)
+        self.assertFalse(receipt['complete'])
+        self.assertEqual(receipt['samples'], 1)
+
+    def test_boundary_timing_retains_failed_discovery_and_persistence(self):
+        from sandbox_diagnostics import BoundaryTrace
+        for phase in ('discovery', 'persistence'):
+            with self.subTest(phase=phase):
+                trace = BoundaryTrace(self.root / phase)
+                trace.pid = os.getpid()
+
+                def denied(*args):
+                    trace.stop.set()
+                    raise PermissionError('synthetic ' + phase + ' failure')
+
+                with patch.object(Path, 'iterdir' if phase == 'discovery' else 'write_bytes', denied):
+                    trace.watch(trace.pid)
+                trace.close()
+                timing = load(trace.folder / 'timing.json')
+                self.assertEqual(len(timing['rows']), 1)
+                row = timing['rows'][0]
+                self.assertEqual(row['error_type'], 'PermissionError')
+                self.assertIn(phase + '_start_monotonic', row)
+                self.assertNotIn(phase + '_end_monotonic', row)
+                self.assertLessEqual(row['start_monotonic'], row['end_monotonic'])
+                self.assertFalse(load(trace.folder / 'trace.json')['complete'])
 
     def test_boundary_empty_reads_require_observed_exit_and_retain_originals(self):
         import errno

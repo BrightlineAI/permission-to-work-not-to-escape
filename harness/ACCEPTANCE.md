@@ -366,11 +366,27 @@ errors, live empty reads, changed identities and unknown states leave the trace
 incomplete. The descendant regression retains its process output, samples and
 source hashes outside the checkout, printing `BOUNDARY_DIAGNOSTIC_EVIDENCE` even
 when it fails. Assertions identify the field, sample index and PID.
+The private `boundary/timing.json` records monotonic collector startup, descendant
+discovery, process reads and original-sample persistence boundaries. Each attempt
+links its PID and observed start times to discovered child IDs and its sample or
+gap. Child IDs alone do not prove identity, lifetime or an unobserved exec.
+Unchanged samples and failed attempts remain visible; a missing phase end means
+that phase did not finish. These metadata stay in memory during collection and
+are saved on close, with a limit of 4,096 attempts and 256 child IDs per attempt.
+Omitted counts are explicit and make the diagnostic trace incomplete, without
+changing descendant traversal or the original-byte recording. Abrupt collector
+termination can lose buffered timing metadata; it cannot establish success.
+Use the phase durations to distinguish discovery, read and persistence delays
+before changing the collector. Instrumentation can itself affect short-lived
+observations, and timing alone does not prove the cause of a missed exec.
 The resume probe references retained regular files recursively, including each
 gap's metadata and available bytes, with relative names and hashes. Linked or
 nonregular artifacts fail collection. Collection errors are recorded separately
 and prevent a successful security result; they do not replace an original launch
 failure or suppress its process receipt and individual sensitive-file measurements.
+When the compiled command is missing or rejected, the probe saves the rejection
+reason before asserting the command exit status. The later assertion must not be
+read as evidence that the injected payload actually ran.
 An incomplete diagnostic observation stays incomplete. Security success still
 requires the independent effects oracle and any required compiled-boundary sample.
 Linux documents [process lifetime and PID reuse](https://docs.kernel.org/filesystems/proc.html#process-specific-subdirectories)

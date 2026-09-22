@@ -257,8 +257,12 @@ print(json.dumps(result, sort_keys=True))
             try:
                 compiled, shell = compiled_command(trace.folder, command[command.index('--',
                     command.index('--') + 1) + 1:])
-            except ValueError:
+            except ValueError as exc:
                 # A generic startup failure remains a failure, never proof.
+                # Retain the causal rejection before the exit-code assertion
+                # raises its less specific error. Do not reconstruct missing argv.
+                probe.response('native compilation rejected', {'error_type': type(exc).__name__,
+                    'reason': str(exc)})
                 probe.check('hostile command actually executed', 0, result.returncode)
                 raise
             executable = compiled[compiled.index('--') + 1]

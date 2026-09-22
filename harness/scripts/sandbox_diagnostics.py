@@ -40,6 +40,9 @@ def process_state(base):
 
 class BoundaryTrace:
     """Retain actual cmdline/mountinfo bytes when a sampled descendant changes."""
+    MAX_TIMING_ROWS = 4096
+    MAX_TIMING_CHILDREN = 256
+
     def __init__(self, folder):
         self.folder = Path(folder)
         self.folder.mkdir()
@@ -51,6 +54,10 @@ class BoundaryTrace:
         self.exit_races = 0
         self.pid = None
         self.started = time.time()
+        self.started_monotonic = time.monotonic()
+        self.start_requested_monotonic = self.collector_started_monotonic = None
+        self.timings = []
+        self.timing_rows_omitted = self.timing_children_omitted = 0
         self.persist(False)
 
     def persist(self, complete):
@@ -59,22 +66,47 @@ class BoundaryTrace:
             'errors': sorted(self.errors), 'method': 'read-only proc descendant sampling',
             'exit_races': self.exit_races,
             'gaps': self.gaps,
+            'timing_rows_omitted': self.timing_rows_omitted,
+            'timing_children_omitted': self.timing_children_omitted,
             'limitation': 'Short-lived exec/mount stages may be missed. No enforcement verdict.'})
 
     def start(self, pid):
         self.pid = pid
+        self.start_requested_monotonic = time.monotonic()
         self.thread = threading.Thread(target=self.watch, args=(pid,), daemon=True)
         self.thread.start()
 
     def sample(self, pid):
+        timing = {'pid': pid, 'start_monotonic': time.monotonic()}
+        try:
+            return self._sample(pid, timing)
+        except Exception as exc:
+            timing.update(error_type=type(exc).__name__, errno=getattr(exc, 'errno', None))
+            raise
+        finally:
+            timing['end_monotonic'] = time.monotonic()
+            # Buffer only the new metadata. Original sample persistence and the
+            # collection order stay unchanged while their costs are measured.
+            if len(self.timings) < self.MAX_TIMING_ROWS:
+                self.timings.append(timing)
+            else:
+                self.timing_rows_omitted += 1
+
+    def _sample(self, pid, timing):
         base = Path('/proc') / str(pid)
         # Enumerate only descendants, including children created by worker threads.
         children = set()
+        timing['discovery_start_monotonic'] = time.monotonic()
         for task in (base / 'task').iterdir():
             try:
                 children.update(int(p) for p in (task / 'children').read_text().split())
             except FileNotFoundError:
                 pass
+        timing['discovery_end_monotonic'] = time.monotonic()
+        timing['children'] = sorted(children)[:self.MAX_TIMING_CHILDREN]
+        timing['children_omitted'] = max(0, len(children) - self.MAX_TIMING_CHILDREN)
+        self.timing_children_omitted += timing['children_omitted']
+        timing['read_start_monotonic'] = time.monotonic()
         before = process_state(base)
         payload, failures = {}, {}
         for name in ('cmdline', 'mountinfo', 'exe'):
@@ -83,6 +115,12 @@ class BoundaryTrace:
             except OSError as exc:
                 failures[name] = {'error_type': type(exc).__name__, 'errno': exc.errno}
         after = process_state(base)
+        timing['read_end_monotonic'] = time.monotonic()
+        # Child IDs are discoveries, not identities. Link them to a child's own
+        # sampled start_ticks; never infer an unobserved exec or process lifetime.
+        for label, state in (('before', before), ('after', after)):
+            timing[label] = {key: state[key] for key in ('state', 'start_ticks', 'error_type', 'errno')
+                             if key in state}
         empty = [name for name in ('cmdline', 'mountinfo') if payload.get(name) == b'']
         same_process = 'start_ticks' in before and before.get('start_ticks') == after.get('start_ticks')
         if empty or failures or not same_process or 'error_type' in before or 'error_type' in after:
@@ -94,6 +132,8 @@ class BoundaryTrace:
             exit_race = exited and all(row['errno'] in (errno.ENOENT, errno.ESRCH, errno.EINVAL)
                                        for row in failures.values())
             folder = self.folder / ('gap-' + str(self.gaps))
+            timing.update(observation=folder.name, classification='exit-race' if exit_race else 'incomplete',
+                          persistence_start_monotonic=time.monotonic())
             folder.mkdir()
             hashes = {}
             for name in ('cmdline', 'mountinfo'):
@@ -104,6 +144,7 @@ class BoundaryTrace:
                 'before': before, 'after': after, 'empty_fields': empty, 'read_errors': failures,
                 'sha256': hashes, 'executable': payload.get('exe'),
                 'classification': 'exit-race' if exit_race else 'incomplete'})
+            timing['persistence_end_monotonic'] = time.monotonic()
             self.gaps += 1
             if exit_race:
                 self.exit_races += 1
@@ -115,6 +156,8 @@ class BoundaryTrace:
         if key not in self.seen:
             self.seen.add(key)
             index = self.samples
+            timing.update(observation=index, classification='sample',
+                          persistence_start_monotonic=time.monotonic())
             (self.folder / (str(index) + '.cmdline')).write_bytes(cmdline)
             (self.folder / (str(index) + '.mountinfo')).write_bytes(mounts)
             with (self.folder / 'observations.jsonl').open('a') as stream:
@@ -124,11 +167,15 @@ class BoundaryTrace:
                     'cmdline_sha256': hashlib.sha256(cmdline).hexdigest(),
                     'mountinfo_sha256': hashlib.sha256(mounts).hexdigest()}) + '\n')
                 stream.flush()
+            timing['persistence_end_monotonic'] = time.monotonic()
             self.identities.add(executable)
             self.samples += 1
+        else:
+            timing['classification'] = 'unchanged'
         return children
 
     def watch(self, pid):
+        self.collector_started_monotonic = time.monotonic()
         try:
             while not self.stop.is_set():
                 pending, visited = [pid], set()
@@ -161,6 +208,15 @@ class BoundaryTrace:
         self.stop.set()
         if self.thread is not None:
             self.thread.join()
+        save(self.folder / 'timing.json', {
+            'started_monotonic': self.started_monotonic,
+            'start_requested_monotonic': self.start_requested_monotonic,
+            'collector_started_monotonic': self.collector_started_monotonic,
+            'collection_closed_monotonic': time.monotonic(),
+            'row_limit': self.MAX_TIMING_ROWS, 'children_per_row_limit': self.MAX_TIMING_CHILDREN,
+            'rows_omitted': self.timing_rows_omitted, 'children_omitted': self.timing_children_omitted,
+            'rows': self.timings})
         save(self.folder / 'executables.json',
              [executable_identity(p) for p in sorted(self.identities)])
-        self.persist(self.pid is not None and self.samples > 0 and not self.errors)
+        self.persist(self.pid is not None and self.samples > 0 and not self.errors and
+                     not self.timing_rows_omitted and not self.timing_children_omitted)
