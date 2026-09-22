@@ -226,7 +226,7 @@ def journey(root, row, report, repo):
     total = seconds(row.get('first_setup_wall_seconds'), 'first setup')
     first = seconds(row.get('first_useful_action_wall_seconds'), 'first action')
     human = seconds(row.get('human_input_seconds'), 'human input')
-    require(total <= 30 and first >= total and human <= total, 'First setup target or timing unmet')
+    require(total <= 60 and first >= total and human <= total, 'First setup target or timing unmet')
     require(row.get('timing_start') == 'installer-invocation' and
             row.get('timing_end') == 'protected-codex-ready', 'Wrong timing boundary')
     require(row.get('human_input_mode') in ('real-user', 'scripted-terminal') and

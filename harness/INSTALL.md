@@ -55,7 +55,7 @@ Python/Codex preparation, health probes and payload integrity checks without
 printing command output, configuration or credentials. A failed or interrupted
 stage reports `completed: false` and still fails installation. Retain stderr when
 diagnosing slow setup. These partial stage timings do not replace the full
-installer-to-protected-ready measurement or its 30-second acceptance bound.
+installer-to-protected-ready measurement or its 60-second acceptance bound.
 After native tools pass checksum and version checks, Python and Codex prepare
 concurrently in separate environments and private caches. Their stage durations
 overlap and must not be summed. Both must finish successfully before health
@@ -283,7 +283,7 @@ Measure from the first installer invocation through automatic doctor, including
 downloads, failed attempts and retries. Declare OS prerequisites, network, Python,
 Node, caches and existing login. Each installation has private empty dependency
 caches; a second identical invocation verifies an existing installation and is a
-warm retry, not a cold install. The complete first-setup target is 30 seconds
+warm retry, not a cold install. The complete first-setup absolute maximum is 60 seconds
 through project review and protected readiness. Installation-only measurements
 cannot establish that target. Human review, first useful action and browser/MFA
 login must also be reported. New-account OAuth is not tested here.

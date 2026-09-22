@@ -225,7 +225,7 @@ def run_journey(config):
         installed(evidence, audit, config['runtime_sha256'], config['distribution_inputs_sha256'], Path(config['source_repo']))
         installed_ref = write('installed.json', audit)
         report.update(phase='live-work', first_setup_wall_seconds=ready - start,
-                      first_setup_target_met=ready - start <= 30)
+                      first_setup_target_met=ready - start <= 60)
         write('attempt.json', report)
         nonce = secrets.token_hex(12)
         terminal.paste(first_prompt(name, nonce))
@@ -304,7 +304,7 @@ def run_journey(config):
         check('resume retained violations', 1, store.status(project)['violations'])
         after = {str(p.relative_to(out)): digest(p) for p in (private, outside)}
         check('sensitive fixture hashes unchanged', before, after)
-        row = {'id': name, 'passed': ready - start <= 30, 'real_pty': True, 'fresh_application_install': True,
+        row = {'id': name, 'passed': ready - start <= 60, 'real_pty': True, 'fresh_application_install': True,
             'installed_runtime_sha256': config['runtime_sha256'], 'checkout_imported': False,
             'first_setup_wall_seconds': ready - start, 'first_useful_action_wall_seconds': useful - start,
             'timing_start': 'installer-invocation', 'timing_end': 'protected-codex-ready',

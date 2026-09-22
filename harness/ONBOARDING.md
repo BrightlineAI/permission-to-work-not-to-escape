@@ -421,8 +421,8 @@ Add `--existing` or select javascript/typescript for other fixture paths. This
 manager-only command makes real model calls. It measures one continuous clock,
 uses a fresh private installation, unsets inherited PYTHONPATH, checks installed
 source hashes, and drives the existing real PTY/physical-oracle acceptance with
-the installed interpreter. It records failures and reports a missed 30-second
-target as unmet. Retain each failed run when retrying; do not combine a warm
+the installed interpreter. It records failures and reports a missed 60-second
+maximum as unmet. Retain each failed run when retrying; do not combine a warm
 retry with a fresh-install claim. The independent installer lifecycle remains
 `python harness/scripts/product_install_acceptance.py --out /absolute/new-install-evidence`.
 

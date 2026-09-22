@@ -3,9 +3,20 @@
 Scope: original product, project-safety extension, incident amendment and the
 three existing deterministic CLI demos. LinuxArena, presentation UI, audience
 studies and additional live-model campaigns are deferred/unvalidated. Queue order
-and all three original contracts remain unchanged.
+is unchanged. Only the two authorized startup requirement strings in
+PRODUCT_ACCEPTANCE.json change under the owner's 60-second amendment. The
+extension and incident contracts and historical receipts remain byte-identical.
 
 This finite checklist is the implementation handoff, not an acceptance claim.
+
+The current startup maximum is inclusive: 60 seconds from the first installer
+invocation through protected readiness, including downloads and review. About
+40 seconds is desired, not another gate. The active contract pin and bundled
+contract match the owner-authorized amendment. Boundary fixtures accept 40.5 and
+60 seconds and reject larger, invalid or contradictory timings. The legacy
+first-setup driver compares unrounded elapsed time. Earlier receipts remain
+historical; changed bundled data requires fresh candidate and installed evidence.
+This local threshold and digest change needs no new dependency or API research.
 
 Package admission now records a new scope denial before waiting for the bounded
 preparation lease. A retained Yarn failure showed a denied request sharing the
@@ -21,10 +32,13 @@ receipts cannot substitute for full final-source acceptance.
 
 Read-only process sampling can miss short-lived native launch stages. A generic
 launch failure without the compiled command observation is insufficient proof
-and remains a failed attempt. The retained installed Python probe includes the
+and remains a failed attempt. An earlier installed Python probe includes the
 compiled command, denied-executable diagnostic and unchanged protected files.
-This supports that run's boundary check; it does not repair the earlier missing
-observation or establish that every future sample will be complete.
+Another retained attempt missed that compiled command; unchanged files and the
+bubblewrap capability probe cannot substitute for it. Bounded collection-stage
+diagnostics now retain discovery, read and persistence timing plus the causal
+rejection. They do not establish resolution. Final native acceptance must capture
+the actual boundary; a repeated failure needs diagnosis from those originals.
 
 The release-path repair makes release asset references relative to
 the directory containing `release.json`, as required by the strict artifact
@@ -41,9 +55,9 @@ Verification hashes each recorded file once, then checks membership through a
 metadata-only traversal. It rejects added entries, changed contents and links,
 special files and enumeration failures. The initial snapshot, post-health
 verification and activation ordering remain intact. Separate entry/membership
-phase timings support native measurement. The latest retained product run
+phase timings support native measurement. A historical product run
 completed useful work and protected resume in all seven journeys, but existing
-TypeScript took 30.748 seconds and failed the unchanged startup bound. Its
+TypeScript took 30.748 seconds and failed the then-current 30-second bound. Its
 installer spent 1.171 seconds preparing Python and 8.255 seconds preparing Codex
 sequentially. These independent frozen environments now prepare concurrently,
 after native-tool verification and before any health check or activation.
@@ -54,7 +68,9 @@ Failures and interruption remain failures; no timing is subtracted from the
 installer-to-protected-ready bound, and cold tool/package caches remain cold.
 This changes bootstrap/archive bytes, requiring a fresh private candidate and
 final-source acceptance. Never overwrite an earlier candidate or published
-version. Runtime modules, contract pins and version are unchanged. Stage timing
+version. That installer change left runtime modules, contract pins and version
+unchanged; the later startup amendment changes the contract pin and bundled data.
+Stage timing
 uses the existing monotonic clock and adds no dependency or external interface.
 
 The preceding acceptance PTY driver correction covers
@@ -127,7 +143,7 @@ demo evidence must be regenerated from this runtime before release acceptance.
    assets still require the independent credential scan before publication.
 8. Freeze final source/version, update MANIFEST.sha256, run full acceptance and
    hand publication to the manager. Any runtime or version change invalidates
-   affected evidence. The <=30-second startup gate is mandatory. No current
+   affected evidence. The <=60-second startup gate is mandatory. No current
    complete product acceptance or publication is claimed. Live journey drivers
    now distinguish explicit successful finish from failure/surrender and prepare
    checkpoint review after delegation has completed. Native validation of these
@@ -144,7 +160,7 @@ alone cannot substitute an earlier full-source receipt.
 | Original IDs | Original records and engineering checks |
 | --- | --- |
 | install, release | Archive/bootstrap digests; installer retry, upgrade/rollback/uninstall probes; actual wheel data and installed CLI |
-| first-setup, policy, ecosystems | Seven fresh Python/Node/TypeScript/mixed terminal, approval, functional, timing and installed-process records; installer invocation through readiness <=30 seconds |
+| first-setup, policy, ecosystems | Seven fresh Python/Node/TypeScript/mixed terminal, approval, functional, timing and installed-process records; installer invocation through readiness <=60 seconds |
 | everyday | Useful edits/tests, preview response, exact checkpoint approval, dependency revision, revoked finished delegate and distinct revision-probe child, protected resume |
 | packages, reassessment | Direct/transitive critical, young, tampered, compatible older and approved build outcomes; outage without misconduct; quarantine and unrelated survival |
 | scope, escalation | Denied private/native routes, narrower child, shared counts, physical stopping, refused subsequent admission and unrelated useful work |

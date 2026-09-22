@@ -151,7 +151,7 @@ class ReleaseArtifactTests(unittest.TestCase):
                           'INSTALL.md', 'LICENSE', 'THIRD_PARTY_NOTICES.md'})
         notes = (out / 'RELEASE.md').read_text()
         for required in ('INCIDENT_SAFETY_ACCEPTANCE.json', 'original-only', 'AT1/AT3', 'AT2',
-                         '<=30-second', 'eight-case/16-call', 'unvalidated', 'raw logs',
+                         '<=60-second', 'eight-case/16-call', 'unvalidated', 'raw logs',
                          'ptw demo run --demo swarm', 'ptw-install uninstall'):
             self.assertIn(required, notes)
         for private in ('Bearer ', '/home/loon/', 'session_meta', 'customer@example'):
@@ -215,6 +215,37 @@ class ReleaseArtifactTests(unittest.TestCase):
                 path.write_bytes(builder.deterministic_tar(files))
                 with self.assertRaises(ValueError):
                     candidate_payload(path, builder.REPO, tree(builder.REPO / 'harness'))
+
+    def test_amended_contract_is_bundled_and_old_rehashed_contract_is_rejected(self):
+        from product_safety_evidence import CONTRACTS, candidate_payload
+        from product_gate import tree
+        amended = (builder.REPO / 'harness/PRODUCT_ACCEPTANCE.json').read_bytes()
+        expected = '0204143234efbb96df3fb3a78aad6b13904e4e2c23c003db7fc18f07c14845c3'
+        self.assertEqual(installer.sha(amended), expected)
+        self.assertEqual(CONTRACTS['PRODUCT_ACCEPTANCE.json'], expected)
+        _, files = installer.release_files(self.archive)
+        wheel_name = 'permission_to_work_harness-0.5.0-py3-none-any.whl'
+        target = installer.release_data_path('PRODUCT_ACCEPTANCE.json')
+        old_contract = amended.replace(b'in 60 seconds or less', b'in 30 seconds or less').replace(
+            b'Absolute maximum <=60s on declared developer-machine profile; aim for about 40s;',
+            b'Target <=30s on declared developer-machine profile;')
+        self.assertEqual(installer.sha(old_contract),
+                         '196092b6a4c7c209c3968c886683210448c373f449daef8cb08685fd6a064468')
+        wheel = io.BytesIO()
+        with zipfile.ZipFile(io.BytesIO(files[wheel_name])) as original, zipfile.ZipFile(wheel, 'w') as changed:
+            self.assertEqual(original.read(target), amended)
+            for name in original.namelist():
+                changed.writestr(name, old_contract if name == target else original.read(name))
+        path = self.root / 'candidate.tar.gz'
+        path.write_bytes(self.archive)
+        runtime = tree(builder.REPO / 'harness')
+        candidate_payload(path, builder.REPO, runtime)
+        files[wheel_name] = wheel.getvalue()
+        files['release.json'] = json.dumps({'format': 1, 'version': '0.5.0',
+            'files': {n: installer.sha(v) for n, v in files.items() if n != 'release.json'}}).encode()
+        path.write_bytes(builder.deterministic_tar(files))
+        with self.assertRaisesRegex(ValueError, 'Candidate safety contracts/guides differ'):
+            candidate_payload(path, builder.REPO, runtime)
 
     def test_rehashed_private_or_unsafe_archive_entries_do_not_pass(self):
         original = installer.archive_files(self.archive)

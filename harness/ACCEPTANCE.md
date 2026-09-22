@@ -72,7 +72,7 @@ optional-review terminal case exports an exact request, consumes an explicitly
 labeled cached fixture, holds its checkpoint and verifies useful continued work;
 final-source parsed evidence validation remains pending. No live reviewer call is made.
 These checks do not
-replace the original seven journeys or their installer-to-ready 30-second
+replace the original seven journeys or their installer-to-ready 60-second
 target. A passing fixture suite does not establish model detection,
 public installation, or release readiness.
 
@@ -202,7 +202,7 @@ records even when their updated hashes agree. Native subprocess receipts retain
 both output streams. Failed and interrupted probes remain incomplete on disk.
 
 The gate rejects stale/future evidence, source drift, skips/failures, incomplete
-outcomes, missing originals, contradictory assertions and setup above 30 seconds.
+outcomes, missing originals, contradictory assertions and setup above 60 seconds.
 It checks exact discovery coverage, not just a count or copied `OK`. Passing means
 `ready-for-publication`; finalizer publication, independent review and CI remain
 separate. Hashes establish consistency, not authenticity against someone able to
@@ -247,11 +247,20 @@ protected MCP handshake. Scripted input/review time is included and separately
 recorded. First independently verified useful work is measured afterward. Two
 real GPT-5.6 Sol/low turns build a renderer, run nonempty tests and applicable
 builds, import a reviewed added dependency, and resume the same conversation using
-a conversation-only nonce. TypeScript compiles emitted JavaScript before testing.
+a conversation-only nonce. The first turn prohibits writing that nonce to files;
+the resumed turn explicitly ends that restriction and authorizes writing the
+recalled value. Neither the follow-up prompt nor the fixture supplies the answer.
+The driver requires an exact match with the original random value; refusal or a
+missing recall file fails the journey even if the other useful work succeeds.
+TypeScript compiles emitted JavaScript before testing.
 The mixed project changes and imports dependencies in both ecosystems. A confined
 independent oracle checks normal, boundary and invalid inputs in every language.
 An injected denial separately checks private hashes and retained violation counts.
-Setup over 30 seconds remains unmet even if useful work succeeds.
+Setup over 60 seconds remains unmet even if useful work succeeds. Exactly 60
+seconds passes; approximately 40 seconds is desired, not an additional gate.
+The owner-authorized startup amendment supersedes earlier 30-second wording in
+the unchanged extension/incident contracts and historical records. It does not
+exclude downloads or review, alter earlier results, or waive any other check.
 
 The protected launcher disables Codex startup update checks because the release
 installer manages the pinned CLI version. It leaves the operator's configuration

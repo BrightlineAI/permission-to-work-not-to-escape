@@ -75,16 +75,22 @@ and [full recovery guide](https://github.com/BrightlineAI/permission-to-work-not
 
 ## Evidence and limits
 
-The original PRODUCT_ACCEPTANCE.json, PROJECT_SAFETY_ACCEPTANCE.json and
-INCIDENT_SAFETY_ACCEPTANCE.json ship unchanged inside the wheel, alongside the
+The owner-amended PRODUCT_ACCEPTANCE.json and the unchanged
+PROJECT_SAFETY_ACCEPTANCE.json and INCIDENT_SAFETY_ACCEPTANCE.json ship inside
+the wheel, alongside the
 review/scenario guides and deterministic CLI. The release gate must validate
 per-ID evidence. Bundled guides ending in `.md.txt` are byte-identical source
 snapshots for provenance; their relative references use the repository layout.
 Use this RELEASE.md and the linked maintained web guides for user instructions.
 The gate checks original extension/incident records and final installed bytes; an
 original-only report is insufficient. All mandatory native checks and the
-installer-to-protected-ready <=30-second bound remain required. Demo warm timing
-excludes installation and cannot establish that bound.
+installer-to-protected-ready <=60-second bound remain required. Demo warm timing
+excludes installation and cannot establish that bound. The owner-authorized
+startup amendment replaces the earlier 30-second requirement only: about 40
+seconds is desired, and exactly 60 seconds passes. Downloads and review stay
+inside the full measured interval. Historical receipts and the extension/incident
+contracts retain their original text and hashes; their older startup wording is
+superseded by this amendment.
 
 Mechanical enforcement is distinct from semantic detection. Optional live
 semantic efficacy is unvalidated: zero measured live cases/calls here, unknown

@@ -17,7 +17,7 @@ from evidence_io import artifact, digest, load, record, reference, require, save
 from product_install import SAFETY_FILES, MAX_ARCHIVE, InstallError, release_files, release_data_path
 
 CONTRACTS = {
-    'PRODUCT_ACCEPTANCE.json': '196092b6a4c7c209c3968c886683210448c373f449daef8cb08685fd6a064468',
+    'PRODUCT_ACCEPTANCE.json': '0204143234efbb96df3fb3a78aad6b13904e4e2c23c003db7fc18f07c14845c3',
     'PROJECT_SAFETY_ACCEPTANCE.json': 'c7d7e2d6889ecc981671ec5805e299277e277a3a48136368f00062bba32bf687',
     'INCIDENT_SAFETY_ACCEPTANCE.json': 'a1e1a207a80d8b95df820933ef08489e0bd56a3b348f2a4872e10a3be1c635d8',
 }

@@ -265,11 +265,12 @@ Only verified controller violations increment the escalation count. A failing
 test or an operating-system error inside a permitted command is not automatically
 classified as an attack. That code is still confined, and commands have time limits.
 
-## The 30-second target
+## The 60-second maximum
 
-Thirty seconds is the target from **first installer invocation through fresh
+Sixty seconds is the inclusive absolute maximum from **first installer invocation through fresh
 project review and protected readiness** on the declared supported profile.
-That target is not yet certified. Record downloads, cache state, model latency,
+About 40 seconds is desired, not an additional gate. Final-source compliance
+is not yet certified. Record downloads, cache state, model latency,
 human review and external login separately, and measure the first useful action.
 The [first-setup driver](ONBOARDING.md#measurement-and-verification) includes the
 installer clock and requires a live protected MCP connection as well as the TUI.

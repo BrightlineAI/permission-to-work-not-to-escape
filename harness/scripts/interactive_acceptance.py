@@ -109,8 +109,8 @@ def main():
         check(connection is not None and not terminal.exited, "live protected MCP connection at readiness", records)
         save(args.out / "first-ready.json", connection)
         timing["approval_to_idle_tui_seconds"] = round(time.monotonic() - approved_at, 3)
-        timing["first_invocation_to_ready_seconds"] = round(time.monotonic() - journey_started, 3)
-        timing["first_setup_target_met"] = timing["first_invocation_to_ready_seconds"] <= 30
+        timing["first_invocation_to_ready_seconds"] = time.monotonic() - journey_started
+        timing["first_setup_target_met"] = timing["first_invocation_to_ready_seconds"] <= 60
         suffix = "py" if args.language == "python" else ("ts" if args.language == "typescript" else "js")
         prompt = (
             "Use project_context and the protected tools. " +

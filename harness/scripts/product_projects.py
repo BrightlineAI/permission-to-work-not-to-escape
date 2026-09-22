@@ -111,14 +111,17 @@ def first_prompt(case, nonce):
              'and import emitted dist/site.js in tests. ' if kind == 'typescript' else '') +
             'Create ' + prefix + 'public/index.html with a Workshops heading and category select.')
     parts.append('Run every reviewed ' + ', '.join(commands(case)) + ' command with the applicable installed package sets. '
-        'Remember this conversation-only nonce; do not write it to any file: ' + nonce + '.')
+        'Remember this conversation-only nonce: ' + nonce + '. '
+        'For this first turn, do not write the nonce to any file. '
+        'After we resume, I will explicitly authorize writing the recalled value to a file to check conversation memory.')
     return ' '.join(parts)
 
 
 def resume_prompt(case):
     first_root = layout(case)[0][1]
     recalled = str(Path(first_root) / 'src/recalled.txt')
-    parts = ['Recall the conversation-only nonce from our previous conversation and create ' + recalled +
+    parts = ['The first-turn restriction on writing the nonce has ended. '
+        'I now authorize writing the conversation-only nonce recalled from our previous conversation to ' + recalled +
         ' with exactly that nonce. Do not search files for it. Read context and revised dependency declarations. '
         'Install newly approved dependencies. Do not change independent oracle files or existing legacy files.']
     for kind, root in layout(case):

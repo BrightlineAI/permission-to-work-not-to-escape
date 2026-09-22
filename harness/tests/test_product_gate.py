@@ -274,9 +274,30 @@ class ProductGateTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     self.verify()
 
+    def test_inclusive_startup_maximum_with_consistent_original_timing(self):
+        import math
+        row = self.report['journeys'][0]
+        for total in (40.5, 60., math.nextafter(60., math.inf), 60.01):
+            with self.subTest(total=total):
+                row['first_setup_wall_seconds'] = total
+                row['first_useful_action_wall_seconds'] = total + 5
+                self.mutate(row, 'timing_record', lambda v: v.update(
+                    ready_monotonic=v['start_monotonic'] + total,
+                    first_action_monotonic=v['start_monotonic'] + total + 5))
+                for name, refs in gate.requirement_evidence(self.report).items():
+                    item = self.report['requirements'][name]
+                    ref = item['records'][0]
+                    value = load(self.out / ref['path'])
+                    item['records'] = [self.write(ref['path'], {**value, 'evidence': refs})]
+                if total <= 60:
+                    self.assertTrue(self.verify()['passed'])
+                else:
+                    with self.assertRaisesRegex(ValueError, 'First setup target'):
+                        self.verify()
+
     def test_invalid_timing_types_limits_and_arithmetic_rejected(self):
         row = self.report['journeys'][0]
-        for value in (True, -1, 30.01, float('inf'), float('nan')):
+        for value in (True, False, -1, '60', None, 60.01, float('inf'), float('-inf'), float('nan')):
             with self.subTest(value=value), self.assertRaises(ValueError):
                 row['first_setup_wall_seconds'] = value
                 self.verify()
@@ -1646,6 +1667,27 @@ class ProductRunnerTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'Unknown mandatory journey'):
             layout('invented-language')
 
+    def test_resume_memory_prompt_authorizes_recall_without_supplied_answer(self):
+        from product_projects import CASES, fixture, first_prompt, layout, resume_prompt
+        for case in CASES:
+            with self.subTest(case=case):
+                nonce = uuid.uuid4().hex
+                repo = self.root / case
+                fixture(repo, case)
+                initial, resumed = first_prompt(case, nonce), resume_prompt(case)
+                self.assertEqual(initial.count(nonce), 1)
+                self.assertIn('For this first turn, do not write the nonce to any file.', initial)
+                self.assertIn('After we resume, I will explicitly authorize writing', initial)
+                self.assertIn('The first-turn restriction on writing the nonce has ended.', resumed)
+                self.assertIn('I now authorize writing', resumed)
+                self.assertIn(str(Path(layout(case)[0][1]) / 'src/recalled.txt'), resumed)
+                self.assertIn('with exactly that nonce. Do not search files for it.', resumed)
+                self.assertNotIn(nonce, resumed)
+                # The fixture and follow-up must not supply the memory answer.
+                for path in repo.rglob('*'):
+                    if path.is_file():
+                        self.assertNotIn(nonce.encode(), path.read_bytes())
+
     def test_warm_archive_profile_is_explicit_and_never_reuses_installation(self):
         from product_acceptance import installer_artifact
         archive = self.root / 'candidate.tar.gz'
@@ -2410,7 +2452,7 @@ os.write(1, b'RECEIVED=' + hashlib.sha256(body).hexdigest().encode())
         from product_acceptance import candidate, installed_journey
         release = candidate(self.root)
         row = installed_journey(self.root, release, case)
-        self.assertTrue(row['passed'], 'Full installer-to-ready time exceeds 30 seconds; inspect retained timing')
+        self.assertTrue(row['passed'], 'Full installer-to-ready time exceeds 60 seconds; inspect retained timing')
         self.assertTrue(row['protected_resume'])
         self.assertTrue(row['dependency_admitted'])
         self.assertEqual(row['build_or_test_exit_code'], 0)
