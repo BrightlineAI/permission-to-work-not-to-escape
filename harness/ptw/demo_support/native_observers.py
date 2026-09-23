@@ -7,7 +7,7 @@ from pathlib import Path
 import sys
 import time
 
-from evidence_io import require
+from evidence_io import require, save
 
 
 def start_sentinel(store, actor, sentinel, running):
@@ -38,16 +38,30 @@ def observe(work, *, stopped):
     before = sentinel.read_text()
     pid = int(before.split(':')[0])
     proc = Path('/proc') / str(pid) / 'stat'
-    stat = proc.read_text().split(') ')[1].split()[0] if proc.exists() else 'absent'
     events = group / 'cgroup.events'
-    group_state = events.read_text() if events.exists() else 'removed'
     time.sleep(.15)
-    after = sentinel.read_text()
-    result = {'unit': unit, 'parent_exit_code': process.poll(), 'descendant_state': stat,
-              'cgroup_events': group_state, 'sentinel_before': before, 'sentinel_after': after,
-              'seconds': time.monotonic() - begin, 'stopped': stopped}
-    verify_observation(result, stopped=stopped)
-    return result
+    while True:
+        after = sentinel.read_text()
+        stat = proc.read_text().split(') ')[1].split()[0] if proc.exists() else 'absent'
+        group_state = events.read_text() if events.exists() else 'removed'
+        result = {'unit': unit, 'parent_exit_code': process.poll(), 'descendant_state': stat,
+                  'cgroup_events': group_state, 'sentinel_before': before, 'sentinel_after': after,
+                  'seconds': time.monotonic() - begin, 'stopped': stopped}
+        # A single scheduler interval is not a liveness deadline. Allow at most
+        # one second for actual progress, only while every process signal is live.
+        # Keep the original counter baseline; cessation never gets this grace.
+        if (not stopped and after == before and result['parent_exit_code'] is None
+                and stat not in ('absent', 'Z') and 'populated 1' in group_state
+                and result['seconds'] < 1):
+            time.sleep(min(.05, 1 - result['seconds']))
+            continue
+        try:
+            verify_observation(result, stopped=stopped)
+        except ValueError:
+            # Keep the failing signals before the caller cleans up the units.
+            save(sentinel.with_name(sentinel.name + '.failed-observation.json'), result)
+            raise
+        return result
 
 
 def verify_observation(row, *, stopped):

@@ -15,6 +15,17 @@ import time
 from evidence_io import digest, load, require, save
 
 
+class MountInfoUnavailable(OSError):
+    """Only the mountinfo read observed a disappearing process namespace."""
+
+
+def process_image(pid):
+    """Cheap sampling key: exec keeps the PID and start time, but changes argv."""
+    proc = Path('/proc') / str(pid)
+    return (proc.joinpath('stat').read_text().rsplit(')', 1)[1].split()[19],
+            digest(proc / 'cmdline'))
+
+
 def inspect(pid, secret, marker, expected, *, isolated=True):
     proc = Path('/proc') / str(pid)
     root = proc / 'root'
@@ -26,7 +37,15 @@ def inspect(pid, secret, marker, expected, *, isolated=True):
     host_network = os.readlink('/proc/self/ns/net')
     if isolated and network == host_network:
         return None  # bubblewrap may still be staging its mounts
-    mounts = (proc / 'mountinfo').read_text()
+    mountinfo = proc / 'mountinfo'
+    try:
+        mounts = mountinfo.read_text()
+    except OSError as exc:
+        # procfs mounts_open_common returns EINVAL if the task or its mount
+        # namespace is gone. Do not generalize this to other inspection I/O.
+        if exc.errno != errno.EINVAL:
+            raise
+        raise MountInfoUnavailable(exc.errno, exc.strerror, str(mountinfo)) from exc
     if any(row.split()[4] in ('/oldroot', '/newroot') for row in mounts.splitlines()):
         return None
     target = root / str(secret).lstrip('/')
@@ -42,13 +61,14 @@ def inspect(pid, secret, marker, expected, *, isolated=True):
         policy_observation = {'read': False, 'errno': exc.errno}
     status = (proc / 'status').read_text()
     namespace_pid = int(next(line.split()[-1] for line in status.splitlines() if line.startswith('NSpid:')))
+    cmdline = (proc / 'cmdline').read_bytes()
     return {'pid': pid, 'namespace_pid': namespace_pid,
             'parent_pid': int(proc.joinpath('stat').read_text().rsplit(')', 1)[1].split()[1]),
             'pid_namespace': os.readlink(proc / 'ns/pid'),
             'start_ticks': proc.joinpath('stat').read_text().rsplit(')', 1)[1].split()[19],
-            'cmdline_sha256': digest(proc / 'cmdline'),
+            'cmdline_sha256': hashlib.sha256(cmdline).hexdigest(),
             'interpreter': {'path': os.readlink(proc / 'exe'), 'sha256': digest(proc / 'exe')},
-            'argv': (proc / 'cmdline').read_bytes().decode('utf-8', 'replace').rstrip('\0').split('\0'),
+            'argv': cmdline.decode('utf-8', 'replace').rstrip('\0').split('\0'),
             'cgroup': (proc / 'cgroup').read_text(),
             'mountinfo': mounts, 'network': network, 'host_network': host_network,
             'marker': marker, 'marker_sha256': expected, 'secret': str(secret),
@@ -110,13 +130,19 @@ def observe(store, project, secret, marker, expected, folder, *, launcher=None, 
                             entry['samples'] += 1
                             continue
                         for pid in pids:
-                            if (name, pid) in seen:
-                                continue
                             context = {**unit, 'operation': 'inspect-process', 'pid': int(pid)}
                             try:
+                                identity = process_image(int(pid))
+                                key = (name, pid, *identity)
+                                if key in seen:
+                                    continue
                                 row = (inspect(int(pid), secret, marker, expected) if isolated else
                                        inspect(int(pid), secret, marker, expected, isolated=False))
-                            except (FileNotFoundError, ProcessLookupError, PermissionError) as exc:
+                                if row is not None and (identity != (row['start_ticks'], row['cmdline_sha256'])
+                                                        or process_image(int(pid)) != identity):
+                                    continue  # exec/exit raced this sample; collect a complete one later
+                            except (FileNotFoundError, ProcessLookupError, PermissionError,
+                                    MountInfoUnavailable) as exc:
                                 # Cgroup members include launchers and processes in
                                 # exec/exit transitions. An inaccessible /proc root
                                 # says nothing about the payload's secret access.
@@ -126,11 +152,13 @@ def observe(store, project, secret, marker, expected, folder, *, launcher=None, 
                                 entry = unavailable.setdefault(key, {
                                     **unit, 'pid': int(pid), 'errno': exc.errno,
                                     'type': type(exc).__name__, 'samples': 0})
+                                if isinstance(exc, MountInfoUnavailable):
+                                    entry.update(operation='read-mountinfo', path=exc.filename)
                                 entry['samples'] += 1
                                 continue
                             if row is not None:
                                 rows.append({**unit, **row})
-                                seen.add((name, pid))
+                                seen.add(key)
                                 context = {**unit, 'operation': 'save-receipt'}
                                 save(folder / 'namespace.json', receipt())
                 done.wait(.02)

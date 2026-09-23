@@ -9,6 +9,65 @@ extension and incident contracts and historical receipts remain byte-identical.
 
 This finite checklist is the implementation handoff, not an acceptance claim.
 
+The reassessment concurrency fixture now selects distinct operation lease slots
+and requires original quarantine termination records for both the active command
+and preview, with physical stopping before the unchanged 60-second payload could
+complete. This closes an oracle gap where natural completion could pass and
+avoids an incidental serialized wait. Existing collision, nested-reservation and
+crash-recovery checks retain their semantics. See the
+[reassessment evidence guide](REASSESSMENT.md#admission-and-validation).
+Runtime, release assets, version and pinned contracts are unchanged by this
+fixture repair. Native physical-stop validation and fresh full acceptance remain
+mandatory. Removing this one wait does not establish reliable headroom under the
+full regression deadline; the remaining latency increase is unexplained.
+The change uses existing local lease and supervisor interfaces, so external
+API/dependency research adds nothing.
+
+The demo observers distinguish a child's inherited command line from its later
+executed command. A PID and start time survive exec, so deduplicating only those
+fields could discard required child evidence. Namespace sampling now keys by
+unit, PID, start time and command-line digest, rejects samples that change image
+during collection, and avoids repeated full inspection of an unchanged image.
+Task-scope sampling also retains command-line changes and changed shared-file
+bytes. The [Linux execve manual](https://man7.org/linux/man-pages/man2/execve.2.html)
+documents the retained PID. Regression fixtures exercise the actual observer
+loops with synthetic fork/exec, PID reuse, duplicate samples and collection races;
+these are not physical native proof. Payloads, enforcement
+and evidence verifiers are unchanged. This shipped observer change invalidates
+earlier installed demo evidence: build and validate a fresh candidate from final
+source before promotion. Missing child evidence still fails the release gate.
+
+The namespace observer treats `EINVAL` only from reading `/proc/PID/mountinfo`
+as an unavailable candidate. It retains PID, path, errno and sample count, then
+continues the existing bounded sampling. The
+[Linux procfs implementation](https://raw.githubusercontent.com/torvalds/linux/v6.12/fs/proc_namespace.c)
+returns this error when the task or mount namespace is unavailable. This supports
+a lifecycle-race explanation of the retained failure, not proof of its exact
+kernel state. No unavailable sample counts as evidence. Persistent absence,
+missing required parent/child observations, unexpected inspection errors,
+persistence errors and contradictory physical observations remain failures.
+Deterministic tests cover recovery, persistent absence and the narrow error
+boundary. Fresh installed verification remains mandatory after this runtime
+change. An incomplete full regression receipt still prevents product acceptance;
+neither a focused pass nor an earlier successful receipt can replace it.
+The existing private `Trace` recorder now brackets candidate building,
+installation and each installed demo run/verification in the native release
+test. These inclusive spans complement its original process receipts without
+changing the CLI, assertions, workloads or deadlines. They are diagnostics for
+the unresolved regression latency, not a claimed performance improvement.
+
+The shared sentinel observer requires real progress with fresh parent,
+descendant and cgroup signals. A live but unchanged counter is sampled for at
+most one second instead of failing solely on one 150 ms interval. Dead work,
+changed identity, counter regression and missing evidence still fail; cessation
+retains its 150 ms stability check. Rejected observations retain their exact
+signals before cleanup. Synthetic normal, delayed, stalled, stopped and I/O
+failure cases exercise the collector itself. They do not establish that delayed
+scheduling caused the historical native failure, whose failing sample was not
+retained. Fresh installed demo and incident-control evidence is required for this
+shared observer change. This uses existing local interfaces; web research cannot
+resolve the missing native sample or establish its physical outcome.
+
 Hosted CI requires the same pinned uv used by the installer. The
 [task26 CI annotations](https://github.com/BrightlineAI/permission-to-work-not-to-escape/actions/runs/35713412108)
 identify missing uv in dependency resolution and Python revisions. The workflow
@@ -19,7 +78,7 @@ downloads, corrupt or malformed archives, missing/ambiguous binaries, failed
 execution and wrong versions. Discovery errors still fail and mandatory native
 cases remain in full discovery exactly once.
 
-This repair changes CI, tests and developer guidance only. Shipped runtime,
+The CI prerequisite repair changes CI, tests and developer guidance only. Shipped runtime,
 installer, release asset sources and version remain unchanged; published assets
 must not be replaced. Fresh final-source manager acceptance and hosted CI remain
 required. The

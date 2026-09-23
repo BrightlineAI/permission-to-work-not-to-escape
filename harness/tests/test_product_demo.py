@@ -13,7 +13,7 @@ import sys
 import tempfile
 import time
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 SCRIPTS = Path(__file__).resolve().parents[1] / 'scripts'
 if str(SCRIPTS) not in sys.path:
@@ -253,6 +253,120 @@ class DemoOfflineTests(unittest.TestCase):
                        {'sentinel_after': '123:8'}, {'sentinel_after': '123:7'}):
             with self.subTest(change=change), self.assertRaises(ValueError):
                 verify_observation({**live, **change}, stopped=False)
+
+    def observe_fixture(self, advance, *, stopped=False, persistence_error=None):
+        """Real fixture files plus synthetic clock/process signals, not native proof."""
+        import native_observers as observer
+        root = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        sentinel, group = root / 'sentinel.txt', root / 'group'
+        group.mkdir()
+        sentinel.write_text('123:8')
+        events = group / 'cgroup.events'
+        events.write_text('populated 0\n' if stopped else 'populated 1\n')
+        process = Mock()
+        process.poll.return_value = 0 if stopped else None
+        clock, sleeps = [0.], []
+        read_text, exists = Path.read_text, Path.exists
+        state = ['Z' if stopped else 'S']
+
+        def sleep(duration):
+            clock[0] += duration
+            sleeps.append(duration)
+            advance(len(sleeps), sentinel, events, process, state)
+
+        def read(path, *args, **kwargs):
+            if path == Path('/proc/123/stat'):
+                return '123 (fixture) ' + state[0]
+            return read_text(path, *args, **kwargs)
+
+        self.enterContext(patch.object(observer.time, 'monotonic', side_effect=lambda: clock[0]))
+        self.enterContext(patch.object(observer.time, 'sleep', side_effect=sleep))
+        self.enterContext(patch.object(Path, 'read_text', read))
+        self.enterContext(patch.object(Path, 'exists', lambda p: p == Path('/proc/123/stat') or exists(p)))
+        if persistence_error:
+            self.enterContext(patch.object(observer, 'save', side_effect=persistence_error))
+        return observer, (process, 'fixture.service', sentinel, group), sleeps
+
+    def test_process_observer_waits_for_real_progress_with_fresh_signals(self):
+        def advance(sample, sentinel, events, process, state):
+            if sample == 3:
+                sentinel.write_text('123:9')
+                state[0] = 'R'
+        observer, work, sleeps = self.observe_fixture(advance)
+        row = observer.observe(work, stopped=False)
+        self.assertEqual(len(sleeps), 3)
+        self.assertEqual(row['sentinel_before'], '123:8')
+        self.assertEqual(row['sentinel_after'], '123:9')
+        self.assertEqual(row['descendant_state'], 'R')
+        self.assertAlmostEqual(row['seconds'], .25)
+        work[0].wait.assert_not_called()
+
+    def test_process_observer_stalled_work_fails_with_original_signals(self):
+        observer, work, sleeps = self.observe_fixture(lambda *args: None)
+        with self.assertRaisesRegex(ValueError, 'Unrelated work did not continue'):
+            observer.observe(work, stopped=False)
+        row = load(work[2].with_name('sentinel.txt.failed-observation.json'))
+        self.assertAlmostEqual(row['seconds'], 1)
+        self.assertEqual(row['sentinel_before'], row['sentinel_after'])
+        self.assertIsNone(row['parent_exit_code'])
+        self.assertEqual(row['cgroup_events'], 'populated 1\n')
+
+    def test_process_observer_normal_progress_and_stable_stop_keep_single_sample(self):
+        for stopped in (False, True):
+            with self.subTest(stopped=stopped):
+                def advance(sample, sentinel, *args):
+                    if not stopped:
+                        sentinel.write_text('123:9')
+                observer, work, sleeps = self.observe_fixture(advance, stopped=stopped)
+                try:
+                    observer.observe(work, stopped=stopped)
+                    self.assertEqual(sleeps, [.15])
+                    self.assertFalse(work[2].with_name('sentinel.txt.failed-observation.json').exists())
+                finally:
+                    self.doCleanups()
+
+    def test_process_observer_does_not_resample_dead_or_changed_identity(self):
+        for defect in ('parent-exit', 'descendant-exit', 'empty-group', 'removed-group',
+                       'changed-pid', 'counter-regression'):
+            with self.subTest(defect=defect):
+                def advance(sample, sentinel, events, process, state):
+                    if defect == 'parent-exit':
+                        process.poll.return_value = 0
+                    elif defect == 'descendant-exit':
+                        state[0] = 'Z'
+                    elif defect == 'empty-group':
+                        events.write_text('populated 0\n')
+                    elif defect == 'removed-group':
+                        events.unlink()
+                    else:
+                        sentinel.write_text('124:9' if defect == 'changed-pid' else '123:7')
+                observer, work, sleeps = self.observe_fixture(advance)
+                try:
+                    with self.assertRaises(ValueError):
+                        observer.observe(work, stopped=False)
+                    self.assertEqual(len(sleeps), 1)
+                    self.assertTrue(work[2].with_name('sentinel.txt.failed-observation.json').is_file())
+                finally:
+                    self.doCleanups()
+
+    def test_process_observer_stop_requires_stability_without_progress_grace(self):
+        observer, work, sleeps = self.observe_fixture(
+            lambda n, sentinel, *args: sentinel.write_text('123:9'), stopped=True)
+        with self.assertRaisesRegex(ValueError, 'Registered work did not cease'):
+            observer.observe(work, stopped=True)
+        self.assertEqual(sleeps, [.15])
+        work[0].wait.assert_called_once_with(timeout=10)
+
+    def test_process_observer_missing_file_and_receipt_write_failure_remain_fatal(self):
+        observer, work, sleeps = self.observe_fixture(lambda n, sentinel, *args: sentinel.unlink())
+        with self.assertRaises(FileNotFoundError):
+            observer.observe(work, stopped=False)
+        self.doCleanups()
+        failure = OSError('synthetic receipt storage failure')
+        observer, work, sleeps = self.observe_fixture(lambda *args: None, persistence_error=failure)
+        with self.assertRaises(OSError) as caught:
+            observer.observe(work, stopped=False)
+        self.assertIs(caught.exception, failure)
 
     def test_negative_controls_expose_truth_and_wrong_grant_limits(self):
         from demo_controls import run_controls, verify_controls

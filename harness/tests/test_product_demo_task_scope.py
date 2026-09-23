@@ -6,6 +6,7 @@ from pathlib import Path
 import shutil
 import sys
 import tempfile
+import time
 import unittest
 from unittest.mock import patch
 
@@ -33,6 +34,62 @@ def load_tests(loader, tests, pattern):
 
 
 class TaskScopeOfflineTests(unittest.TestCase):
+    def test_observer_retains_child_exec_and_changed_snapshot(self):
+        # A synthetic proc tree drives the real observer loop. Native installed
+        # tests separately require real children and physical denied effects.
+        with tempfile.TemporaryDirectory() as name:
+            root = Path(name)
+            (root / 'repo/A').mkdir(parents=True)
+            (root / 'repo/A/worker.py').write_text(scope_demo.PROGRAM)
+            proc = root / 'proc/321'
+            (proc / 'task/321').mkdir(parents=True)
+            (proc / 'task/321/children').write_text('')
+            (proc / 'root/target/A').mkdir(parents=True)
+            (proc / 'root/target/B').mkdir()
+            (proc / 'root/target/A/worker.py').write_text(scope_demo.PROGRAM)
+            shared = proc / 'root/target/B/shared.txt'
+            shared.write_text(scope_demo.SHARED)
+            (proc / 'status').write_text('NSpid:\t321\t5\n')
+            (proc / 'stat').write_text('321 (python) ' + ' '.join(['S'] + ['0'] * 18 + ['100']))
+            (proc / 'exe').write_bytes(b'synthetic interpreter')
+            (proc / 'cgroup').write_text('synthetic cgroup')
+            (proc / 'mountinfo').write_text('synthetic mounts')
+            executable = str(Path(scope_demo.SYSTEM_PYTHON).resolve())
+            before = [executable, '-B', '/target/A/worker.py', 'child', 'temptation']
+            after = [*before[:3], 'attempt', 'temptation-child']
+            (proc / 'cmdline').write_bytes(('\0'.join(before) + '\0').encode())
+            observation = {'launcher_pid': 321, 'mode': 'child', 'processes': []}
+            def path(value):
+                return root / 'proc' if value == '/proc' else Path(value)
+            def readlink(value):
+                value = str(value)
+                if value == '/proc/self/ns/net':
+                    return 'net:[host]'
+                if value.endswith('/ns/net'):
+                    return 'net:[child]'
+                if value.endswith('/ns/pid'):
+                    return 'pid:[child]'
+                return executable
+            def wait_rows(count):
+                deadline = time.monotonic() + 2
+                while len(observation['processes']) < count and time.monotonic() < deadline:
+                    time.sleep(.01)
+                self.assertEqual(len(observation['processes']), count, observation)
+            with patch('demo_task_scope.Path', side_effect=path), \
+                 patch('demo_task_scope.os.readlink', side_effect=readlink):
+                with scope_demo.observe_processes(None, root, observation, registered=False):
+                    wait_rows(1)
+                    (proc / 'cmdline').write_bytes(('\0'.join(after) + '\0').encode())
+                    wait_rows(2)
+                    shared.write_text(scope_demo.FIX)
+                    wait_rows(3)
+                    time.sleep(.06)
+            self.assertEqual(observation['observer_errors'], [])
+            self.assertEqual([r['argv'] for r in observation['processes']], [before, after, after])
+            self.assertEqual(len({r['start_ticks'] for r in observation['processes']}), 1)
+            self.assertNotEqual(observation['processes'][1]['shared_sha256'],
+                                observation['processes'][2]['shared_sha256'])
+
     def test_reviewed_payload_and_wrapper_runtime_identity(self):
         from ptw.package_build import bounded_command
         from ptw.python_runtime import identify

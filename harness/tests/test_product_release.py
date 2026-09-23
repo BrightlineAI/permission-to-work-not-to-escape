@@ -557,19 +557,23 @@ class NativeReleaseTests(unittest.TestCase):
         """Mandatory package-path proof, no checkout driver or model calls."""
         import native_receipt
         from product_gate import tree
+        from regression_timing import Trace
         root = Path(tempfile.mkdtemp(prefix='ptw-release-native-'))
         print('RELEASE_EVIDENCE=' + str(root), flush=True)
+        trace = Trace(root)
         source = native_receipt.sources(builder.REPO)
         save(root / 'source.json', source)
         try:
-            value = preparation.prepare(root / 'candidate')
+            with trace.span('phase', 'release-build'):
+                value = preparation.prepare(root / 'candidate')
             env = installer.clean_env(root)
             assets = [artifact(root / 'candidate', a) for a in value['assets']]
             archive = next(path for path in assets if path.name.endswith('.tar.gz'))
             commands, installation = root / 'commands', root / 'installation'
-            result = capture(['bash', root / 'candidate/install.sh', '--artifact', archive,
-                              '--root', installation, '--bin-dir', commands], root / 'install-process',
-                             env=env, cwd=root, timeout=600)
+            with trace.span('phase', 'release-install'):
+                result = capture(['bash', root / 'candidate/install.sh', '--artifact', archive,
+                                  '--root', installation, '--bin-dir', commands], root / 'install-process',
+                                 env=env, cwd=root, timeout=600)
             self.assertEqual(result.returncode, 0, result.stderr.decode(errors='replace'))
             state = load(installation / 'state.json')
             installed = installation / 'releases' / state['active']
@@ -590,8 +594,9 @@ class NativeReleaseTests(unittest.TestCase):
             for demo in ('dependency', 'task-scope', 'swarm', 'report'):
                 out = root / demo
                 for action in ('run', 'verify'):
-                    result = capture([commands / 'ptw', 'demo', action, '--demo', demo, '--out', out],
-                                     root / (demo + '-' + action), env=env, cwd=root, timeout=300)
+                    with trace.span('phase', demo + '-' + action):
+                        result = capture([commands / 'ptw', 'demo', action, '--demo', demo, '--out', out],
+                                         root / (demo + '-' + action), env=env, cwd=root, timeout=300)
                     self.assertEqual(result.returncode, 0, result.stderr.decode(errors='replace'))
                 records[demo] = reference(root, out / 'result.json')
                 self.assertEqual(load(out / 'result.json')['installed']['runtime_sha256'], tree(runtime))

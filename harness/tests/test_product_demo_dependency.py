@@ -260,7 +260,7 @@ class DependencyOfflineTests(unittest.TestCase):
         self.assertEqual(normalized[7:], command[7:])
         self.assertNotEqual(normalized_boundary([*command[:10], '--allow', *command[11:]]), normalized)
 
-    def observe_candidates(self, root, results):
+    def observe_candidates(self, root, results, *, image=None):
         """Synthetic /proc lifecycle only; no authorization or native proof."""
         from demo_namespace import observe
         group = root / 'synthetic-cgroup'
@@ -282,6 +282,7 @@ class DependencyOfflineTests(unittest.TestCase):
             return result
 
         with patch('demo_namespace.Path', return_value=group), \
+                patch('demo_namespace.process_image', side_effect=image, return_value=('100', 'a' * 64)), \
                 patch('demo_namespace.inspect', side_effect=inspect), \
                 patch('ptw.supervisor.Supervisor.state', return_value={'ControlGroup': '/synthetic'}):
             with observe(store, 'synthetic', root / 'secret', '/target/fixture', 'a' * 64,
@@ -291,13 +292,68 @@ class DependencyOfflineTests(unittest.TestCase):
 
     def test_inaccessible_candidate_does_not_stop_later_observation(self):
         with tempfile.TemporaryDirectory() as name:
-            row = {'pid': 321, 'marker': '/target/fixture'}
+            row = {'pid': 321, 'marker': '/target/fixture', 'start_ticks': '100', 'cmdline_sha256': 'a' * 64}
             value = self.observe_candidates(Path(name), [PermissionError(errno.EACCES, 'synthetic'), row])
             self.assertEqual(value['errors'], [])
             self.assertEqual(len(value['observations']), 1)
             self.assertEqual(value['observations'][0]['marker'], row['marker'])
             self.assertEqual(value['unavailable_candidates'][0]['errno'], errno.EACCES)
             self.assertEqual(value['unavailable_candidates'][0]['samples'], 1)
+
+    def test_fork_exec_and_pid_reuse_are_resampled_without_duplicate_images(self):
+        from demo_namespace import observe
+        # Synthetic process images, not a claim of native execution. The first
+        # child sample has inherited argv; exec preserves its PID/start time.
+        for registered in (False, True):
+            with self.subTest(registered=registered), tempfile.TemporaryDirectory() as name:
+                root = Path(name)
+                group = root / 'group'
+                group.mkdir()
+                (group / 'cgroup.procs').write_text('321\n')
+                store = MagicMock()
+                store.locked.return_value.__enter__.return_value.execute.return_value = [
+                    {'unit': 'ptw-' + 'a' * 24 + '.service', 'session': 's'}]
+                phase, sampled, inspected = [0], threading.Event(), []
+                identities = [('100', 'a' * 64), ('100', 'b' * 64), ('200', 'b' * 64)]
+                def identity(pid):
+                    return identities[phase[0]]
+                def inspect(pid, *args):
+                    ticks, command = identity(pid)
+                    inspected.append((ticks, command))
+                    return {'pid': pid, 'start_ticks': ticks, 'cmdline_sha256': command}
+                def persisted(path, value):
+                    save(path, value)
+                    sampled.set()
+                with patch('demo_namespace.Path', return_value=group), \
+                     patch('demo_namespace.process_image', side_effect=identity), \
+                     patch('demo_namespace.inspect', side_effect=inspect), \
+                     patch('demo_namespace.save', side_effect=persisted), \
+                     patch('demo_namespace.descendants', return_value=[321]), \
+                     patch('ptw.supervisor.Supervisor.state', return_value={'ControlGroup': '/synthetic'}):
+                    with observe(store, 'synthetic', root / 'secret', '/marker', 'x', root / 'observer',
+                                 launcher=None if registered else {'pid': 123}):
+                        for step in range(3):
+                            phase[0] = step
+                            self.assertTrue(sampled.wait(2), 'Changed process image was suppressed')
+                            sampled.clear()
+                        # Repeated samples of the same image must not rehash the
+                        # full namespace/interpreter or append duplicate receipts.
+                        self.assertFalse(sampled.wait(.08))
+                value = load(root / 'observer/namespace.json')
+                self.assertEqual(value['errors'], [])
+                self.assertEqual(inspected, identities)
+                self.assertEqual([(r['start_ticks'], r['cmdline_sha256']) for r in value['observations']], identities)
+
+    def test_exec_during_inspection_is_not_saved_as_a_complete_sample(self):
+        # Both the initial and final image checks must agree with the full row.
+        for identities in ([('100', 'b' * 64)], [('100', 'a' * 64), ('100', 'b' * 64)]):
+            with self.subTest(identities=identities), tempfile.TemporaryDirectory() as name:
+                row = {'pid': 321, 'start_ticks': '100', 'cmdline_sha256': 'a' * 64}
+                samples = iter(identities)
+                value = self.observe_candidates(Path(name), [row],
+                    image=lambda pid: next(samples, identities[-1]))
+                self.assertEqual(value['errors'], [])
+                self.assertEqual(value['observations'], [])
 
     def test_persistent_proc_denial_is_missing_evidence(self):
         from demo_namespace import verify
@@ -309,6 +365,63 @@ class DependencyOfflineTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'Missing independent'):
                 verify(root / 'observer', secret=root / 'secret', marker='/target/fixture',
                        expected='a' * 64, sessions={'s'})
+
+    def mountinfo_error(self, code):
+        from demo_namespace import inspect
+        # Exercise the actual mountinfo read boundary with synthetic proc inputs.
+        error = OSError(code, 'synthetic proc failure', '/proc/321/mountinfo')
+        with patch('demo_namespace.Path.is_file', return_value=True), \
+             patch('demo_namespace.digest', return_value='a' * 64), \
+             patch('demo_namespace.os.readlink', side_effect=['net:[123]', 'net:[456]']), \
+             patch('demo_namespace.Path.read_text', side_effect=error) as read:
+            with self.assertRaises(OSError) as raised:
+                inspect(321, Path('/synthetic/secret'), '/target/fixture', 'a' * 64)
+            read.assert_called_once_with()
+        return raised.exception
+
+    def test_mountinfo_einval_resamples_without_counting_unavailable_candidate(self):
+        from demo_namespace import MountInfoUnavailable
+        error = self.mountinfo_error(errno.EINVAL)
+        self.assertIsInstance(error, MountInfoUnavailable)
+        self.assertEqual(error.filename, '/proc/321/mountinfo')
+        with tempfile.TemporaryDirectory() as name:
+            row = {'pid': 321, 'start_ticks': '100', 'cmdline_sha256': 'a' * 64}
+            value = self.observe_candidates(Path(name), [error, row])
+            self.assertEqual(value['errors'], [])
+            self.assertEqual(len(value['observations']), 1)
+            missing = value['unavailable_candidates'][0]
+            self.assertEqual((missing['operation'], missing['path'], missing['pid'],
+                              missing['errno'], missing['samples']),
+                             ('read-mountinfo', '/proc/321/mountinfo', 321, errno.EINVAL, 1))
+
+    def test_persistent_mountinfo_einval_is_missing_evidence(self):
+        from demo_namespace import verify
+        with tempfile.TemporaryDirectory() as name:
+            root = Path(name)
+            error = self.mountinfo_error(errno.EINVAL)
+            value = self.observe_candidates(root, [error, error])
+            self.assertEqual(value['errors'], [])
+            self.assertEqual(value['observations'], [])
+            self.assertGreaterEqual(value['unavailable_candidates'][0]['samples'], 2)
+            with self.assertRaisesRegex(ValueError, 'Missing independent'):
+                verify(root / 'observer', secret=root / 'secret', marker='/target/fixture',
+                       expected='a' * 64, sessions={'s'})
+
+    def test_other_mountinfo_errors_and_einval_elsewhere_remain_fatal(self):
+        from demo_namespace import MountInfoUnavailable, verify
+        # Even an identical filename/errno is insufficient outside the scoped
+        # handler, e.g. a failure of a different operation on that file.
+        for error in (self.mountinfo_error(errno.EIO),
+                      OSError(errno.EINVAL, 'synthetic', '/proc/321/mountinfo')):
+            with self.subTest(error=error), tempfile.TemporaryDirectory() as name:
+                self.assertNotIsInstance(error, MountInfoUnavailable)
+                root = Path(name)
+                value = self.observe_candidates(root, [error])
+                self.assertEqual(value['errors'][0]['errno'], error.errno)
+                self.assertEqual(value['unavailable_candidates'], [])
+                with self.assertRaisesRegex(ValueError, 'Missing independent'):
+                    verify(root / 'observer', secret=root / 'secret', marker='/target/fixture',
+                           expected='a' * 64, sessions={'s'})
 
     def test_unexpected_observer_failure_remains_fatal(self):
         from demo_namespace import verify
@@ -352,7 +465,7 @@ class DependencyOfflineTests(unittest.TestCase):
         def inspect(pid, *args):
             if inspection_error:
                 raise inspection_error
-            return {'pid': pid, 'start_ticks': '100',
+            return {'pid': pid, 'start_ticks': '100', 'cmdline_sha256': 'a' * 64,
                     'network': 'net:[123]', 'host_network': 'net:[456]',
                     'marker': '/target/fixture', 'marker_sha256': 'a' * 64,
                     'secret': str(secret), 'host_secret_sha256': digest(secret),
@@ -362,6 +475,7 @@ class DependencyOfflineTests(unittest.TestCase):
 
         members.read_text.side_effect = read
         with patch('demo_namespace.Path', return_value=group), \
+                patch('demo_namespace.process_image', return_value=('100', 'a' * 64)), \
                 patch('demo_namespace.inspect', side_effect=inspect), \
                 patch('ptw.supervisor.Supervisor.state', return_value={'ControlGroup': '/synthetic'}):
             with observe(store, 'synthetic', secret, '/target/fixture', 'a' * 64, root / 'observer'):
@@ -428,6 +542,12 @@ class DependencyOfflineTests(unittest.TestCase):
                 self.verify_membership(root)
 
     def test_enodev_during_receipt_persistence_remains_fatal(self):
+        self.assert_persistence_failure_is_fatal(errno.ENODEV)
+
+    def test_einval_during_receipt_persistence_remains_fatal(self):
+        self.assert_persistence_failure_is_fatal(errno.EINVAL)
+
+    def assert_persistence_failure_is_fatal(self, code):
         import demo_namespace
         with tempfile.TemporaryDirectory() as name:
             root = Path(name)
@@ -436,12 +556,13 @@ class DependencyOfflineTests(unittest.TestCase):
             def save_receipt(*args):
                 calls.append(args)
                 if len(calls) == 1:
-                    raise OSError(errno.ENODEV, 'synthetic persistence failure')
+                    raise OSError(code, 'synthetic persistence failure')
                 return original(*args)
             with patch('demo_namespace.save', side_effect=save_receipt):
                 value = self.observe_membership(root, ['321'])
             self.assertEqual(len(value['observations']), 1)
             self.assertEqual(value['errors'][0]['operation'], 'save-receipt')
+            self.assertEqual(value['errors'][0]['errno'], code)
             with self.assertRaisesRegex(ValueError, 'Missing independent'):
                 self.verify_membership(root)
 

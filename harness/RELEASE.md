@@ -39,8 +39,17 @@ If a demo reports missing independent namespace observations, inspect its privat
 `unavailable_memberships`; they are not successful observations. Sampling other
 registered work continues. A run still needs complete matching process evidence
 and no fatal observer errors. Fatal errors include their operation and errno.
+If a process's `mountinfo` read returns `EINVAL` (22), the observer records its
+PID, path and sample count in `unavailable_candidates` and continues sampling.
+That unavailable sample proves no physical effect. Persistent unavailability
+still fails when required process evidence is missing. `EINVAL` from other
+inspection operations or receipt persistence remains fatal.
 Preserve the failed run and use a fresh directory after resolving the cause;
 never remove an error or edit a receipt to make verification pass.
+For missing child-process evidence, a row showing the child's PID with its
+parent's command line is only a pre-exec observation. Verification still needs
+the child's executed command and original output. Current observers retain both
+images; earlier receipts cannot supply the missing observation retroactively.
 
 ## New, existing and everyday projects
 

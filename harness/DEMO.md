@@ -106,6 +106,16 @@ registration, delegation and resumed registration must fail. A separate project
 in the same controller keeps its sentinel running and produces its own output.
 Trusted sentinels are process fixtures, not model tools or sandbox bypasses.
 
+Survival requires actual counter progress with a live parent, descendant and
+populated cgroup. The observer samples after 150 ms and, only when all process
+signals remain live, waits up to one second for counter progress. It refreshes
+those signals on each sample. A stationary counter never passes. Stop checks
+still require parent exit, a dead/absent descendant, an empty/removed cgroup and
+an unchanged counter across the 150 ms observation. A rejected observation saves
+`*.failed-observation.json` beside its private sentinel before cleanup. Retain
+the failed run; it cannot supply release evidence. Missing files and receipt
+storage failures also fail verification.
+
 `collector.json` retains every request, including positive controls. Each arm
 retains approved policy, worker lineage, action results, actual report/summary,
 audit, status and measured durations. `vega/lifecycle` retains the separate

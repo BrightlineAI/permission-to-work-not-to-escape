@@ -20,7 +20,7 @@ from ptw.package_install import file_manifest
 from ptw.packages import mounted_set
 from ptw.policy import Invalid, OutsideScope, approve, canonical, compile_policy, digest, save
 from ptw.reassessment import cached, refresh, seed, validate_binding, validate_publication
-from ptw.store import Store
+from ptw.store import Store, operation_lease
 from ptw.supervisor import Supervisor
 from test_packages import CRITICAL, FixtureProvider, PackageFixture
 from test_workspace import WorkspaceFixture
@@ -661,6 +661,73 @@ class NativeEvidence:
              'projects': [self.store.status(p) for p in projects]})
 
 
+def assert_quarantine_stop(case, observation):
+    """Require targeted quarantine receipts and physical stop before natural exit."""
+    elapsed = observation['stopped_monotonic'] - observation['started_monotonic']
+    case.assertGreaterEqual(elapsed, 0)
+    case.assertLess(elapsed, 60, 'Command could have completed its 60-second payload naturally')
+    for unit in (observation['command_unit'], observation['preview_unit']):
+        case.assertEqual(observation['before'][unit]['ActiveState'], 'active')
+        case.assertIs(observation['after'][unit]['confirmed_stopped'], True)
+        case.assertTrue(any(
+            row['unit'] == unit and
+            row['at'] >= observation['quarantine_requested_epoch'] and
+            json.loads(row['outcome']).get('confirmed_stopped') is True
+            for row in observation['package_terminations']),
+            'Missing confirmed quarantine termination for ' + unit)
+
+
+class QuarantineStopOracleTests(unittest.TestCase):
+    def observation(self):
+        # Synthetic oracle inputs only; physical evidence comes from the native test.
+        units = ('command', 'preview')
+        return {'command_unit': units[0], 'preview_unit': units[1],
+                'started_monotonic': 10, 'stopped_monotonic': 15,
+                'quarantine_requested_epoch': 100,
+                'before': {u: {'ActiveState': 'active'} for u in units},
+                'after': {u: {'confirmed_stopped': True} for u in units},
+                'package_terminations': [
+                    {'unit': u, 'at': 101, 'outcome': canonical({'confirmed_stopped': True})}
+                    for u in units]}
+
+    def test_confirmed_targeted_stop_before_payload_completion(self):
+        assert_quarantine_stop(self, self.observation())
+
+    def test_natural_completion_cannot_prove_quarantine_stop(self):
+        for elapsed in (60, 61):
+            with self.subTest(elapsed=elapsed):
+                observation = self.observation()
+                observation['stopped_monotonic'] = observation['started_monotonic'] + elapsed
+                with self.assertRaisesRegex(AssertionError, 'naturally'):
+                    assert_quarantine_stop(self, observation)
+
+    def test_missing_wrong_stale_or_unconfirmed_termination_is_rejected(self):
+        for target in ('command', 'preview'):
+            for defect in ('missing', 'wrong-unit', 'stale', 'unconfirmed'):
+                with self.subTest(target=target, defect=defect):
+                    observation = self.observation()
+                    row = next(r for r in observation['package_terminations'] if r['unit'] == target)
+                    if defect == 'missing':
+                        observation['package_terminations'].remove(row)
+                    elif defect == 'wrong-unit':
+                        row['unit'] = 'unrelated'
+                    elif defect == 'stale':
+                        row['at'] = 99
+                    else:
+                        row['outcome'] = canonical({'confirmed_stopped': False})
+                    with self.assertRaisesRegex(AssertionError, 'Missing confirmed quarantine'):
+                        assert_quarantine_stop(self, observation)
+
+    def test_receipt_without_active_then_physically_stopped_work_is_rejected(self):
+        for target in ('command', 'preview'):
+            for phase in ('before', 'after'):
+                with self.subTest(target=target, phase=phase):
+                    observation = self.observation()
+                    observation[phase][target] = {'ActiveState': 'inactive', 'confirmed_stopped': False}
+                    with self.assertRaises(AssertionError):
+                        assert_quarantine_stop(self, observation)
+
+
 @unittest.skipUnless(os.environ.get('PTW_LINUX_TESTS') == '1', 'Native isolated Linux VPS required')
 class NativeReassessmentTests(NativeEvidence, PackageFixture, unittest.TestCase):
     def test_installed_import_quarantine_physical_stop_unrelated_and_terminal(self):
@@ -765,7 +832,19 @@ class NativeWorkspaceReassessmentTests(NativeEvidence, WorkspaceFixture):
         from urllib.request import urlopen
         with urlopen(preview['url'], timeout=5) as response:
             self.assertEqual(response.read(), b'SYNTHETIC_PACKAGE_OK')
+        # This fixture needs concurrent admission, not the separately tested
+        # serialization of colliding leases. Keep real session registration.
+        slow_slot = operation_lease(self.actor['session'], 'slow')
+        critical_event = next('critical-use-' + str(i) for i in range(10000)
+            if operation_lease(self.actor['session'], 'critical-use-' + str(i)) != slow_slot)
+        self.assertNotEqual(slow_slot, operation_lease(self.actor['session'], critical_event))
+        observation = {'slow_event': 'slow', 'critical_event': critical_event,
+                       'slow_slot': slow_slot,
+                       'critical_slot': operation_lease(self.actor['session'], critical_event),
+                       'preview_unit': preview['unit']}
+        self.addCleanup(save, self.evidence_directory / 'stop.json', observation)
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            observation['started_monotonic'] = time.monotonic()
             running = pool.submit(action, 'slow', 'slow')
             deadline = time.monotonic() + 15
             units = []
@@ -778,7 +857,12 @@ class NativeWorkspaceReassessmentTests(NativeEvidence, WorkspaceFixture):
                 if units:
                     break
                 time.sleep(.05)
-            self.assertTrue(units, 'Bound command did not become active')
+            self.assertEqual(len(units), 1, 'Expected exactly one active bound command')
+            observation['command_unit'] = units[0]
+            observation['before'] = {u: Supervisor.state(u) for u in (units[0], preview['unit'])}
+            self.assertFalse(running.done(), 'Command finished before quarantine request')
+            for state in observation['before'].values():
+                self.assertEqual(state['ActiveState'], 'active')
             with self.store.locked() as db:
                 row = db.execute('SELECT evidence FROM package_sets WHERE id=?', (package,)).fetchone()
                 evidence = json.loads(row[0])
@@ -786,11 +870,16 @@ class NativeWorkspaceReassessmentTests(NativeEvidence, WorkspaceFixture):
                     record['checked_at'] -= 1000
                 db.execute('UPDATE package_sets SET evidence=? WHERE id=?', (canonical(evidence), package))
             advisory = AdvisoryFixture({('six', '1.17.0'): [CRITICAL]})
+            observation['quarantine_requested_epoch'] = time.time()
             with patch('ptw.registry.provider_for', return_value=advisory):
-                denied = action('critical-use', 'use')
+                denied = action(critical_event, 'use')
             self.assertFalse(denied['allowed'], denied)
             self.assertIn('quarantined', denied['reason'])
             self.assertFalse(running.result(timeout=15)['allowed'])
+            observation['after'] = {u: Supervisor.state(u) for u in (units[0], preview['unit'])}
+            observation['stopped_monotonic'] = time.monotonic()
+            observation['package_terminations'] = self.store.status('python-demo')['package_terminations']
+            assert_quarantine_stop(self, observation)
         self.assertFalse((repo / 'dist/late').exists())
         self.assertTrue(Supervisor.state(preview['unit'])['confirmed_stopped'])
         self.assertTrue(all(Supervisor.state(u)['confirmed_stopped'] for u in units))

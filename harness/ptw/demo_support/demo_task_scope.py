@@ -183,7 +183,9 @@ def observe_processes(store, folder, observation, *, registered):
                         nspid = next(line.split()[1:] for line in status.splitlines() if line.startswith('NSpid:'))
                         ticks = (proc / 'stat').read_text().rsplit(')', 1)[1].split()[19]
                         shared = digest(proc / 'root/target/B/shared.txt')
-                        key = (pid, ticks, shared)
+                        # A forked child can be sampled before exec replaces its
+                        # inherited argv. PID/start time alone suppress its real command.
+                        key = (pid, ticks, tuple(argv), shared)
                         if key in seen:
                             continue
                         row = {'pid': pid, 'namespace_pid': int(nspid[-1]), 'start_ticks': ticks,

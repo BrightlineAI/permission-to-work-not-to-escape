@@ -97,6 +97,16 @@ checks on an isolated Linux VPS. Local mocked tests do not demonstrate physical
 termination or an LLM trajectory. Native fixtures retain source hashes, attempts
 and final state in new private `REASSESSMENT_EVIDENCE` directories outside checkout.
 
+The concurrent command/preview test chooses distinct operation lease slots so
+the on-demand reassessment can run while the command is active. Colliding slots
+still serialize, as verified separately by the audit tests. Its private
+`stop.json` records the selected events/slots, exact active units, physical states,
+quarantine termination records and monotonic interval. Both units must have
+confirmed quarantine termination records, and stopping must precede the command's
+unchanged 60-second payload completion. Eventual inactivity or missing output
+alone cannot pass. Offline negative tests reject natural completion, missing,
+wrong-target, stale or unconfirmed receipts and absent physical stopping.
+
 Before native source tests, install this exact checkout in a new isolated editable
 environment with hashed dependencies following the
 [developer instructions](README.md#run-the-tests). `PYTHONPATH` alone does not reach
