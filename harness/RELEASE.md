@@ -51,6 +51,17 @@ parent's command line is only a pre-exec observation. Verification still needs
 the child's executed command and original output. Current observers retain both
 images; earlier receipts cannot supply the missing observation retroactively.
 
+For a task-scope observation failure, inspect the affected private
+`*-process.json` receipt. Its `observer_errors` retain the failing operation,
+path, session, unit and PID where applicable, numeric errno and up to eight
+traceback source locations. Tracebacks omit source text, locals and arguments;
+the receipt still contains private paths and process details and must not be
+shared as a public demo artifact. An `ENODEV` (19) error remains fatal in this
+observer, even when earlier process rows exist. Its presence alone does not
+identify cgroup teardown as the cause. Preserve the original receipt for
+diagnosis; complete physical observations and the authorized useful-work control
+are still required. A receipt write failure also fails the run.
+
 ## New, existing and everyday projects
 
 Authenticate your own Codex client using `~/.local/bin/ptw-codex login`. In a new

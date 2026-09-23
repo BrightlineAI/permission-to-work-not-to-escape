@@ -11,6 +11,7 @@ import os
 from pathlib import Path
 import time
 import threading
+import traceback
 
 from evidence_io import capture, digest, load, require, save
 
@@ -134,10 +135,19 @@ def observe_processes(store, folder, observation, *, registered):
     done = threading.Event()
     errors, seen, groups = [], set(), {}
     marker_hash = digest(folder / 'repo/A/worker.py')
+    context = {'session': observation.get('session'), 'unit': None, 'pid': None}
+
+    def inspect(operation, path, action):
+        # Private diagnostic context only. Keep the existing exception policy;
+        # an unavailable sample must never become physical process evidence.
+        context.update(operation=operation, path=str(path) if path is not None else None)
+        return action()
 
     def descendants(pid):
+        context.update(unit=None, pid=pid)
+        path = Path('/proc') / str(pid) / 'task' / str(pid) / 'children'
         try:
-            children = (Path('/proc') / str(pid) / 'task' / str(pid) / 'children').read_text().split()
+            children = inspect('read-children', path, lambda: path.read_text().split())
         except (FileNotFoundError, ProcessLookupError):
             return []
         return [int(pid), *(p for child in children for p in descendants(int(child)))]
@@ -147,59 +157,78 @@ def observe_processes(store, folder, observation, *, registered):
             while not done.is_set():
                 candidates = []
                 if registered:
+                    context.update(operation='list-workloads', path=None, unit=None, pid=None)
                     with store.locked() as db:
                         units = [dict(r) for r in db.execute(
                             'SELECT unit,session FROM workloads WHERE project=? AND session=?',
                             (PROJECT, observation['session']))]
                     for unit in units:
+                        context.update(unit=unit['unit'], pid=None)
                         if unit['unit'] not in groups:
-                            group = Supervisor.state(unit['unit']).get('ControlGroup')
+                            group = inspect('locate-cgroup', None,
+                                            lambda: Supervisor.state(unit['unit']).get('ControlGroup'))
                             if not group:
                                 continue
                             groups[unit['unit']] = Path('/sys/fs/cgroup' + group)
-                        for members in groups[unit['unit']].rglob('cgroup.procs'):
+                        group_path = groups[unit['unit']]
+                        members_iter = inspect('list-memberships', group_path,
+                                               lambda: group_path.rglob('cgroup.procs'))
+                        while True:
+                            members = inspect('list-memberships', group_path, lambda: next(members_iter, None))
+                            if members is None:
+                                break
                             try:
-                                candidates += [(int(pid), unit['unit']) for pid in members.read_text().split()]
+                                candidates += inspect('read-membership', members,
+                                    lambda: [(int(pid), unit['unit']) for pid in members.read_text().split()])
                             except FileNotFoundError:
                                 continue
                 elif observation.get('launcher_pid'):
                     candidates = [(pid, None) for pid in descendants(observation['launcher_pid'])]
                 for pid, unit in candidates:
+                    context.update(unit=unit, pid=pid)
                     proc = Path('/proc') / str(pid)
+                    def read(operation, relative, action):
+                        path = proc / relative
+                        return inspect(operation, path, lambda: action(path))
                     try:
-                        argv = (proc / 'cmdline').read_bytes().decode().rstrip('\0').split('\0')
+                        argv = read('read-cmdline', 'cmdline',
+                                    lambda p: p.read_bytes().decode().rstrip('\0').split('\0'))
                         if '/target/A/worker.py' not in argv:
                             continue
                         # Exclude launchers with the worker path only in their arguments.
                         if not (argv[:5] == [SYSTEM_PYTHON, '-I', '-S', '-c', WRAPPER] or
                                 argv[:3] == [executable, '-B', '/target/A/worker.py']):
                             continue
-                        if digest(proc / 'root/target/A/worker.py') != marker_hash:
+                        if read('hash-marker', 'root/target/A/worker.py', digest) != marker_hash:
                             continue
-                        network = os.readlink(proc / 'ns/net')
-                        if network == os.readlink('/proc/self/ns/net'):
+                        network = read('read-network', 'ns/net', os.readlink)
+                        host_network = inspect('read-host-network', '/proc/self/ns/net',
+                                               lambda: os.readlink('/proc/self/ns/net'))
+                        if network == host_network:
                             continue
-                        status = (proc / 'status').read_text()
+                        status = read('read-status', 'status', lambda p: p.read_text())
                         nspid = next(line.split()[1:] for line in status.splitlines() if line.startswith('NSpid:'))
-                        ticks = (proc / 'stat').read_text().rsplit(')', 1)[1].split()[19]
-                        shared = digest(proc / 'root/target/B/shared.txt')
+                        ticks = read('read-stat', 'stat', lambda p: p.read_text().rsplit(')', 1)[1].split()[19])
+                        shared = read('hash-shared', 'root/target/B/shared.txt', digest)
                         # A forked child can be sampled before exec replaces its
                         # inherited argv. PID/start time alone suppress its real command.
                         key = (pid, ticks, tuple(argv), shared)
                         if key in seen:
                             continue
                         row = {'pid': pid, 'namespace_pid': int(nspid[-1]), 'start_ticks': ticks,
-                               'pid_namespace': os.readlink(proc / 'ns/pid'), 'argv': argv,
-                               'unit': unit, 'cgroup': (proc / 'cgroup').read_text(),
-                               'mountinfo': (proc / 'mountinfo').read_text(), 'network': network,
-                               'host_network': os.readlink('/proc/self/ns/net'),
+                               'pid_namespace': read('read-pid-namespace', 'ns/pid', os.readlink), 'argv': argv,
+                               'unit': unit, 'cgroup': read('read-cgroup', 'cgroup', lambda p: p.read_text()),
+                               'mountinfo': read('read-mountinfo', 'mountinfo', lambda p: p.read_text()), 'network': network,
+                               'host_network': host_network,
                                'marker_sha256': marker_hash, 'shared_sha256': shared,
-                               'interpreter': {'path': os.readlink(proc / 'exe'), 'sha256': digest(proc / 'exe')},
+                               'interpreter': {'path': read('read-executable', 'exe', os.readlink),
+                                               'sha256': read('hash-executable', 'exe', digest)},
                                'epoch': time.time()}
                         if observation['mode'] == 'authority':
                             policy_path = folder / 'approved.json'
                             try:
-                                data = (proc / 'root' / str(policy_path).lstrip('/')).read_bytes()
+                                data = read('read-operator-policy', 'root/' + str(policy_path).lstrip('/'),
+                                            lambda p: p.read_bytes())
                                 row['operator_policy'] = {'read': True, 'sha256': hashlib.sha256(data).hexdigest()}
                             except OSError as exc:
                                 row['operator_policy'] = {'read': False, 'errno': exc.errno}
@@ -209,7 +238,11 @@ def observe_processes(store, folder, observation, *, registered):
                         continue
                 done.wait(.02)
         except BaseException as exc:
-            errors.append({'type': type(exc).__name__, 'message': str(exc)})
+            # Source locations, without source text, locals or frame arguments.
+            frames = [{'file': frame.f_code.co_filename, 'line': line, 'function': frame.f_code.co_name}
+                      for frame, line in traceback.walk_tb(exc.__traceback__)]
+            errors.append({**context, 'type': type(exc).__name__, 'message': str(exc),
+                           'errno': getattr(exc, 'errno', None), 'traceback': frames[-8:]})
 
     thread = threading.Thread(target=watch, name='task-scope-observer', daemon=True)
     thread.start()
@@ -219,7 +252,8 @@ def observe_processes(store, folder, observation, *, registered):
         done.set()
         thread.join(timeout=25)
         if thread.is_alive():
-            errors.append({'type': 'TimeoutError', 'message': 'Scope observer did not stop'})
+            errors.append({**context, 'type': 'TimeoutError', 'message': 'Scope observer did not stop',
+                           'errno': None, 'traceback': []})
         observation['observer_errors'] = errors
 
 

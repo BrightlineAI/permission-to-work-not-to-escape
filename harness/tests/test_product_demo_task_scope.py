@@ -1,14 +1,17 @@
 """Task-scope demo: offline contract tests and mandatory installed native effects."""
 import copy
+from contextlib import contextmanager
+import errno
 from fnmatch import fnmatchcase
 import os
 from pathlib import Path
 import shutil
 import sys
 import tempfile
+import threading
 import time
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 SCRIPTS = Path(__file__).resolve().parents[1] / 'scripts'
 if str(SCRIPTS) not in sys.path:
@@ -34,6 +37,125 @@ def load_tests(loader, tests, pattern):
 
 
 class TaskScopeOfflineTests(unittest.TestCase):
+    def test_observer_failure_context_survives_failed_command_receipt(self):
+        # Real observer thread and process() failure persistence, synthetic I/O.
+        # ENODEV remains fatal until native evidence identifies its operation.
+        cases = [('read-membership', errno.ENODEV), ('read-membership', errno.EACCES),
+                 ('read-membership', None), ('read-cmdline', errno.ENODEV),
+                 ('locate-cgroup', errno.ENODEV), ('list-memberships', errno.EIO),
+                 ('list-workloads', errno.EIO)]
+        for operation, number in cases:
+            with self.subTest(operation=operation, errno=number), tempfile.TemporaryDirectory() as name:
+                root = Path(name)
+                (root / 'repo/A').mkdir(parents=True)
+                (root / 'repo/A/worker.py').write_text(scope_demo.PROGRAM)
+                (root / 'authority-edit-capture').mkdir()
+                group = root / 'cgroup'
+                group.mkdir()
+                members = group / 'cgroup.procs'
+                members.write_text('321')
+                proc = root / 'proc/321'
+                proc.mkdir(parents=True)
+                failed = threading.Event()
+                store = MagicMock()
+                store.locked.return_value.__enter__.return_value.execute.return_value = [
+                    {'unit': 'synthetic.service', 'session': 'synthetic-session'}]
+                paths = {'read-membership': members, 'read-cmdline': proc / 'cmdline',
+                         'list-memberships': group}
+                def fail():
+                    failed.set()
+                    if number is None:
+                        raise ValueError('Synthetic malformed membership')
+                    # No filename in the exception: context must retain the path.
+                    raise OSError(number, 'Synthetic observation failure')
+                original_text = Path.read_text
+                def read_text(path, *args, **kwargs):
+                    if operation == 'read-membership' and path == members:
+                        return fail()
+                    return original_text(path, *args, **kwargs)
+                def path(value):
+                    if value == '/sys/fs/cgroup/synthetic':
+                        return group
+                    return root / 'proc' if value == '/proc' else Path(value)
+                def state(unit):
+                    if operation == 'locate-cgroup':
+                        return fail()
+                    return {'ControlGroup': '/synthetic'}
+                original_glob = Path.rglob
+                def rglob(path, pattern):
+                    if operation == 'list-memberships':
+                        # Failure during iteration, not generator construction.
+                        yield fail()
+                    else:
+                        yield from original_glob(path, pattern)
+                def dispatch(*args):
+                    self.assertTrue(failed.wait(2), 'Observer did not reach injected failure')
+                    return {'allowed': True, 'exit_code': 0}
+                if operation == 'list-workloads':
+                    store.locked.side_effect = fail
+                with patch('demo_task_scope.Path', side_effect=path), \
+                     patch.object(Path, 'read_text', read_text), \
+                     patch.object(Path, 'rglob', rglob):
+                    # Restrict read_bytes injection to the proc read, preserving
+                    # marker hashing before the thread starts.
+                    original_bytes = Path.open
+                    def read_bytes(p):
+                        if p == proc / 'cmdline':
+                            return fail()
+                        with original_bytes(p, 'rb') as stream:
+                            return stream.read()
+                    with patch.object(Path, 'read_bytes', read_bytes), \
+                         patch('ptw.supervisor.Supervisor.state', side_effect=state), \
+                         patch('product_demo.prepared', return_value=({}, {}, root, [])), \
+                         patch('product_demo.command_shape', return_value=[]), \
+                         patch('ptw.package_build.bounded_command', return_value=[]), \
+                         patch('ptw.workflow.dispatch', side_effect=dispatch):
+                        with self.assertRaisesRegex(ValueError, 'Independent native process observation missing'):
+                            scope_demo.process(store, {}, {'session': 'synthetic-session'}, {}, root,
+                                               'vega', 'authority', 'authority-edit')
+                receipt = load(root / 'authority-edit-process.json')
+                self.assertEqual(receipt['processes'], [])
+                self.assertEqual(len(receipt['observer_errors']), 1)
+                error = receipt['observer_errors'][0]
+                self.assertEqual(error['operation'], operation)
+                self.assertEqual(error['errno'], number)
+                self.assertEqual(error['session'], 'synthetic-session')
+                self.assertEqual(error['unit'], None if operation == 'list-workloads' else 'synthetic.service')
+                self.assertEqual(error['pid'], 321 if operation == 'read-cmdline' else None)
+                self.assertEqual(error['path'], str(paths[operation]) if operation in paths else None)
+                self.assertTrue(0 < len(error['traceback']) <= 8)
+                self.assertTrue(all(set(frame) == {'file', 'line', 'function'} and frame['line'] > 0
+                                    for frame in error['traceback']))
+                self.assertEqual(error['traceback'][-1]['function'], 'fail')
+                self.assertIn('ended_epoch', receipt)
+
+    def test_observer_receipt_persistence_failure_is_fatal(self):
+        @contextmanager
+        def observer(store, folder, observation, **kwargs):
+            observation['observer_errors'] = [{'type': 'OSError', 'errno': errno.ENODEV}]
+            yield
+
+        with tempfile.TemporaryDirectory() as name:
+            root = Path(name)
+            original_save = scope_demo.save
+            def save_receipt(path, value):
+                if path.name == 'authority-edit-process.json':
+                    self.assertEqual(value['observer_errors'][0]['errno'], errno.ENODEV)
+                    raise OSError(errno.ENOSPC, 'Synthetic receipt persistence failure')
+                return original_save(path, value)
+            (root / 'authority-edit-capture').mkdir()
+            with patch('demo_task_scope.observe_processes', observer), \
+                 patch('demo_task_scope.save', side_effect=save_receipt), \
+                 patch('product_demo.prepared', return_value=({}, {}, root, [])), \
+                 patch('product_demo.command_shape', return_value=[]), \
+                 patch('ptw.package_build.bounded_command', return_value=[]), \
+                 patch('ptw.workflow.dispatch', return_value={'allowed': True, 'exit_code': 0}):
+                with self.assertRaises(OSError) as caught:
+                    scope_demo.process(None, {}, {'session': 'synthetic'}, {}, root,
+                                       'vega', 'authority', 'authority-edit')
+            self.assertEqual(caught.exception.errno, errno.ENOSPC)
+            self.assertFalse((root / 'authority-edit-process.json').exists())
+
     def test_observer_retains_child_exec_and_changed_snapshot(self):
         # A synthetic proc tree drives the real observer loop. Native installed
         # tests separately require real children and physical denied effects.
