@@ -9,6 +9,35 @@ extension and incident contracts and historical receipts remain byte-identical.
 
 This finite checklist is the implementation handoff, not an acceptance claim.
 
+The shared-stop workspace fixture selects distinct operation lease slots for
+three protected commands and concurrent unrelated work. It requires active
+registered units and the actual parent/descendant payloads before escalation,
+checks warn1/stop3 across the two parents and delegate, and requires original
+termination records plus physical cessation before the unchanged 20-second
+payload can finish naturally. Unrelated work waits for an explicit fixture
+release in its existing disposable tree. It must remain active through protected
+cessation, then publish useful output with exit zero and no violations.
+Cleanup runs inside the executor lifetime, including failed readiness or launch.
+The test prints `WORKSPACE_STOP_EVIDENCE` with retained source hashes, event/slot
+mappings, process states, timings, termination records and bounded failure
+diagnostics. No session tokens are included. Inspect `stop.json` at that private
+location for a readiness, physical-stop or cleanup failure; do not replace a
+missing process observation with a controller flag or a natural exit.
+
+The retained full regression had one failure: two protected registrations instead
+of three. Its actual lease slots were not retained, so collision-induced
+serialization is plausible, not a proven historical cause. Offline regressions
+cover bounded slot selection, the real subprocess release/timeout handshake and
+rejection of missing, stale, wrong-unit or unconfirmed termination records,
+natural completion and surviving descendants. These are not native stop proof.
+This finite repair changes tests and this audit only; runtime, version, release
+asset contents and pinned contracts remain unchanged. Existing full discovery
+and manager acceptance must execute the repaired native case, without a duplicate
+suite run. Native services, namespaces and sockets are unavailable in the coding
+sandbox. No new dependency or external interface is used, so web research adds
+nothing to this internal fixture correction. All preceding release gates remain
+mandatory, including the owner's amended 60-second startup bound.
+
 The reassessment concurrency fixture now selects distinct operation lease slots
 and requires original quarantine termination records for both the active command
 and preview, with physical stopping before the unchanged 60-second payload could
