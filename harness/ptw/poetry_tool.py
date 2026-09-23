@@ -16,15 +16,29 @@ CUTOFF = '2026-09-16T00:00:00Z'
 
 
 def payload(root):
+    # Enumerate once using directory-entry types instead of repeated Path stat
+    # and relative-path operations. Still read and hash every file on every
+    # invocation, including bytecode; no metadata or cross-call digest cache.
     result = {}
-    for path in sorted(root.rglob('*')):
-        if path.is_symlink() or not (path.is_file() or path.is_dir()):
-            raise Invalid('Poetry tool payload contains a link or special file')
-        if path.is_file():
-            result[str(path.relative_to(root))] = hashlib.sha256(path.read_bytes()).hexdigest()
+
+    def visit(directory, prefix):
+        with os.scandir(directory) as entries:
+            for entry in entries:
+                name = prefix + entry.name
+                if entry.is_file(follow_symlinks=False):
+                    with open(entry.path, 'rb') as stream:
+                        result[name] = hashlib.sha256(stream.read()).hexdigest()
+                elif entry.is_dir(follow_symlinks=False):
+                    visit(entry.path, name + '/')
+                else:
+                    raise Invalid('Poetry tool payload contains a link or special file')
+
+    if root.is_symlink():
+        raise Invalid('Poetry tool payload contains a link or special file')
+    visit(root, '')
     if not result:
         raise Invalid('Poetry tool payload is empty')
-    return result
+    return dict(sorted(result.items()))
 
 
 def provision(directory, *, executable='/usr/bin/python3', lock=None):

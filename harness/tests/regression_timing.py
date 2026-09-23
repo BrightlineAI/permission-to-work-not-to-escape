@@ -14,6 +14,7 @@ import resource
 import sys
 import tempfile
 import time
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -21,6 +22,8 @@ from unittest.mock import patch
 YARN_TARGETS = frozenset('test_product_yarn.YarnNativeTests.' + name for name in (
     'test_controller_unapproved_build_and_changed_inputs_do_not_publish',
     'test_default_public_origin_reviewed_update_and_protected_use'))
+POETRY_TARGET = ('test_product_poetry.PoetryNativeTests.'
+                 'test_native_legacy_and_pep735_group_import_and_revisions')
 _active = None
 _enabled = False
 
@@ -39,6 +42,10 @@ class Trace:
                       cpu_self_user=own.ru_utime, cpu_self_system=own.ru_stime,
                       cpu_children_user=children.ru_utime,
                       cpu_children_system=children.ru_stime, **fields)
+        for scope, usage in (('self', own), ('children', children)):
+            for name in ('ru_inblock', 'ru_oublock', 'ru_minflt', 'ru_majflt',
+                         'ru_nvcsw', 'ru_nivcsw'):
+                record[scope + '_' + name] = getattr(usage, name)
         # Close each append so completed records survive process interruption.
         with self.path.open('a') as stream:
             stream.write(json.dumps(record, sort_keys=True) + '\n')
@@ -100,6 +107,26 @@ def yarn_phases(trace, test_id):
         yield
 
 
+@contextmanager
+def poetry_phases(trace, test_id):
+    if test_id != POETRY_TARGET:
+        yield
+        return
+    from ptw import poetry_tool
+    with ExitStack() as stack:
+        for name in ('verified', 'payload', 'identify', 'run'):
+            stack.enter_context(patch.object(poetry_tool, name,
+                measured(trace, 'phase', test_id + ':ptw.poetry_tool.' + name,
+                         getattr(poetry_tool, name))))
+        # A module-local view leaves subprocess.run in interpreter identification
+        # and other modules untouched. This span is just Poetry's native wait;
+        # its two integrity checks remain separate nested spans inside run.
+        stack.enter_context(patch.object(poetry_tool, 'subprocess', SimpleNamespace(
+            run=measured(trace, 'phase', test_id + ':ptw.poetry_tool.subprocess.run',
+                         poetry_tool.subprocess.run))))
+        yield
+
+
 def active_directory():
     return str(_active.directory) if _active is not None else None
 
@@ -144,7 +171,7 @@ def instrument(suite, result, trace):
             original = test.run
 
             def run(result=None, original=original, test_id=test.id()):
-                with yarn_phases(trace, test_id):
+                with yarn_phases(trace, test_id), poetry_phases(trace, test_id):
                     return measured(trace, 'test', test_id, original, result=result)(result)
 
             stack.enter_context(patch.object(test, 'run', run))

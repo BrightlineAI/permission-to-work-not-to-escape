@@ -216,11 +216,27 @@ which supplies the discovery pattern; no global test-ID deduplication is used.
 Structural cases in `test_product_reassessment.py` inspect actual suites without
 running native fixtures, checking membership, multiplicity and visible load errors.
 
+The task-scope observer fixture uses atomic file replacement for its intended
+pre-exec, post-exec and changed-content states. A separate controlled transition
+holds an empty intermediate file until sampled and requires the extra observation.
+Bounded sample acknowledgements verify duplicate suppression, process identity and
+exact content hashes through the real observer thread. These synthetic checks do
+not establish native effects; installed demo tests still require actual child and
+resume observations, useful recovery and unchanged unrelated work.
+
 Native discovery that includes `test_product_reassessment.py` also retains a fresh
 private `REGRESSION_TIMING_EVIDENCE` directory. It records source hashes and flushed
 start/end records for each test, class setup, teardown and cleanup. The two Yarn
 paths under timeout investigation additionally record controller, parser, tool
 verification and native-install phases, including synthetic terminal children.
+The Poetry legacy/PEP 735 group import and revision case additionally brackets
+`poetry_tool.run`, payload verification, tool interpreter identification and the
+native subprocess wait. Its pre-execution and post-execution integrity checks
+remain separate nested spans. Hooks apply only to that selected case and restore
+on failure or interruption; other subprocess callers remain untouched. Offline
+hook tests exercise actual verification with synthetic tool bytes and a substituted
+subprocess boundary, including tampering before/after execution, timeout and
+interruption. Those tests do not establish native performance or confinement.
 The existing runner, order, assertions, confinement and deadlines remain in force.
 No arguments, payloads, output or exception messages enter these timing records.
 
@@ -228,6 +244,12 @@ The same full discovery now retains a separate [native suite receipt](ACCEPTANCE
 with the original runner log and exact test inventory. Keep those private logs and
 the source-test environment for independent verification. Focused receipts, old
 source receipts and incomplete attempts cannot satisfy full product acceptance.
+A timed-out or killed runner may leave `attempt.json`, `outcomes.jsonl` and its
+original log without `complete.json`. A subsequent product check then fails before
+installation; the missing completion record must not be reconstructed from passing
+individual cases. Inspect the retained timing spans and last outcome first. After
+resolving the cause, run full native discovery against the final source again;
+an earlier pass or a focused receipt cannot replace the interrupted attempt.
 
 Hosted CI runs `python harness/scripts/offline_checks.py` from an isolated editable
 source installation. Before discovery, `harness/scripts/provision_ci_uv.py`
@@ -247,8 +269,11 @@ acceptance; normal `PTW_LINUX_TESTS=1` discovery still executes every mandatory
 case and accepts zero skips. Do not use the CI subset for a release receipt.
 
 Timings are inclusive and nested, so do not add phase durations to test durations.
-CPU counters are cumulative user/system totals for the process and its waited-for
-children; subtract corresponding start/end counters. Detached systemd services and
+Resource counters are cumulative for the process and its waited-for children:
+user/system CPU, block input/output, minor/major faults and voluntary/involuntary
+context switches. Subtract corresponding start/end counters. Block counters do
+not count cached reads; wall time minus CPU is not proof of a specific I/O or
+scheduling cause. Detached systemd services and
 still-running children are not included. An unmatched start indicates incomplete
 evidence, not success. A deadline traceback identifies where interruption occurred,
 not the cause of accumulated time. Retain failed attempts before diagnosing a

@@ -47,6 +47,12 @@ code are excluded. Missing or modified tools fail closed. The operator-owned
 tool directory and receipts are trusted, like the application installation;
 these hashes do not authenticate a compromised operator account.
 
+Every invocation rehashes all payload files before and after native execution,
+including hidden files and bytecode. Directory-entry enumeration avoids repeated
+path and file-status work without caching digests or trusting modification times.
+Links, special files and inspection failures fail closed. Existing tool receipts
+remain compatible; this verification change does not require reprovisioning.
+
 ## Positive and negative terminal flow
 
 For an existing small public-registry Poetry project with a current

@@ -274,6 +274,74 @@ class PoetryBoundaryTests(unittest.TestCase):
         with self.assertRaisesRegex(Invalid, 'link'):
             poetry_tool.verified(tool)
 
+    def test_payload_exact_recursive_bytes_and_uncached_changes(self):
+        root = self.repo
+        contents = {'z.py': b'print(1)\n', '.hidden': b'',
+                    'a/nested/data': bytes(range(256)),
+                    'a/__pycache__/module.pyc': b'compiled fixture',
+                    'a.txt': b'sibling', 'space name/\u03bb.py': b'pass\n'}
+        for name, data in contents.items():
+            path = root / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(data)
+        (root / 'empty-directory').mkdir()
+        expected = {name: hashlib.sha256(data).hexdigest() for name, data in contents.items()}
+        self.assertEqual(poetry_tool.payload(root), expected)
+        self.assertEqual(list(poetry_tool.payload(root)), sorted(expected))
+        # Same size and restored mtime must not conceal modified content.
+        changed = root / 'z.py'
+        metadata = changed.stat()
+        changed.write_bytes(b'print(2)\n')
+        os.utime(changed, ns=(metadata.st_atime_ns, metadata.st_mtime_ns))
+        expected['z.py'] = hashlib.sha256(changed.read_bytes()).hexdigest()
+        self.assertEqual(poetry_tool.payload(root), expected)
+        changed.unlink()
+        del expected['z.py']
+        self.assertEqual(poetry_tool.payload(root), expected)
+        changed.write_bytes(b'new file')
+        expected['z.py'] = hashlib.sha256(b'new file').hexdigest()
+        self.assertEqual(poetry_tool.payload(root), expected)
+
+    def test_payload_invalid_entries_and_inspection_failures(self):
+        with self.assertRaisesRegex(Invalid, 'empty'):
+            poetry_tool.payload(self.repo)
+        (self.repo / 'normal').write_bytes(b'valid control')
+        entry = self.repo / 'invalid'
+        for target in (self.repo / 'normal', self.repo, self.repo / 'missing'):
+            with self.subTest(link=target):
+                entry.symlink_to(target)
+                try:
+                    with self.assertRaisesRegex(Invalid, 'link'):
+                        poetry_tool.payload(self.repo)
+                finally:
+                    entry.unlink()
+        os.mkfifo(entry)
+        try:
+            with self.assertRaisesRegex(Invalid, 'special file'):
+                poetry_tool.payload(self.repo)
+        finally:
+            entry.unlink()
+        linked_root = self.root / 'linked-root'
+        linked_root.symlink_to(self.repo)
+        with self.assertRaisesRegex(Invalid, 'link'):
+            poetry_tool.payload(linked_root)
+        with self.assertRaises(FileNotFoundError):
+            poetry_tool.payload(self.root / 'missing')
+        nested = self.repo / 'nested'
+        nested.mkdir()
+        scan = os.scandir
+        error = PermissionError('fixture inspection failure')
+        def inspect(directory):
+            if Path(directory) == nested:
+                raise error
+            return scan(directory)
+        with patch('ptw.poetry_tool.os.scandir', side_effect=inspect), self.assertRaises(PermissionError) as caught:
+            poetry_tool.payload(self.repo)
+        self.assertIs(caught.exception, error)
+        with patch('builtins.open', side_effect=error), self.assertRaises(PermissionError) as caught:
+            poetry_tool.payload(self.repo)
+        self.assertIs(caught.exception, error)
+
     def test_project_plugins_sources_and_dynamic_metadata_never_run(self):
         cases = [('[project]\nname="sample"\nversion="1"\ndynamic=["dependencies"]\n', 'package=[]\n'),
             ('[tool.poetry]\nname="sample"\nversion="1"\nrequires-plugins={evil="*"}\n', 'package=[]\n'),

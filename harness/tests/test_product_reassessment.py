@@ -178,7 +178,10 @@ class DiagnosticTimingTests(unittest.TestCase):
             self.assertEqual((start['event'], end['event']), ('start', 'end'))
             self.assertEqual(start['span'], end['span'])
             for key in ('monotonic_ns', 'cpu_self_user', 'cpu_self_system',
-                        'cpu_children_user', 'cpu_children_system'):
+                        'cpu_children_user', 'cpu_children_system',
+                        *(scope + '_' + name for scope in ('self', 'children')
+                          for name in ('ru_inblock', 'ru_oublock', 'ru_minflt', 'ru_majflt',
+                                       'ru_nvcsw', 'ru_nivcsw'))):
                 self.assertGreaterEqual(end[key], start[key])
         self.assertNotIn('private-payload', self.trace.path.read_text())
 
@@ -235,6 +238,123 @@ class DiagnosticTimingTests(unittest.TestCase):
             self.assertIs(yarn_tool.verified, original)
             original.assert_called_once_with(directory='private-directory')
         self.assertEqual(self.events()[-1]['outcome'], 'error')
+        self.assertNotIn('private-', self.trace.path.read_text())
+
+    def test_poetry_phases_preserve_native_wait_and_both_integrity_checks(self):
+        from types import SimpleNamespace
+        from regression_timing import POETRY_TARGET, Trace, poetry_phases
+        from ptw import poetry_tool
+        for mode in ('success', 'pre-tamper', 'post-tamper', 'timeout', 'interrupted'):
+            with self.subTest(mode=mode):
+                root = self.directory / mode
+                payload = root / 'payload'
+                payload.mkdir(parents=True)
+                source = payload / 'tool.py'
+                source.write_text('private-payload')
+                lock = root / 'tools.lock'
+                lock.write_text('private-lock')
+                runtime = {'executable': '/usr/bin/python3'}
+                (root / 'tool.json').write_text(json.dumps({
+                    'outcome': 'ready', 'pins': poetry_tool.PINS, 'runtime': runtime,
+                    'files': poetry_tool.payload(payload),
+                    'lock_sha256': hashlib.sha256(lock.read_bytes()).hexdigest()}))
+                if mode == 'pre-tamper':
+                    source.write_text('changed')
+                self.trace = Trace(root)
+                result = subprocess.CompletedProcess(['private-command'], 7,
+                                                     'private-output', 'private-error')
+                error = (subprocess.TimeoutExpired('private-command', 1) if mode == 'timeout'
+                         else KeyboardInterrupt('private-interruption'))
+                calls = []
+
+                def wait(*args, **kwargs):
+                    calls.append((args, kwargs))
+                    if mode in ('timeout', 'interrupted'):
+                        raise error
+                    if mode == 'post-tamper':
+                        source.write_text('changed')
+                    return result
+
+                with patch.object(poetry_tool, 'identify', return_value=runtime) as identify, \
+                     patch('ptw.supervisor.runtime_namespace', return_value=['fixture-boundary']), \
+                     patch.object(poetry_tool, 'subprocess', SimpleNamespace(run=wait)):
+                    originals = {name: getattr(poetry_tool, name) for name in
+                                 ('verified', 'payload', 'identify', 'run', 'subprocess')}
+                    ambient_run = subprocess.run
+                    with poetry_phases(self.trace, POETRY_TARGET):
+                        self.assertIs(subprocess.run, ambient_run)
+                        call = lambda: poetry_tool.run('private-script', {'key': 'private-config'},
+                                                       cwd=root, timeout=23, directory=root)
+                        if mode == 'success':
+                            self.assertIs(call(), result)  # Nonzero exits are not rewritten.
+                        elif mode in ('pre-tamper', 'post-tamper'):
+                            with self.assertRaises(Invalid):
+                                call()
+                        else:
+                            with self.assertRaises(type(error)) as caught:
+                                call()
+                            self.assertIs(caught.exception, error)
+                    for name, original in originals.items():
+                        self.assertIs(getattr(poetry_tool, name), original)
+                    self.assertEqual(identify.call_count, 0 if mode == 'pre-tamper' else
+                                     2 if mode == 'success' else 1)
+                self.assertEqual(len(calls), 0 if mode == 'pre-tamper' else 1)
+                if calls:
+                    args, kwargs = calls[0]
+                    self.assertEqual(len(args), 1)
+                    self.assertEqual(args[0][0], 'fixture-boundary')
+                    self.assertTrue(args[0][-2].endswith('private-script'))
+                    self.assertEqual(json.loads(args[0][-1]), {'key': 'private-config'})
+                    self.assertEqual(kwargs, {'capture_output': True, 'text': True,
+                                             'timeout': 23, 'env': {'PATH': '/usr/bin:/bin'}})
+                events = self.events()
+                starts = [e['name'].split(':ptw.poetry_tool.')[1]
+                          for e in events if e['event'] == 'start']
+                expected = ['run', 'verified', 'payload']
+                if mode != 'pre-tamper':
+                    expected += ['identify', 'subprocess.run']
+                if mode in ('success', 'post-tamper'):
+                    expected += ['verified', 'payload']
+                if mode == 'success':
+                    expected += ['identify']
+                self.assertEqual(starts, expected)
+                # Every nested phase unwinds in order, including failed waits.
+                pending = []
+                for event in events:
+                    if event['event'] == 'start':
+                        pending.append(event['span'])
+                    else:
+                        self.assertEqual(pending.pop(), event['span'])
+                self.assertEqual(pending, [])
+                self.assertEqual(events[-1]['outcome'], 'completed' if mode == 'success' else
+                                 'interrupted' if mode == 'interrupted' else 'error')
+                self.assertNotIn('private-', self.trace.path.read_text())
+
+    def test_poetry_phase_selection_is_exact_and_integrated_with_runner(self):
+        from regression_timing import POETRY_TARGET, instrument, poetry_phases
+        from ptw import poetry_tool
+        with patch.object(poetry_tool, 'verified', return_value='unchanged') as original:
+            with poetry_phases(self.trace, POETRY_TARGET + '_other'):
+                self.assertIs(poetry_tool.verified, original)
+            self.assertFalse(self.trace.path.exists())
+
+            class Fixture(unittest.TestCase):
+                def runTest(self):
+                    self.assertEqual(poetry_tool.verified(directory='private-directory'), 'unchanged')
+
+                def id(self):
+                    return POETRY_TARGET
+
+            result = unittest.TestResult()
+            suite = unittest.TestSuite([Fixture()])
+            with instrument(suite, result, self.trace):
+                suite.run(result)
+            self.assertTrue(result.wasSuccessful(), result.errors)
+            self.assertEqual(result.testsRun, 1)
+            self.assertIs(poetry_tool.verified, original)
+            original.assert_called_once_with(directory='private-directory')
+        self.assertEqual(sum(e['kind'] == 'phase' and e['event'] == 'start'
+                             for e in self.events()), 1)
         self.assertNotIn('private-', self.trace.path.read_text())
 
     def test_terminal_child_uses_separate_trace_and_retains_failure(self):

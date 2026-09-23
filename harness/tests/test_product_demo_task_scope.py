@@ -3,8 +3,10 @@ import copy
 from contextlib import contextmanager
 import errno
 from fnmatch import fnmatchcase
+import hashlib
 import os
 from pathlib import Path
+from queue import Empty, Queue
 import shutil
 import sys
 import tempfile
@@ -159,6 +161,11 @@ class TaskScopeOfflineTests(unittest.TestCase):
     def test_observer_retains_child_exec_and_changed_snapshot(self):
         # A synthetic proc tree drives the real observer loop. Native installed
         # tests separately require real children and physical denied effects.
+        self._observe_snapshot_transitions(intermediate_empty=False)
+        with self.subTest(intermediate_empty=True):
+            self._observe_snapshot_transitions(intermediate_empty=True)
+
+    def _observe_snapshot_transitions(self, *, intermediate_empty):
         with tempfile.TemporaryDirectory() as name:
             root = Path(name)
             (root / 'repo/A').mkdir(parents=True)
@@ -192,25 +199,62 @@ class TaskScopeOfflineTests(unittest.TestCase):
                 if value.endswith('/ns/pid'):
                     return 'pid:[child]'
                 return executable
-            def wait_rows(count):
+            samples = Queue()
+            original_digest = scope_demo.digest
+            def digest(path):
+                value = original_digest(path)
+                if path == shared:
+                    samples.put(value)
+                return value
+            def wait_rows(count, content):
+                # Three actual samples acknowledge repeated inspection, rather
+                # than assuming a sleep gave the observer time to deduplicate.
+                # Discard acknowledgements queued before this transition, not
+                # observation rows. At most one old sample is still in flight.
+                while True:
+                    try:
+                        samples.get_nowait()
+                    except Empty:
+                        break
+                expected = hashlib.sha256(content.encode()).hexdigest()
                 deadline = time.monotonic() + 2
-                while len(observation['processes']) < count and time.monotonic() < deadline:
-                    time.sleep(.01)
+                repeats = 0
+                while repeats < 3:
+                    try:
+                        sampled = samples.get(timeout=max(0, deadline - time.monotonic()))
+                    except Empty:
+                        self.fail(f'Observer did not acknowledge snapshot {expected}: {observation}')
+                    repeats = repeats + 1 if sampled == expected else 0
                 self.assertEqual(len(observation['processes']), count, observation)
+            def replace(path, data):
+                # Model one intended state transition. Truncate-and-write can
+                # legitimately expose an additional empty snapshot to hashing.
+                staged = path.with_name(path.name + '.next')
+                staged.write_bytes(data)
+                staged.replace(path)
             with patch('demo_task_scope.Path', side_effect=path), \
-                 patch('demo_task_scope.os.readlink', side_effect=readlink):
+                 patch('demo_task_scope.os.readlink', side_effect=readlink), \
+                 patch('demo_task_scope.digest', side_effect=digest):
                 with scope_demo.observe_processes(None, root, observation, registered=False):
-                    wait_rows(1)
-                    (proc / 'cmdline').write_bytes(('\0'.join(after) + '\0').encode())
-                    wait_rows(2)
-                    shared.write_text(scope_demo.FIX)
-                    wait_rows(3)
-                    time.sleep(.06)
+                    wait_rows(1, scope_demo.SHARED)
+                    replace(proc / 'cmdline', ('\0'.join(after) + '\0').encode())
+                    wait_rows(2, scope_demo.SHARED)
+                    contents = [scope_demo.SHARED, scope_demo.SHARED]
+                    if intermediate_empty:
+                        # Explicitly hold the truncate state until observed. A
+                        # genuine fourth observation must remain visible.
+                        shared.write_text('')
+                        contents.append('')
+                        wait_rows(3, '')
+                    replace(shared, scope_demo.FIX.encode())
+                    contents.append(scope_demo.FIX)
+                    wait_rows(len(contents), scope_demo.FIX)
             self.assertEqual(observation['observer_errors'], [])
-            self.assertEqual([r['argv'] for r in observation['processes']], [before, after, after])
-            self.assertEqual(len({r['start_ticks'] for r in observation['processes']}), 1)
-            self.assertNotEqual(observation['processes'][1]['shared_sha256'],
-                                observation['processes'][2]['shared_sha256'])
+            rows = observation['processes']
+            self.assertEqual([r['argv'] for r in rows], [before] + [after] * (len(contents) - 1))
+            self.assertEqual({(r['pid'], r['start_ticks']) for r in rows}, {(321, '100')})
+            self.assertEqual([r['shared_sha256'] for r in rows],
+                             [hashlib.sha256(content.encode()).hexdigest() for content in contents])
 
     def test_reviewed_payload_and_wrapper_runtime_identity(self):
         from ptw.package_build import bounded_command
