@@ -379,12 +379,22 @@ The private `boundary/timing.json` records monotonic collector startup, descenda
 discovery, process reads and original-sample persistence boundaries. Each attempt
 links its PID and observed start times to discovered child IDs and its sample or
 gap. Child IDs alone do not prove identity, lifetime or an unobserved exec.
+Original sample and gap bytes are buffered during sampling and written on close,
+after the sampler has stopped. This keeps disk writes out of the short interval
+in which a descendant may execute and exit. Persistence timestamps therefore
+follow collection timestamps; they are not part of the sample's read duration.
+The buffer admits at most 4,096 records and 64 MiB of serialized originals.
+Exhaustion stops sampling, retains earlier captured bytes and fails collection.
+Write failures retain other available originals and remain failures on repeated
+close. No missing command line is reconstructed, and the required native
+compilation and physical-effect checks remain unchanged.
 Unchanged samples and failed attempts remain visible; a missing phase end means
 that phase did not finish. These metadata stay in memory during collection and
 are saved on close, with a limit of 4,096 attempts and 256 child IDs per attempt.
 Omitted counts are explicit and make the diagnostic trace incomplete, without
-changing descendant traversal or the original-byte recording. Abrupt collector
-termination can lose buffered timing metadata; it cannot establish success.
+changing descendant traversal. Normal failure and interruption close the
+collector and persist captured originals. Abrupt collector termination can lose
+buffered originals and timing metadata; it cannot establish success.
 Use the phase durations to distinguish discovery, read and persistence delays
 before changing the collector. Instrumentation can itself affect short-lived
 observations, and timing alone does not prove the cause of a missed exec.
@@ -515,6 +525,21 @@ PYTHONPATH/PYTHONHOME, chooses an explicit installed launcher, and runs from its
 evidence directory. Terminal input receipts are saved as input is sent; raw output
 is flushed as it arrives. Actual launcher, broker and monitor identity receipts
 support every live journey and are checked against retained installed files.
+
+If the lifecycle Ctrl-C probe times out, it records `interrupt timeout state`
+before terminating its own child. This failure-only snapshot includes terminal
+signal settings, foreground/child process groups, and at most 32 threads' signal
+masks and kernel wait locations. Missing processes or inaccessible fields retain
+error types, without exception messages. It does not read arguments, environment,
+stacks or credentials, resend Ctrl-C, extend the deadline or turn a failure into
+success. No additional observation runs before the input or during its wait.
+The snapshot is diagnostic: it cannot establish cancellation or prove which
+instruction handled a signal. Inspect it with the original PTY and exit receipt.
+The [Linux proc documentation](https://docs.kernel.org/filesystems/proc.html)
+defines these signal masks and wait locations. CPython's
+[3.13.5 input implementation](https://github.com/python/cpython/blob/v3.13.5/Parser/myreadline.c)
+prints a prompt before its blocking C read; a prompt/read signal race is a
+hypothesis to investigate, not a diagnosed product defect or a passing result.
 
 ## Validation boundary
 

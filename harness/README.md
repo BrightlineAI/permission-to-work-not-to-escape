@@ -237,6 +237,19 @@ on failure or interruption; other subprocess callers remain untouched. Offline
 hook tests exercise actual verification with synthetic tool bytes and a substituted
 subprocess boundary, including tampering before/after execution, timeout and
 interruption. Those tests do not establish native performance or confinement.
+The single combined-editable rejection/cancellation/EOF case records nested
+`onboarding.setup`, `python_runtime.identify`, policy compilation (including the
+onboarding import) and `Store.locked` entry/exit spans. All five existing review
+boundaries still run. Lock entry measures acquisition and connection setup; exit
+measures release, excluding the caller's body. An exit can complete while
+propagating a body exception, so interpret it with the enclosing setup/test
+outcome. Repeated phase starts give call counts; these diagnostics do not cache
+runtime identity or policy decisions, or change transaction durability. Hooks
+apply only to that exact test ID and restore after failure or interruption.
+Offline forwarding tests cover rejection, EOF, lock acquisition/body/release
+errors, exception suppression and interruption without logging private values.
+Native measurements are required before attributing accumulated regression time
+to a runtime or environment cause; diagnostic coverage alone is not a speedup.
 The existing runner, order, assertions, confinement and deadlines remain in force.
 No arguments, payloads, output or exception messages enter these timing records.
 

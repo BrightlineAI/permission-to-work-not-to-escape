@@ -357,6 +357,166 @@ class DiagnosticTimingTests(unittest.TestCase):
                              for e in self.events()), 1)
         self.assertNotIn('private-', self.trace.path.read_text())
 
+    def test_editable_phases_forward_nested_calls_and_restore(self):
+        from regression_timing import EDITABLE_TARGET, Trace, editable_phases
+        from ptw import onboarding, policy, python_runtime
+        from ptw.store import Store
+        for error in (None, Invalid('private-rejection'), EOFError('private-eof'),
+                      KeyboardInterrupt('private-interruption')):
+            with self.subTest(error=type(error).__name__):
+                directory = self.directory / type(error).__name__
+                directory.mkdir()
+                self.trace = Trace(directory)
+                value = object()
+
+                def compile_policy(*args, **kwargs):
+                    return python_runtime.identify(*args, **kwargs)
+
+                def setup(*args, **kwargs):
+                    self.assertIs(onboarding.compile_policy(*args, **kwargs), value)
+                    self.assertIs(policy.compile_policy(*args, **kwargs), value)
+                    if error is not None:
+                        raise error
+                    return value
+
+                with patch.object(onboarding, 'setup', side_effect=setup) as original_setup, \
+                     patch.object(onboarding, 'compile_policy', side_effect=compile_policy) as alias, \
+                     patch.object(policy, 'compile_policy', side_effect=compile_policy) as original_compile, \
+                     patch.object(python_runtime, 'identify', return_value=value) as identify:
+                    originals = [(onboarding, 'setup', original_setup),
+                                 (onboarding, 'compile_policy', alias),
+                                 (policy, 'compile_policy', original_compile),
+                                 (python_runtime, 'identify', identify), (Store, 'locked', Store.locked)]
+                    try:
+                        with editable_phases(self.trace, EDITABLE_TARGET):
+                            returned = onboarding.setup('private-input', option='private-option')
+                    except BaseException as caught:
+                        self.assertIs(caught, error)
+                    else:
+                        self.assertIsNone(error)
+                        self.assertIs(returned, value)
+                    for owner, name, original in originals:
+                        self.assertIs(getattr(owner, name), original)
+                    for original in (original_setup, alias, original_compile):
+                        original.assert_called_once_with('private-input', option='private-option')
+                    self.assertEqual(identify.call_args_list,
+                        [unittest.mock.call('private-input', option='private-option')] * 2)
+                events = self.events()
+                self.assertEqual([e['name'].split(':')[1] for e in events if e['event'] == 'start'],
+                    ['ptw.onboarding.setup', 'ptw.onboarding.compile_policy',
+                     'ptw.python_runtime.identify', 'ptw.policy.compile_policy',
+                     'ptw.python_runtime.identify'])
+                pending = []
+                for event in events:
+                    if event['event'] == 'start':
+                        pending.append(event['span'])
+                    else:
+                        self.assertEqual(pending.pop(), event['span'])
+                self.assertEqual(pending, [])
+                self.assertEqual(events[-1]['outcome'], 'completed' if error is None else
+                    'interrupted' if isinstance(error, KeyboardInterrupt) else 'error')
+                self.assertNotIn('private-', self.trace.path.read_text())
+
+    def test_editable_lock_preserves_entry_exit_errors_and_suppression(self):
+        from regression_timing import EDITABLE_TARGET, Trace, editable_phases
+        from ptw.store import Store
+        # Entry errors must not call exit. Body exceptions must reach exit with
+        # their original traceback; exit can suppress them or replace them.
+        for mode in ('normal', 'entry', 'body', 'exit', 'replace', 'suppress', 'interrupt'):
+            with self.subTest(mode=mode):
+                directory = self.directory / mode
+                directory.mkdir()
+                self.trace = Trace(directory)
+                calls = []
+                value = object()
+                error = (KeyboardInterrupt('private-interruption') if mode == 'interrupt'
+                         else Invalid('private-lock'))
+                exit_error = EOFError('private-exit')
+
+                class Manager:
+                    def __enter__(self):
+                        calls.append('enter')
+                        if mode == 'entry':
+                            raise error
+                        return value
+
+                    def __exit__(self, *exc):
+                        calls.append(exc)
+                        if mode in ('exit', 'replace'):
+                            raise exit_error
+                        return mode == 'suppress'
+
+                manager = Manager()
+                actor = object.__new__(Store)
+
+                def original_locked(instance, *args, **kwargs):
+                    self.assertIs(instance, actor)
+                    self.assertEqual(args, ('private-argument',))
+                    self.assertEqual(kwargs, {'option': 'private-option'})
+                    return manager
+
+                with patch.object(Store, 'locked', original_locked):
+                    expected = (exit_error if mode in ('exit', 'replace') else
+                                error if mode in ('entry', 'body', 'interrupt') else None)
+                    try:
+                        with editable_phases(self.trace, EDITABLE_TARGET):
+                            with actor.locked('private-argument', option='private-option') as entered:
+                                self.assertIs(entered, value)
+                                if mode in ('body', 'replace', 'suppress', 'interrupt'):
+                                    raise error
+                    except BaseException as caught:
+                        self.assertIs(caught, expected)
+                    else:
+                        self.assertIsNone(expected)
+                    self.assertIs(Store.locked, original_locked)
+                self.assertEqual(calls[0], 'enter')
+                self.assertEqual(len(calls), 1 if mode == 'entry' else 2)
+                if mode in ('body', 'replace', 'suppress', 'interrupt'):
+                    kind, caught, traceback = calls[1]
+                    self.assertIs(kind, type(error))
+                    self.assertIs(caught, error)
+                    self.assertIs(traceback, error.__traceback__)
+                elif mode != 'entry':
+                    self.assertEqual(calls[1], (None, None, None))
+                ends = [e for e in self.events() if e['event'] == 'end']
+                self.assertEqual([e['name'].rsplit('.', 1)[1] for e in ends],
+                                 ['enter'] if mode == 'entry' else ['enter', 'exit'])
+                self.assertEqual([e['outcome'] for e in ends], ['error'] if mode == 'entry' else
+                                 ['completed', 'error' if mode in ('exit', 'replace') else 'completed'])
+                self.assertNotIn('private-', self.trace.path.read_text())
+
+    def test_editable_phase_selection_is_exact_and_integrated_with_runner(self):
+        from regression_timing import EDITABLE_TARGET, editable_phases, instrument
+        from ptw import onboarding, policy, python_runtime
+        from ptw.store import Store
+        with patch.object(onboarding, 'setup', return_value='unchanged') as original:
+            targets = ((onboarding, 'setup'), (onboarding, 'compile_policy'),
+                       (policy, 'compile_policy'), (python_runtime, 'identify'), (Store, 'locked'))
+            originals = [getattr(owner, name) for owner, name in targets]
+            with editable_phases(self.trace, EDITABLE_TARGET + '_other'):
+                self.assertEqual([getattr(owner, name) for owner, name in targets], originals)
+                self.assertEqual(onboarding.setup('private-other'), 'unchanged')
+            self.assertFalse(self.trace.path.exists())
+
+            class Fixture(unittest.TestCase):
+                def runTest(self):
+                    self.assertEqual(onboarding.setup('private-input'), 'unchanged')
+
+                def id(self):
+                    return EDITABLE_TARGET
+
+            result = unittest.TestResult()
+            suite = unittest.TestSuite([Fixture()])
+            with instrument(suite, result, self.trace):
+                suite.run(result)
+            self.assertTrue(result.wasSuccessful(), result.errors)
+            self.assertEqual(result.testsRun, 1)
+            self.assertEqual([getattr(owner, name) for owner, name in targets], originals)
+            self.assertEqual(original.call_args_list,
+                             [unittest.mock.call('private-other'), unittest.mock.call('private-input')])
+        self.assertEqual(sum(e['kind'] == 'phase' and e['event'] == 'start' for e in self.events()), 1)
+        self.assertNotIn('private-', self.trace.path.read_text())
+
     def test_terminal_child_uses_separate_trace_and_retains_failure(self):
         from regression_timing import YARN_TARGETS
         script = ('import sys\nfrom unittest.mock import patch\n'

@@ -131,6 +131,47 @@ class PackagePolicyTests(PackageFixture, unittest.TestCase):
             with patch.object(provider, "fetch", return_value=raw), self.assertRaises(EvidenceError):
                 provider.json("https://api.osv.dev/v1/query")
 
+    def test_json_and_index_preserve_fetch_failure_without_private_details(self):
+        provider = PyPIEvidence()
+        readers = (lambda: provider.json("https://api.osv.dev/v1/query", {"version": "1"}),
+                   lambda: provider.index("idna"))
+        for read in readers:
+            with self.subTest(reader=read):
+                # Exercise fetch's actual exception translation, not a replacement
+                # JSON reader. Never log the upstream exception's private text.
+                with patch.object(provider.http, "open", side_effect=TimeoutError("PRIVATE upstream body")) as opened:
+                    with self.assertRaises(EvidenceError) as caught:
+                        read()
+                    self.assertEqual(str(caught.exception), "Evidence or artifact unavailable: TimeoutError")
+                    self.assertNotIn("PRIVATE", str(caught.exception))
+                    self.assertEqual(opened.call_count, 1)
+                for message in ("Evidence deadline reached", "Response exceeds size limit",
+                                "Unexpected evidence or artifact redirect"):
+                    failure = EvidenceError(message)
+                    with patch.object(provider, "fetch", side_effect=failure), self.assertRaises(EvidenceError) as caught:
+                        read()
+                    self.assertIs(caught.exception, failure)
+                with patch.object(provider, "fetch", side_effect=KeyboardInterrupt), self.assertRaises(KeyboardInterrupt):
+                    read()
+
+    def test_json_and_index_still_reject_invalid_documents(self):
+        provider = PyPIEvidence()
+        for read, message in ((lambda: provider.json("https://api.osv.dev/v1/query"), "Invalid evidence JSON"),
+                              (lambda: provider.index("idna"), "Invalid Python index JSON")):
+            for raw in (b'PRIVATE not JSON', b'{"files":[],"files":[]}', b'{"value":NaN}', b'\xff'):
+                with self.subTest(message=message, raw=raw):
+                    with patch.object(provider, "fetch", return_value=raw), self.assertRaises(EvidenceError) as caught:
+                        read()
+                    self.assertEqual(str(caught.exception), message)
+        with patch.object(provider, "fetch", return_value=b'{}'):
+            self.assertEqual(provider.json("https://api.osv.dev/v1/query"), {})
+            with self.assertRaises(EvidenceError):
+                provider.index("idna")
+        with patch.object(provider, "fetch", return_value=b'{"files":[{"url":"wheel.whl"}]}') as fetched:
+            self.assertEqual(provider.index("idna"), {"files": [{"url": "https://pypi.org/simple/idna/wheel.whl"}]})
+            fetched.assert_called_once_with("https://pypi.org/simple/idna/", limit=16 * 1024 * 1024,
+                                           accept="application/vnd.pypi.simple.v1+json")
+
     def release(self):
         return {"info": {"name": "idna", "version": "3.11"}, "urls": [{
             "filename": "idna-3.11-py3-none-any.whl", "packagetype": "bdist_wheel", "yanked": False,

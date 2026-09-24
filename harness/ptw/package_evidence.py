@@ -159,8 +159,9 @@ class PyPIEvidence:
             raise EvidenceError("Evidence or artifact unavailable: " + type(exc).__name__) from exc
 
     def json(self, url, data=None):
+        raw = self.fetch(url, data)
         try:
-            return parse_json(self.fetch(url, data))
+            return parse_json(raw)
         except (ValueError, TypeError) as exc:
             raise EvidenceError("Invalid evidence JSON") from exc
 
@@ -212,9 +213,10 @@ class PyPIEvidence:
 
     def index(self, name):
         endpoint = 'https://pypi.org/simple/' + name + '/'
+        raw = self.fetch(endpoint, limit=16 * 1024 * 1024,
+                         accept='application/vnd.pypi.simple.v1+json')
         try:
-            return index_urls(parse_json(self.fetch(endpoint,
-                limit=16 * 1024 * 1024, accept='application/vnd.pypi.simple.v1+json')), endpoint)
+            return index_urls(parse_json(raw), endpoint)
         except (ValueError, TypeError) as exc:
             raise EvidenceError('Invalid Python index JSON') from exc
 

@@ -42,6 +42,8 @@ class BoundaryTrace:
     """Retain actual cmdline/mountinfo bytes when a sampled descendant changes."""
     MAX_TIMING_ROWS = 4096
     MAX_TIMING_CHILDREN = 256
+    MAX_PENDING_BYTES = 64 * 1024 * 1024
+    MAX_PENDING_RECORDS = 4096
 
     def __init__(self, folder):
         self.folder = Path(folder)
@@ -58,6 +60,9 @@ class BoundaryTrace:
         self.start_requested_monotonic = self.collector_started_monotonic = None
         self.timings = []
         self.timing_rows_omitted = self.timing_children_omitted = 0
+        self.pending = []
+        self.pending_bytes = 0
+        self.persistence_error = None
         self.persist(False)
 
     def persist(self, complete):
@@ -68,7 +73,45 @@ class BoundaryTrace:
             'gaps': self.gaps,
             'timing_rows_omitted': self.timing_rows_omitted,
             'timing_children_omitted': self.timing_children_omitted,
+            'originals_buffer_limit_bytes': self.MAX_PENDING_BYTES,
+            'originals_buffer_limit_records': self.MAX_PENDING_RECORDS,
             'limitation': 'Short-lived exec/mount stages may be missed. No enforcement verdict.'})
+
+    def retain(self, timing, files, observation=None):
+        """Queue captured bytes; disk latency must not delay descendant discovery."""
+        line = (json.dumps(observation) + '\n').encode() if observation is not None else b''
+        size = sum(len(data) for _, data in files) + len(line)
+        if (len(self.pending) >= self.MAX_PENDING_RECORDS or
+                self.pending_bytes + size > self.MAX_PENDING_BYTES):
+            self.errors.add('Original observation buffer exhausted')
+            self.stop.set()
+            raise ValueError('Original observation buffer exhausted')
+        self.pending.append((timing, files, line))
+        self.pending_bytes += size
+
+    def flush(self):
+        """Persist every available original, even if another write fails."""
+        for timing, files, line in self.pending:
+            timing['persistence_start_monotonic'] = time.monotonic()
+            failed = False
+            for name, data in files + ([('observations.jsonl', line)] if line else []):
+                try:
+                    path = self.folder / name
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    if name == 'observations.jsonl':
+                        with path.open('ab') as stream:
+                            stream.write(data)
+                    else:
+                        path.write_bytes(data)
+                except (OSError, ValueError) as exc:
+                    failed = True
+                    self.persistence_error = self.persistence_error or exc
+                    self.errors.add('Original persistence failed: ' + type(exc).__name__)
+                    timing.update(error_type=type(exc).__name__, errno=getattr(exc, 'errno', None))
+            if not failed:
+                timing['persistence_end_monotonic'] = time.monotonic()
+        self.pending.clear()
+        self.pending_bytes = 0
 
     def start(self, pid):
         self.pid = pid
@@ -85,8 +128,7 @@ class BoundaryTrace:
             raise
         finally:
             timing['end_monotonic'] = time.monotonic()
-            # Buffer only the new metadata. Original sample persistence and the
-            # collection order stay unchanged while their costs are measured.
+            # Keep diagnostics bounded independently of the original-byte buffer.
             if len(self.timings) < self.MAX_TIMING_ROWS:
                 self.timings.append(timing)
             else:
@@ -132,19 +174,19 @@ class BoundaryTrace:
             exit_race = exited and all(row['errno'] in (errno.ENOENT, errno.ESRCH, errno.EINVAL)
                                        for row in failures.values())
             folder = self.folder / ('gap-' + str(self.gaps))
-            timing.update(observation=folder.name, classification='exit-race' if exit_race else 'incomplete',
-                          persistence_start_monotonic=time.monotonic())
-            folder.mkdir()
+            timing.update(observation=folder.name, classification='exit-race' if exit_race else 'incomplete')
             hashes = {}
+            files = []
             for name in ('cmdline', 'mountinfo'):
                 if name in payload:
-                    (folder / name).write_bytes(payload[name])
-                    hashes[name] = digest(folder / name)
-            save(folder / 'observation.json', {'pid': pid, 'index': self.gaps,
+                    files.append((folder.name + '/' + name, payload[name]))
+                    hashes[name] = hashlib.sha256(payload[name]).hexdigest()
+            metadata = {'pid': pid, 'index': self.gaps,
                 'before': before, 'after': after, 'empty_fields': empty, 'read_errors': failures,
                 'sha256': hashes, 'executable': payload.get('exe'),
-                'classification': 'exit-race' if exit_race else 'incomplete'})
-            timing['persistence_end_monotonic'] = time.monotonic()
+                'classification': 'exit-race' if exit_race else 'incomplete'}
+            files.append((folder.name + '/observation.json', json.dumps(metadata).encode()))
+            self.retain(timing, files)
             self.gaps += 1
             if exit_race:
                 self.exit_races += 1
@@ -154,20 +196,16 @@ class BoundaryTrace:
         cmdline, mounts, executable = payload['cmdline'], payload['mountinfo'], payload['exe']
         key = (pid, before['start_ticks'], executable, hashlib.sha256(cmdline + b'\0' + mounts).hexdigest())
         if key not in self.seen:
-            self.seen.add(key)
             index = self.samples
-            timing.update(observation=index, classification='sample',
-                          persistence_start_monotonic=time.monotonic())
-            (self.folder / (str(index) + '.cmdline')).write_bytes(cmdline)
-            (self.folder / (str(index) + '.mountinfo')).write_bytes(mounts)
-            with (self.folder / 'observations.jsonl').open('a') as stream:
-                stream.write(json.dumps({'pid': pid, 'executable': executable,
+            timing.update(observation=index, classification='sample')
+            self.retain(timing, [(str(index) + '.cmdline', cmdline),
+                                (str(index) + '.mountinfo', mounts)],
+                {'pid': pid, 'executable': executable,
                     'measured_epoch': time.time(), 'index': index,
                     'before': before, 'after': after,
                     'cmdline_sha256': hashlib.sha256(cmdline).hexdigest(),
-                    'mountinfo_sha256': hashlib.sha256(mounts).hexdigest()}) + '\n')
-                stream.flush()
-            timing['persistence_end_monotonic'] = time.monotonic()
+                    'mountinfo_sha256': hashlib.sha256(mounts).hexdigest()})
+            self.seen.add(key)
             self.identities.add(executable)
             self.samples += 1
         else:
@@ -208,11 +246,13 @@ class BoundaryTrace:
         self.stop.set()
         if self.thread is not None:
             self.thread.join()
+        collection_closed = time.monotonic()
+        self.flush()
         save(self.folder / 'timing.json', {
             'started_monotonic': self.started_monotonic,
             'start_requested_monotonic': self.start_requested_monotonic,
             'collector_started_monotonic': self.collector_started_monotonic,
-            'collection_closed_monotonic': time.monotonic(),
+            'collection_closed_monotonic': collection_closed,
             'row_limit': self.MAX_TIMING_ROWS, 'children_per_row_limit': self.MAX_TIMING_CHILDREN,
             'rows_omitted': self.timing_rows_omitted, 'children_omitted': self.timing_children_omitted,
             'rows': self.timings})
@@ -220,3 +260,7 @@ class BoundaryTrace:
              [executable_identity(p) for p in sorted(self.identities)])
         self.persist(self.pid is not None and self.samples > 0 and not self.errors and
                      not self.timing_rows_omitted and not self.timing_children_omitted)
+        if self.persistence_error is not None:
+            raise self.persistence_error
+        if 'Original observation buffer exhausted' in self.errors:
+            raise ValueError('Original observation buffer exhausted')

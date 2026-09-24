@@ -24,6 +24,8 @@ YARN_TARGETS = frozenset('test_product_yarn.YarnNativeTests.' + name for name in
     'test_default_public_origin_reviewed_update_and_protected_use'))
 POETRY_TARGET = ('test_product_poetry.PoetryNativeTests.'
                  'test_native_legacy_and_pep735_group_import_and_revisions')
+EDITABLE_TARGET = ('test_product_python_local.CombinedEditableDiscoveryTests.'
+                   'test_editable_discovery_reject_cancel_and_eof_never_publish')
 _active = None
 _enabled = False
 
@@ -127,6 +129,43 @@ def poetry_phases(trace, test_id):
         yield
 
 
+@contextmanager
+def editable_phases(trace, test_id):
+    if test_id != EDITABLE_TARGET:
+        yield
+        return
+    from ptw import onboarding, policy, python_runtime
+    from ptw.store import Store
+    original_locked = Store.locked
+
+    @wraps(original_locked)
+    def locked(*args, **kwargs):
+        manager = original_locked(*args, **kwargs)
+
+        class Lock:
+            # Time acquisition and release separately, not the caller's body.
+            # Forward the original exit result, including exception suppression.
+            def __enter__(self):
+                return measured(trace, 'phase', test_id + ':ptw.store.Store.locked.enter',
+                                type(manager).__enter__)(manager)
+
+            def __exit__(self, *exc):
+                return measured(trace, 'phase', test_id + ':ptw.store.Store.locked.exit',
+                                type(manager).__exit__)(manager, *exc)
+
+        return Lock()
+
+    with ExitStack() as stack:
+        for owner, names in ((onboarding, ('setup', 'compile_policy')),
+                             (policy, ('compile_policy',)), (python_runtime, ('identify',))):
+            for name in names:
+                stack.enter_context(patch.object(owner, name,
+                    measured(trace, 'phase', test_id + ':' + owner.__name__ + '.' + name,
+                             getattr(owner, name))))
+        stack.enter_context(patch.object(Store, 'locked', locked))
+        yield
+
+
 def active_directory():
     return str(_active.directory) if _active is not None else None
 
@@ -171,7 +210,8 @@ def instrument(suite, result, trace):
             original = test.run
 
             def run(result=None, original=original, test_id=test.id()):
-                with yarn_phases(trace, test_id), poetry_phases(trace, test_id):
+                with yarn_phases(trace, test_id), poetry_phases(trace, test_id), \
+                     editable_phases(trace, test_id):
                     return measured(trace, 'test', test_id, original, result=result)(result)
 
             stack.enter_context(patch.object(test, 'run', run))

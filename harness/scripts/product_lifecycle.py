@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 import stat
+import termios
 import time
 
 from evidence_io import capture, digest, load, reference, require, save
@@ -22,6 +23,37 @@ LIFECYCLE_IDS = ('cancel-preserves-repo', 'installation-retry-preserves-data',
 def snapshot(repo):
     return {str(p.relative_to(repo)): digest(p) if p.is_file() else 'directory'
             for p in sorted(repo.rglob('*'))}
+
+
+def interrupt_state(terminal):
+    """Failure-only diagnostics for this PTY child, never an acceptance oracle."""
+    result = {'pid': terminal.pid, 'measured_monotonic': time.monotonic(), 'threads': []}
+    try:
+        settings = termios.tcgetattr(terminal.fd)
+        control = settings[6][termios.VINTR]
+        result['terminal'] = {'foreground_pgid': os.tcgetpgrp(terminal.fd),
+            'child_pgid': os.getpgid(terminal.pid), 'isig': bool(settings[3] & termios.ISIG),
+            'icanon': bool(settings[3] & termios.ICANON),
+            'vintr': control if isinstance(control, int) else int.from_bytes(control, 'big')}
+    except (OSError, termios.error) as exc:
+        result['terminal_error_type'] = type(exc).__name__
+    # Do not retain cmdline, environment, names, stacks or arbitrary status fields.
+    fields = {'State', 'Pid', 'Tgid', 'Threads', 'SigPnd', 'ShdPnd', 'SigBlk', 'SigIgn', 'SigCgt'}
+    try:
+        tasks = sorted((Path('/proc') / str(terminal.pid) / 'task').iterdir(), key=lambda p: int(p.name))
+        result['threads_omitted'] = max(0, len(tasks) - 32)
+        for task in tasks[:32]:
+            row = {'tid': int(task.name)}
+            result['threads'].append(row)
+            try:
+                row['status'] = {key: value.strip() for line in (task / 'status').read_text().splitlines()
+                                 if ':' in line for key, value in [line.split(':', 1)] if key in fields}
+                row['wchan'] = (task / 'wchan').read_text().strip()
+            except OSError as exc:
+                row['error_type'] = type(exc).__name__
+    except OSError as exc:
+        result['process_error_type'] = type(exc).__name__
+    return result
 
 
 def cancellation(probe, ptw, env):
@@ -50,7 +82,12 @@ def cancellation(probe, ptw, env):
                 os.write(terminal.fd, answer.encode())
             else:
                 terminal.send(answer)
-            terminal.wait(lambda: terminal.exited, 30, label + ' exit')
+            try:
+                terminal.wait(lambda: terminal.exited, 30, label + ' exit')
+            except AssertionError:
+                if label == 'interrupt':
+                    probe.response('interrupt timeout state', interrupt_state(terminal))
+                raise
         finally:
             code = terminal.close(graceful=False)
             probe.response(label + ' original PTY', reference(probe.evidence, terminal.folder / 'terminal.txt'))

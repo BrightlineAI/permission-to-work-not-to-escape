@@ -672,6 +672,90 @@ class NativeReceiptTests(unittest.TestCase):
 
 
 class EvidenceCaptureTests(unittest.TestCase):
+    def test_interrupt_diagnostics_are_bounded_and_exclude_private_status_fields(self):
+        from product_lifecycle import interrupt_state
+        import termios
+        terminal = SimpleNamespace(pid=123, fd=456)
+        tasks = [Path('/proc/123/task') / str(tid) for tid in range(123, 163)]
+        seen = []
+
+        def read(path):
+            seen.append(path)
+            if path.name == 'wchan':
+                return 'wait_woken\n'
+            self.assertEqual(path.name, 'status')
+            return 'Name:\tPRIVATE_SENTINEL\nPid:\t123\nSigBlk:\t0000000000000002\nSigIgn:\t0\n'
+
+        settings = [0, 0, 0, termios.ISIG | termios.ICANON, 0, 0, [b'\x00'] * 32]
+        settings[6][termios.VINTR] = b'\x03'
+        with patch('product_lifecycle.termios.tcgetattr', return_value=settings), \
+                patch('product_lifecycle.os.tcgetpgrp', return_value=123), \
+                patch('product_lifecycle.os.getpgid', return_value=123), \
+                patch.object(Path, 'iterdir', return_value=iter(tasks)), \
+                patch.object(Path, 'read_text', read):
+            result = interrupt_state(terminal)
+        self.assertEqual(result['terminal'], {'foreground_pgid': 123, 'child_pgid': 123,
+            'isig': True, 'icanon': True, 'vintr': 3})
+        self.assertEqual(len(result['threads']), 32)
+        self.assertEqual(result['threads_omitted'], 8)
+        self.assertEqual(len(seen), 64)
+        self.assertEqual(result['threads'][0]['status'], {'Pid': '123', 'SigBlk': '0000000000000002', 'SigIgn': '0'})
+        self.assertNotIn('PRIVATE_SENTINEL', json.dumps(result))
+
+    def test_interrupt_diagnostics_retain_exit_races_without_exception_messages(self):
+        from product_lifecycle import interrupt_state
+        terminal = SimpleNamespace(pid=123, fd=456)
+        with patch('product_lifecycle.termios.tcgetattr', side_effect=OSError('PRIVATE_SENTINEL')), \
+                patch.object(Path, 'iterdir', side_effect=FileNotFoundError('PRIVATE_SENTINEL')):
+            result = interrupt_state(terminal)
+        self.assertEqual(result['terminal_error_type'], 'OSError')
+        self.assertEqual(result['process_error_type'], 'FileNotFoundError')
+        self.assertEqual(result['threads'], [])
+        with patch('product_lifecycle.termios.tcgetattr', side_effect=OSError()), \
+                patch.object(Path, 'iterdir', return_value=iter([Path('/proc/123/task/123')])), \
+                patch.object(Path, 'read_text', side_effect=ProcessLookupError('PRIVATE_SENTINEL')):
+            result = interrupt_state(terminal)
+        self.assertEqual(result['threads'], [{'tid': 123, 'error_type': 'ProcessLookupError'}])
+        self.assertNotIn('PRIVATE_SENTINEL', json.dumps(result))
+
+    def test_interrupt_timeout_is_not_retried_or_converted_to_success(self):
+        from product_lifecycle import cancellation
+        with tempfile.TemporaryDirectory() as folder:
+            probe = SimpleNamespace(folder=Path(folder), evidence=Path(folder),
+                                    response=unittest.mock.Mock(), check=unittest.mock.Mock())
+            terminals = []
+            failure = AssertionError('original interrupt timeout')
+
+            def create(argv, folder, **kwargs):
+                folder.mkdir()
+                (folder / 'terminal.txt').write_text('SYNTHETIC original terminal')
+                (folder / 'inputs.json').write_text('[]')
+                terminal = unittest.mock.Mock(folder=folder, inputs=[], started=time.monotonic(),
+                                              text='', exited=False, fd=456)
+                if folder.name == 'interrupt':
+                    terminal.wait.side_effect = failure
+                terminal.close.return_value = 130 if folder.name == 'eof' else 2
+                terminals.append(terminal)
+                return terminal
+
+            def inspect(terminal):
+                terminal.close.assert_not_called()
+                return {'pid': 123, 'threads': []}
+
+            with patch('product_lifecycle.Terminal', side_effect=create), \
+                    patch('product_lifecycle.os.write') as write, \
+                    patch('product_lifecycle.interrupt_state', side_effect=inspect) as diagnostic:
+                with self.assertRaises(AssertionError) as raised:
+                    cancellation(probe, 'synthetic-ptw', {})
+            self.assertIs(raised.exception, failure)
+            diagnostic.assert_called_once_with(terminals[-1])
+            self.assertEqual([t.folder.name for t in terminals], ['reject', 'cancel', 'eof', 'interrupt'])
+            self.assertEqual(write.call_args_list, [unittest.mock.call(456, b'\x04'), unittest.mock.call(456, b'\x03')])
+            for terminal in terminals:
+                terminal.close.assert_called_once_with(graceful=False)
+            terminals[-1].wait.assert_called_once()
+            probe.response.assert_any_call('interrupt timeout state', {'pid': 123, 'threads': []})
+
     def setUp(self):
         self.root = Path(self.enterContext(tempfile.TemporaryDirectory()))
 
@@ -1446,13 +1530,14 @@ class ProductRunnerTests(unittest.TestCase):
                 patch.object(Path, 'write_bytes', delayed_write):
             trace.sample(trace.pid)
             trace.sample(trace.pid)
-        trace.close()
+            trace.close()
         rows = load(trace.folder / 'timing.json')['rows']
         first, unchanged = rows
         self.assertEqual(first['discovery_end_monotonic'] - first['discovery_start_monotonic'], 2)
         self.assertEqual(first['read_end_monotonic'] - first['read_start_monotonic'], 8)
         self.assertEqual(first['persistence_end_monotonic'] - first['persistence_start_monotonic'], 14)
-        self.assertEqual(first['end_monotonic'] - first['start_monotonic'], 24)
+        self.assertEqual(first['end_monotonic'] - first['start_monotonic'], 10)
+        self.assertGreaterEqual(first['persistence_start_monotonic'], unchanged['end_monotonic'])
         self.assertEqual(first['observation'], 0)
         self.assertEqual(first['before']['start_ticks'], first['after']['start_ticks'])
         self.assertEqual(unchanged['classification'], 'unchanged')
@@ -1500,8 +1585,13 @@ class ProductRunnerTests(unittest.TestCase):
                     raise PermissionError('synthetic ' + phase + ' failure')
 
                 with patch.object(Path, 'iterdir' if phase == 'discovery' else 'write_bytes', denied):
-                    trace.watch(trace.pid)
-                trace.close()
+                    if phase == 'discovery':
+                        trace.watch(trace.pid)
+                        trace.close()
+                    else:
+                        trace.sample(trace.pid)
+                        with self.assertRaisesRegex(PermissionError, 'synthetic persistence failure'):
+                            trace.close()
                 timing = load(trace.folder / 'timing.json')
                 self.assertEqual(len(timing['rows']), 1)
                 row = timing['rows'][0]
@@ -1510,6 +1600,79 @@ class ProductRunnerTests(unittest.TestCase):
                 self.assertNotIn(phase + '_end_monotonic', row)
                 self.assertLessEqual(row['start_monotonic'], row['end_monotonic'])
                 self.assertFalse(load(trace.folder / 'trace.json')['complete'])
+
+    def test_boundary_buffers_originals_without_writes_and_flushes_once(self):
+        from sandbox_diagnostics import BoundaryTrace
+        trace = BoundaryTrace(self.root / 'buffered')
+        trace.pid = os.getpid()
+        cmdline = Path('/proc') / str(trace.pid) / 'cmdline'
+        read_bytes = Path.read_bytes
+        images = (b'synthetic-before-exec\0', b'synthetic-after-exec\0')
+        for image in images:
+            with patch.object(Path, 'read_bytes', side_effect=lambda p: image if p == cmdline else read_bytes(p),
+                              autospec=True), \
+                    patch.object(Path, 'write_bytes', side_effect=AssertionError('write during sampling')), \
+                    patch('sandbox_diagnostics.save', side_effect=AssertionError('save during sampling')):
+                trace.sample(trace.pid)
+                trace.sample(trace.pid)  # Deduplication still applies before persistence.
+        self.assertEqual(trace.samples, 2)
+        self.assertEqual(len(trace.pending), 2)
+        self.assertFalse((trace.folder / 'observations.jsonl').exists())
+        trace.close()
+        original = (trace.folder / 'observations.jsonl').read_bytes()
+        self.assertEqual(len(original.splitlines()), 2)
+        for index, image in enumerate(images):
+            self.assertEqual((trace.folder / f'{index}.cmdline').read_bytes(), image)
+        self.assertTrue(load(trace.folder / 'trace.json')['complete'])
+        self.assertEqual((trace.pending, trace.pending_bytes), ([], 0))
+        trace.close()
+        self.assertEqual((trace.folder / 'observations.jsonl').read_bytes(), original)
+
+    def test_boundary_buffer_exhaustion_fails_closed_and_preserves_captured_bytes(self):
+        from sandbox_diagnostics import BoundaryTrace
+        for limit in ('bytes', 'records'):
+            with self.subTest(limit=limit):
+                trace = BoundaryTrace(self.root / limit)
+                trace.pid = os.getpid()
+                trace.sample(trace.pid)
+                first = trace.pending[0][1][0][1]
+                if limit == 'bytes':
+                    trace.MAX_PENDING_BYTES = trace.pending_bytes
+                else:
+                    trace.MAX_PENDING_RECORDS = 1
+                trace.sample(trace.pid)  # An unchanged sample consumes no buffer.
+                with patch('sandbox_diagnostics.os.readlink', return_value='/synthetic/changed'), \
+                        self.assertRaisesRegex(ValueError, 'buffer exhausted'):
+                    trace.sample(trace.pid)
+                self.assertTrue(trace.stop.is_set())
+                self.assertEqual(trace.samples, 1)
+                with self.assertRaisesRegex(ValueError, 'buffer exhausted'):
+                    trace.close()
+                self.assertFalse(load(trace.folder / 'trace.json')['complete'])
+                self.assertEqual((trace.folder / '0.cmdline').read_bytes(), first)
+                self.assertEqual(len((trace.folder / 'observations.jsonl').read_text().splitlines()), 1)
+
+    def test_boundary_failed_flush_keeps_other_originals_and_cannot_recover_to_success(self):
+        from sandbox_diagnostics import BoundaryTrace
+        trace = BoundaryTrace(self.root / 'flush-failure')
+        trace.pid = os.getpid()
+        trace.sample(trace.pid)
+        write_bytes = Path.write_bytes
+
+        def fail_one(path, data):
+            if path.name == '0.cmdline':
+                raise OSError('synthetic original storage failure')
+            return write_bytes(path, data)
+
+        with patch.object(Path, 'write_bytes', fail_one), \
+                self.assertRaisesRegex(OSError, 'original storage failure'):
+            trace.close()
+        self.assertTrue((trace.folder / '0.mountinfo').is_file())
+        self.assertTrue((trace.folder / 'observations.jsonl').is_file())
+        self.assertFalse(load(trace.folder / 'trace.json')['complete'])
+        with self.assertRaisesRegex(OSError, 'original storage failure'):
+            trace.close()
+        self.assertFalse(load(trace.folder / 'trace.json')['complete'])
 
     def test_boundary_empty_reads_require_observed_exit_and_retain_originals(self):
         import errno

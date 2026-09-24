@@ -65,6 +65,14 @@ the approved evidence service and retry with a new command event ID. Fresh compl
 evidence clears the block. There is no offline bypass. Do not edit the database,
 cached timestamps or package files.
 
+Registry and advisory JSON reads preserve transport/deadline errors separately
+from malformed JSON. For example, `Evidence or artifact unavailable: TimeoutError`
+means the fetch failed, while `Invalid evidence JSON` means parsing failed.
+Neither permits package admission or adds a misconduct count. Error messages omit
+upstream response bodies and exception text. For a failed `ptw deps` review,
+preserve its private `resolution.json` and terminal record, restore the approved
+service, then request a fresh explicit review. A failed review is not approval.
+
 If required capture failed, restore storage capacity through the exact operator
 evidence review. This permits recording termination confirmation but does not
 reopen the stopped project or clear quarantine. Missing assessments stay missing.
