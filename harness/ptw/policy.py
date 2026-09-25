@@ -80,6 +80,12 @@ def digest(value):
     return hashlib.sha256(canonical(value).encode()).hexdigest()
 
 
+def file_sha256(path):
+    """Read every byte afresh without allocating a whole tool binary."""
+    with Path(path).open('rb') as stream:
+        return hashlib.file_digest(stream, 'sha256').hexdigest()
+
+
 def parse_json(text):
     def pairs(items):
         result = {}
@@ -205,10 +211,8 @@ def open_resource(inv, relative, flags):
 def compile_policy(proposal, inv, *, planned_trees=()):
     version = proposal.get("version") if isinstance(proposal, dict) else None
     if version == 4:
-        from .workspace_policy import WORKSPACE_SCHEMA, validate_workspace
-        validate(WORKSPACE_SCHEMA, proposal)
-        inventory(inv, workspace=True, planned_trees=planned_trees)
-        validate_workspace(proposal, inv)
+        from .workspace_policy import validate_workspace
+        validate_workspace(proposal, inv, planned_trees=planned_trees)
     else:
         validate({1: POLICY_SCHEMA, 2: PACKAGE_SCHEMA, 3: ECOSYSTEM_SCHEMA}.get(version, POLICY_SCHEMA), proposal)
     inventory(inv, workspace=version == 4, planned_trees=planned_trees)

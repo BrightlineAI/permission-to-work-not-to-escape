@@ -9,7 +9,6 @@ import stat
 import subprocess
 import zipfile
 
-from packaging.markers import default_environment
 from packaging.requirements import Requirement
 from packaging.specifiers import SpecifierSet
 from packaging.utils import canonicalize_name
@@ -17,6 +16,7 @@ from packaging.version import Version
 import packaging
 
 from .package_evidence import EvidenceError
+from .python_runtime import MARKER_PROBE, marker_environment
 from .supervisor import runtime_namespace
 
 
@@ -40,17 +40,9 @@ def target_tags(python='/usr/bin/python3'):
 
 def _target_environment(python='/usr/bin/python3'):
     result = subprocess.run([python, "-I", "-S", "-c",
-        "import json,sys,platform; v=sys.implementation.version; "
-        "iv=f'{v.major}.{v.minor}.{v.micro}'; "
-        "iv += '' if v.releaselevel == 'final' else "
-        "{'alpha':'a','beta':'b','candidate':'rc'}[v.releaselevel]+str(v.serial); "
-        "print(json.dumps(dict(python_version='.'.join(map(str,sys.version_info[:2])), "
-        "python_full_version=platform.python_version(), implementation_name=sys.implementation.name, "
-        "implementation_version=iv, platform_python_implementation=platform.python_implementation())))"],
+        "import json; " + MARKER_PROBE + "print(json.dumps(markers))"],
         capture_output=True, text=True, timeout=5, check=True)
-    env = default_environment()
-    env.update(json.loads(result.stdout), extra="")
-    return env
+    return marker_environment(json.loads(result.stdout))
 
 
 def validate_wheels(wheels, selected, environment=None, *, extended=False, extras=None, roots=None):

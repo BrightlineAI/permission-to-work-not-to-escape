@@ -29,6 +29,7 @@ class Terminal:
         self.started = time.monotonic()
         self.last_output = self.started
         self.text = ""
+        self.expect_position = 0
         self.exited = False
         self.inputs = []
         self.closed = False
@@ -90,6 +91,12 @@ class Terminal:
 
     def expect(self, text, timeout=180):
         return self.wait(lambda: text in self.text, timeout, repr(text))
+
+    def expect_next(self, text, timeout=180):
+        """Consume one ordered prompt without matching an earlier review again."""
+        elapsed = self.wait(lambda: text in self.text[self.expect_position:], timeout, repr(text))
+        self.expect_position = self.text.index(text, self.expect_position) + len(text)
+        return elapsed
 
     def send(self, text):
         self.inputs.append({"seconds": round(time.monotonic() - self.started, 3), "text": text})

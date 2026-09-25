@@ -33,6 +33,15 @@ executable hashes for direct, child, resumed and wrapper execution. See the
 [runtime evidence contract](README.md#evidence-and-timing) for verification and
 its accepted task21 validation and pending fresh candidate checks.
 
+The observer records vanished cgroup membership reads (ENOENT or ENODEV) as
+unavailable samples and continues inspecting other workloads. Linux
+[kernfs reads](https://raw.githubusercontent.com/torvalds/linux/master/fs/kernfs/file.c)
+can return ENODEV when the node loses its active reference. A missing sample
+proves neither observation nor stopping: complete process observations, physical
+effects and confirmed cessation remain required. Other observation errors and
+receipt persistence failures still fail the demo. Inspect retained originals
+when a run reports missing process evidence; do not treat it as a passing run.
+
 The fixture's reviewed version-4 commands use `"confinement": "task"`. Preparation
 intersects declared resources with the registered actor's grants: readable inputs
 remain readable, while payload writes are limited to existing mutable resource

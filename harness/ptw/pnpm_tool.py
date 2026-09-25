@@ -17,7 +17,7 @@ import uuid
 
 from .dependency_resolution import ResolutionError, resolver_environment
 from .npm import NpmEvidence
-from .policy import Invalid, load, parse_json, save
+from .policy import Invalid, file_sha256, load, parse_json, save
 
 
 VERSION = '10.23.0'
@@ -77,7 +77,7 @@ def node_identity():
     path = Path('/usr/bin/node').resolve(strict=True)
     if not path.is_relative_to('/usr') or not path.is_file():
         raise Invalid('pnpm requires a system Node runtime under /usr')
-    return {'path': str(path), 'sha256': hashlib.sha256(path.read_bytes()).hexdigest()}
+    return {'path': str(path), 'sha256': file_sha256(path)}
 
 
 def provision(directory, *, lock=None):

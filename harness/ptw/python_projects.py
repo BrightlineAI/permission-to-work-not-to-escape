@@ -288,7 +288,6 @@ def resolve_projects(root, stage, rules, *, source=None, groups=('dev', 'test'),
     """
     from .dependency_resolution import (checked_requirement, metadata,
                                         ResolutionError, resolve_python)
-    from .package_install import target_environment
     from .python_runtime import select, version_constraint
     from .onboarding import data
     root, stage = Path(root), Path(stage)
@@ -305,13 +304,12 @@ def resolve_projects(root, stage, rules, *, source=None, groups=('dev', 'test'),
         requirement = ','.join(r for r in [discovered['requires_python'], *(
             p['requires_python'] for p in projects)] if r)
         request = metadata(root, '.python-version', inputs).strip() if (root / '.python-version').exists() else None
-        runtime = select(requirement, executable, request)
+        runtime, environment = select(requirement, executable, request, with_environment=True)
         for project in projects:
             receipt = project.get('discovery')
             if receipt is not None and (receipt['runtime'] != runtime['executable'] or
                     receipt['runtime_sha256'] != runtime['sha256']):
                 raise Invalid('Combined resolution changed the discovery runtime')
-        environment = target_environment(runtime['executable'])
         for project in projects:
             version_file = root / project['path'] / '.python-version'
             if version_file.exists() and not version_constraint(data(version_file).strip()).contains(runtime['version']):

@@ -505,6 +505,20 @@ class ReleaseEvidenceTests(unittest.TestCase):
 
 
 class ReleaseDiscoveryTests(unittest.TestCase):
+    def test_identity_only_probe_preserves_offline_reporting_allowlist(self):
+        import demo_evidence_tests
+        import product_demo
+        from ptw.python_runtime import select, verify
+        # Exercise the existing strict reporting guard with real identity
+        # verification. Native demo cases separately verify complete originals.
+        def report(out, summary):
+            runtime = select('>=3,<4', '/usr/bin/python3')
+            self.assertEqual(verify(runtime), runtime['executable'])
+            raise RuntimeError('identity verification reached')
+        with patch.object(product_demo, 'write_markdown', side_effect=report), \
+                self.assertRaisesRegex(RuntimeError, 'identity verification reached'):
+            demo_evidence_tests.check_markdown(self, Path('unused-report'))
+
     def test_demo_verifier_never_executes_receipt_selected_python_or_site_hooks(self):
         import product_demo_evidence as evidence
         from types import SimpleNamespace

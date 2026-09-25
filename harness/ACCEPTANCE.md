@@ -256,6 +256,11 @@ TypeScript compiles emitted JavaScript before testing.
 The mixed project changes and imports dependencies in both ecosystems. A confined
 independent oracle checks normal, boundary and invalid inputs in every language.
 An injected denial separately checks private hashes and retained violation counts.
+The first and resumed fixture prompts name the protected command interface:
+`project_action(action="run", resource=<reviewed command ID>)`. A command named
+`build` still uses action `run`. Additional denied model requests remain counted
+and fail the exact retained-count assertion; successful application tests alone
+cannot clear that failure.
 Setup over 60 seconds remains unmet even if useful work succeeds. Exactly 60
 seconds passes; approximately 40 seconds is desired, not an additional gate.
 The owner-authorized startup amendment supersedes earlier 30-second wording in
@@ -379,6 +384,12 @@ The private `boundary/timing.json` records monotonic collector startup, descenda
 discovery, process reads and original-sample persistence boundaries. Each attempt
 links its PID and observed start times to discovered child IDs and its sample or
 gap. Child IDs alone do not prove identity, lifetime or an unobserved exec.
+Executable identity and command-line bytes are read between process-state checks
+before the larger mount table. A final state check still follows mount collection;
+missing, denied or changed identity cannot become a complete sample. Each of the
+six reads has fixed-size start/end timing metadata, including failed reads.
+The intermediate state is retained in sample and gap originals. This ordering
+reduces delay before identity capture; it cannot guarantee capture of a short exec.
 Original sample and gap bytes are buffered during sampling and written on close,
 after the sampler has stopped. This keeps disk writes out of the short interval
 in which a descendant may execute and exit. Persistence timestamps therefore
@@ -456,6 +467,10 @@ preserves the original runner, result, fixtures, execution order and assertions.
 Nested runners are not independent full-suite attempts. Successful subtests are
 recorded; subtest failures, fixture errors, skips, expected failures and unexpected
 successes all prevent a clean native receipt.
+Failure callbacks immediately flush the exception type and at most eight source
+locations to `outcomes.jsonl`, including fixture and subtest failures. These
+diagnostics omit exception messages, source text, arguments and locals; they
+survive an interrupted suite without turning partial receipts into acceptance.
 Synthetic validator fixtures explicitly unwrap the runner callback before
 recording their fixture suite. This keeps fixture receipts separate even when
 discovery enables instrumentation after an outer test runner has already started.
@@ -526,8 +541,10 @@ evidence directory. Terminal input receipts are saved as input is sent; raw outp
 is flushed as it arrives. Actual launcher, broker and monitor identity receipts
 support every live journey and are checked against retained installed files.
 
-If the lifecycle Ctrl-C probe times out, it records `interrupt timeout state`
-before terminating its own child. This failure-only snapshot includes terminal
+If the lifecycle Ctrl-C probe times out, it records `interrupt timeout state`;
+the deterministic launcher-signal test saves the same snapshot in
+`interrupt-state.json`. Both record it before terminating their own child.
+This failure-only snapshot includes terminal
 signal settings, foreground/child process groups, and at most 32 threads' signal
 masks and kernel wait locations. Missing processes or inaccessible fields retain
 error types, without exception messages. It does not read arguments, environment,
@@ -542,6 +559,15 @@ prints a prompt before its blocking C read; a prompt/read signal race is a
 hypothesis to investigate, not a diagnosed product defect or a passing result.
 
 ## Validation boundary
+
+The multi-source Python review tests consume repeated prompts in order, including
+the prompt redisplayed after `details`. Their synthetic PTY transcripts, submitted
+inputs, exit records and source hashes remain in the private
+`LOCAL_PYTHON_TERMINAL_EVIDENCE` directory after fixture cleanup. On failure,
+cleanup terminates the test child without typing into an unknown review, and its
+exit assertion does not replace the original prompt failure. Inspect those
+originals before attributing a terminal timeout to the product. These records are
+private test evidence, not model trajectories or public release assets.
 
 The frozen implementation covers native receipt production/consumption, strict
 schema validation, installed environment isolation, original-output retention,

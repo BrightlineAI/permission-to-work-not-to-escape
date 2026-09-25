@@ -214,6 +214,46 @@ class WorkspaceFixture(unittest.TestCase):
 
 
 class WorkspaceTests(WorkspaceFixture):
+    def test_workspace_compilation_checks_schema_once_and_rejects_invalid_inputs_before_probe(self):
+        from ptw import policy, workspace_policy
+        from ptw.python_runtime import identify
+        self.policy['project']['python_runtime'] = {
+            **identify('/usr/bin/python3'), 'requires_python': ''}
+        with patch.object(policy, 'validate', wraps=policy.validate) as outer, \
+             patch.object(workspace_policy, 'validate', wraps=workspace_policy.validate) as inner:
+            compiled = compile_policy(self.policy, self.inv)
+        self.assertEqual(compiled, {'policy': self.policy, 'inventory': self.inv})
+        calls = outer.call_args_list + inner.call_args_list
+        self.assertEqual(sum(call.args[0] is workspace_policy.WORKSPACE_SCHEMA for call in calls), 1)
+        for target in ('policy', 'inventory'):
+            with self.subTest(target=target):
+                proposal, inv = copy.deepcopy(self.policy), copy.deepcopy(self.inv)
+                if target == 'policy':
+                    proposal['project']['commands'][0]['argv'] = []
+                else:
+                    inv['resources']['src']['kind'] = 'unreviewed'
+                with patch('ptw.python_runtime.verify') as probe, self.assertRaises(Invalid):
+                    compile_policy(proposal, inv)
+                probe.assert_not_called()
+
+    def test_compilation_rechecks_live_inventory_after_runtime_probe(self):
+        from ptw.python_runtime import identify
+        runtime = identify('/usr/bin/python3')
+        self.policy['project']['python_runtime'] = {**runtime, 'requires_python': ''}
+        source = Path(self.inv['root']) / 'src'
+        replacement = self.root / 'unreviewed'
+        replacement.mkdir()
+
+        def changed(_):
+            source.rename(source.with_name('original-src'))
+            source.symlink_to(replacement, target_is_directory=True)
+            return runtime['executable']
+
+        with patch('ptw.python_runtime.verify', side_effect=changed) as probe, \
+             self.assertRaises((Invalid, OSError)):
+            compile_policy(self.policy, self.inv)
+        probe.assert_called_once()
+
     def test_read_and_atomic_write(self):
         old = self.ask("read")
         before = (Path(self.inv["root"]) / "src/calculator.py").stat().st_ino

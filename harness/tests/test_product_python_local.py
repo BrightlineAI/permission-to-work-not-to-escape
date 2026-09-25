@@ -6621,6 +6621,12 @@ class CombinedDynamicDiscoveryTests(unittest.TestCase):
         self.dynamic_projects()
         with patch.dict(os.environ, {'PTW_USER_STATE': str(self.root / 'native-state')}):
             directory = private_directory(self.repo)
+        # Keep only synthetic terminal evidence outside fixture cleanup. A failed
+        # review must retain its original prompt/output, not just a teardown code.
+        from native_receipt import sources
+        terminal_root = Path(tempfile.mkdtemp(prefix='ptw-local-terminal-'))
+        (terminal_root / 'source.json').write_text(json.dumps(sources(), sort_keys=True))
+        print('LOCAL_PYTHON_TERMINAL_EVIDENCE ' + str(terminal_root), flush=True)
         unrelated = subprocess.Popen(['/usr/bin/sleep', '240'])
         try:
             for index, first_reply in enumerate(('reject', 'cancel', 'yes')):
@@ -6630,36 +6636,36 @@ class CombinedDynamicDiscoveryTests(unittest.TestCase):
                     *(['--python-editable', self.options()['python_editable']] if editable else ['--python-wheel']),
                     *(['--python-build-requirements'] if static else []),
                     '--python-source', 'requirements.in', '--setup-only'],
-                    self.root / ('dynamic-pty-' + str(index)),
+                    terminal_root / ('dynamic-pty-' + str(index)),
                     env={**os.environ, 'PTW_USER_STATE': str(self.root / 'native-state')})
                 try:
                     discovery_prompt = 'Approve build requirement discovery' if static else 'Approve metadata discovery'
-                    terminal.expect(discovery_prompt, 90)
+                    terminal.expect_next(discovery_prompt, 90)
                     terminal.send(first_reply)
                     if first_reply == 'yes':
-                        terminal.expect('Approve additional build requirements', 90)
+                        terminal.expect_next('Approve additional build requirements', 90)
                         terminal.send('yes')
                         if editable and not static:
-                            terminal.expect('Approve build requirement discovery', 90)
+                            terminal.expect_next('Approve build requirement discovery', 90)
                             terminal.send('yes')
-                            terminal.expect('Approve additional build requirements', 90)
+                            terminal.expect_next('Approve additional build requirements', 90)
                             terminal.send('yes')
-                        terminal.expect(discovery_prompt, 90)
+                        terminal.expect_next(discovery_prompt, 90)
                         terminal.send('details')
-                        terminal.expect('Reviewed dependency inputs and artifacts', 5)
-                        terminal.expect(discovery_prompt, 5)
+                        terminal.expect_next('Reviewed dependency inputs and artifacts', 5)
+                        terminal.expect_next(discovery_prompt, 5)
                         terminal.send('yes')
-                        terminal.expect('Approve additional build requirements', 90)
+                        terminal.expect_next('Approve additional build requirements', 90)
                         terminal.send('yes')
                         if editable and not static:
-                            terminal.expect('Approve build requirement discovery', 90)
+                            terminal.expect_next('Approve build requirement discovery', 90)
                             terminal.send('details')
-                            terminal.expect('Reviewed dependency inputs and artifacts', 5)
-                            terminal.expect('Approve build requirement discovery', 5)
+                            terminal.expect_next('Reviewed dependency inputs and artifacts', 5)
+                            terminal.expect_next('Approve build requirement discovery', 5)
                             terminal.send('yes')
-                            terminal.expect('Approve additional build requirements', 90)
+                            terminal.expect_next('Approve additional build requirements', 90)
                             terminal.send('yes')
-                        terminal.expect('Approve exactly', 90)
+                        terminal.expect_next('Approve exactly', 90)
                         self.assertIn('build graph: builder==1.0', terminal.text)
                         self.assertIn('build graph: builder==2.0', terminal.text)
                         terminal.send('yes')
@@ -6670,7 +6676,9 @@ class CombinedDynamicDiscoveryTests(unittest.TestCase):
                     else:
                         self.assertIn('Approved.', terminal.text)
                 finally:
-                    self.assertEqual(terminal.close(), 0 if first_reply == 'yes' else 2)
+                    code = terminal.close(graceful=False)
+                # A cleanup exit must not replace the original prompt failure.
+                self.assertEqual(code, 0 if first_reply == 'yes' else 2)
             result = load(directory / 'project.json')
             store = Store(result['state'])
             actor = store.register(result['project'], 'work')

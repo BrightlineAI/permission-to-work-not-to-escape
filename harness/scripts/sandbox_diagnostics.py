@@ -149,23 +149,42 @@ class BoundaryTrace:
         timing['children_omitted'] = max(0, len(children) - self.MAX_TIMING_CHILDREN)
         self.timing_children_omitted += timing['children_omitted']
         timing['read_start_monotonic'] = time.monotonic()
-        before = process_state(base)
-        payload, failures = {}, {}
-        for name in ('cmdline', 'mountinfo', 'exe'):
+        # Fixed-size per-read timings contain no payload or exception text.
+        # Capture the short-lived exec identity before the larger mount table.
+        def read(name, operation):
+            measured = timing.setdefault('reads', {}).setdefault(name, {})
+            measured['start_monotonic'] = time.monotonic()
             try:
-                payload[name] = os.readlink(base / name) if name == 'exe' else (base / name).read_bytes()
+                return operation()
+            finally:
+                measured['end_monotonic'] = time.monotonic()
+
+        before = read('before', lambda: process_state(base))
+        payload, failures = {}, {}
+        for name in ('exe', 'cmdline', 'command_after', 'mountinfo'):
+            if name == 'command_after':
+                command_after = read(name, lambda: process_state(base))
+                continue
+            try:
+                payload[name] = read(name, lambda: os.readlink(base / name)
+                                     if name == 'exe' else (base / name).read_bytes())
             except OSError as exc:
                 failures[name] = {'error_type': type(exc).__name__, 'errno': exc.errno}
-        after = process_state(base)
+        # Keep the final bracket too: early argv capture cannot turn a partial
+        # mount read or an exited/reused process into a complete observation.
+        after = read('after', lambda: process_state(base))
         timing['read_end_monotonic'] = time.monotonic()
         # Child IDs are discoveries, not identities. Link them to a child's own
         # sampled start_ticks; never infer an unobserved exec or process lifetime.
-        for label, state in (('before', before), ('after', after)):
+        states = (before, command_after, after)
+        for label, state in zip(('before', 'command_after', 'after'), states):
             timing[label] = {key: state[key] for key in ('state', 'start_ticks', 'error_type', 'errno')
                              if key in state}
         empty = [name for name in ('cmdline', 'mountinfo') if payload.get(name) == b'']
-        same_process = 'start_ticks' in before and before.get('start_ticks') == after.get('start_ticks')
-        if empty or failures or not same_process or 'error_type' in before or 'error_type' in after:
+        same_process = 'start_ticks' in before and all(
+            before['start_ticks'] == state.get('start_ticks') for state in states)
+        if (empty or failures or not same_process or
+                any('error_type' in state or state.get('state') in ('Z', 'X', 'x') for state in states)):
             missing = ('FileNotFoundError', 'ProcessLookupError')
             exited = (before.get('error_type') in missing and after.get('error_type') in missing) or (
                 'start_ticks' in before and 'error_type' not in before and (
@@ -173,6 +192,12 @@ class BoundaryTrace:
                     (same_process and after.get('state') in ('Z', 'X', 'x'))))
             exit_race = exited and all(row['errno'] in (errno.ENOENT, errno.ESRCH, errno.EINVAL)
                                        for row in failures.values())
+            # A denied/malformed intermediate identity or observed PID reuse
+            # cannot be hidden by a later exit.
+            exit_race = exit_race and (
+                command_after.get('error_type') in missing or
+                ('error_type' not in command_after and 'start_ticks' in command_after and
+                 command_after['start_ticks'] == before.get('start_ticks')))
             folder = self.folder / ('gap-' + str(self.gaps))
             timing.update(observation=folder.name, classification='exit-race' if exit_race else 'incomplete')
             hashes = {}
@@ -182,7 +207,8 @@ class BoundaryTrace:
                     files.append((folder.name + '/' + name, payload[name]))
                     hashes[name] = hashlib.sha256(payload[name]).hexdigest()
             metadata = {'pid': pid, 'index': self.gaps,
-                'before': before, 'after': after, 'empty_fields': empty, 'read_errors': failures,
+                'before': before, 'command_after': command_after, 'after': after,
+                'empty_fields': empty, 'read_errors': failures,
                 'sha256': hashes, 'executable': payload.get('exe'),
                 'classification': 'exit-race' if exit_race else 'incomplete'}
             files.append((folder.name + '/observation.json', json.dumps(metadata).encode()))
@@ -202,7 +228,7 @@ class BoundaryTrace:
                                 (str(index) + '.mountinfo', mounts)],
                 {'pid': pid, 'executable': executable,
                     'measured_epoch': time.time(), 'index': index,
-                    'before': before, 'after': after,
+                    'before': before, 'command_after': command_after, 'after': after,
                     'cmdline_sha256': hashlib.sha256(cmdline).hexdigest(),
                     'mountinfo_sha256': hashlib.sha256(mounts).hexdigest()})
             self.seen.add(key)

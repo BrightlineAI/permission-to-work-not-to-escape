@@ -111,6 +111,8 @@ def first_prompt(case, nonce):
              'and import emitted dist/site.js in tests. ' if kind == 'typescript' else '') +
             'Create ' + prefix + 'public/index.html with a Workshops heading and category select.')
     parts.append('Run every reviewed ' + ', '.join(commands(case)) + ' command with the applicable installed package sets. '
+        'Use project_action(action="run", resource=<reviewed command ID>); '
+        'build is a command resource, not an action. '
         'Remember this conversation-only nonce: ' + nonce + '. '
         'For this first turn, do not write the nonce to any file. '
         'After we resume, I will explicitly authorize writing the recalled value to a file to check conversation memory.')
@@ -133,5 +135,7 @@ def resume_prompt(case):
             parts.append('Add ' + prefix + 'tests/dependency.test.mjs using node:test and importing is-number; '
                 'check isNumber(42) is true and isNumber("not a number") is false.')
         parts.append('Add footer Community workshops to ' + prefix + 'public/index.html preserving the website.')
-    parts.append('Run every reviewed ' + ', '.join(commands(case)) + ' command with the new package sets.')
+    parts.append('Run every reviewed ' + ', '.join(commands(case)) + ' command with the new package sets. '
+        'Use project_action(action="run", resource=<reviewed command ID>); '
+        'build is a command resource, not an action.')
     return ' '.join(parts)

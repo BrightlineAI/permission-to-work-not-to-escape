@@ -22,7 +22,7 @@ from .package_build import run_build
 from .package_evidence import EvidenceError, evaluate, pins
 from .package_install import (file_manifest, install_wheels, target_environment, target_tags,
                               validate_dependencies, validate_wheels)
-from .policy import Invalid, OutsideScope, canonical, digest, save, scope
+from .policy import Invalid, OutsideScope, canonical, digest, file_sha256, save, scope
 from .python_runtime import verify
 from .supervisor import runtime_namespace
 from .workspace import materialize, owner, scan, stamp
@@ -543,7 +543,7 @@ def authorized_snapshot(store, token, identity, *, hooks_only=False):
             raise OutsideScope('Local build source exceeds session read grants')
         from .dependency_binding import verify_inputs
         verify_inputs(bundle)
-        python = verify(bundle['policy']['project']['python_runtime'])
+        python, environment = verify(bundle['policy']['project']['python_runtime'], with_environment=True)
         entries = scan(bundle['inventory'], source['resources'])
         if snapshot_digest(entries) != source['snapshot_sha256']:
             raise Invalid('Local source changed since build review')
@@ -558,7 +558,7 @@ def authorized_snapshot(store, token, identity, *, hooks_only=False):
         build_selected = pins(graph['pins'], extras={}) if graph['pins'] else {}
         if static_metadata(entries, source['path'], selected=selected,
                            build_selected=build_selected, hooks_only=hooks_only,
-                           environment=target_environment(python),
+                           environment=environment,
                            dynamic_metadata=source.get('dynamic_metadata'),
                            extras=source.get('extras', ()), discovery=discovery) != (source['name'], source.get('version')):
             raise Invalid('Local metadata differs from reviewed identity')
@@ -791,7 +791,7 @@ def discover_build_requirements(store, token, identity, *, provider=None):
         return dict(source_id=identity, source_sha256=source['snapshot_sha256'],
                     policy_sha256=approval, hook=hook, requirements=requirements,
                     requirements_sha256=digest(requirements), runtime=python,
-                    runtime_sha256=hashlib.sha256(Path(python).read_bytes()).hexdigest(),
+                    runtime_sha256=file_sha256(python),
                     runner_sha256=hashlib.sha256(HOOK_REQUIREMENTS.encode()).hexdigest(),
                     dependencies=[{k: r[k] for k in ('name', 'version', 'sha256')} for r in records])
 
@@ -821,7 +821,7 @@ def build_wheel(store, token, identity, *, provider=None):
     if not uv or not Path(uv).is_file():
         raise EvidenceError('uv is required; no local build fallback')
     uv = Path(uv).resolve()
-    tool_hash = hashlib.sha256(uv.read_bytes()).hexdigest()
+    tool_hash = file_sha256(uv)
     with tempfile.TemporaryDirectory(prefix='local-build-', dir=store.directory) as temporary:
         root = Path(temporary)
         output = root / 'result'
@@ -897,7 +897,7 @@ def build_wheel(store, token, identity, *, provider=None):
         receipt = dict(source_id=identity, source_sha256=source['snapshot_sha256'],
                           dependencies=[{k: r[k] for k in ('name', 'version', 'sha256')} for r in records],
                           policy_sha256=approval, runtime=python, uv_sha256=tool_hash,
-                          runtime_sha256=hashlib.sha256(Path(python).read_bytes()).hexdigest(),
+                          runtime_sha256=file_sha256(python),
                           filename=wheel.name, sha256=hashlib.sha256(data).hexdigest())
         if discovered is not None:
             receipt['dynamic_metadata'] = discovered
@@ -1318,8 +1318,8 @@ def install_source(store, token, identity, *, mode, provider=None, payload=None)
         receipt = dict(source_id=identity, source_sha256=source['snapshot_sha256'],
                        dependencies=[{k: r[k] for k in ('name', 'version', 'sha256')} for r in records],
                        policy_sha256=approval, runtime=python,
-                       runtime_sha256=hashlib.sha256(Path(python).read_bytes()).hexdigest(),
-                       uv_sha256=hashlib.sha256(uv.read_bytes()).hexdigest(), manifest_sha256=digest(manifest))
+                       runtime_sha256=file_sha256(python),
+                       uv_sha256=file_sha256(uv), manifest_sha256=digest(manifest))
         if build_receipt is not None:
             receipt['wheel'] = build_receipt
         if 'build_dependencies' in source:

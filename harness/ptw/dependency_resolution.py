@@ -14,7 +14,7 @@ from packaging.requirements import Requirement
 from packaging.utils import canonicalize_name
 
 from .package_evidence import EvidenceError, PyPIEvidence, evaluate, pins
-from .policy import Invalid, save
+from .policy import Invalid, file_sha256, save
 from .python_runtime import select, verify
 from .workspace_policy import relative
 
@@ -439,14 +439,12 @@ def resolve_python(root, stage, rules, *, executable=None, source=None, groups=(
             if len(requirements) > 1024:
                 raise Invalid('Too many local build and runtime requirements')
         version_request = metadata(root, '.python-version', inputs).strip() if (root / '.python-version').exists() else None
-        runtime = select(requires_python, executable, version_request)
+        runtime, environment = select(requires_python, executable, version_request, with_environment=True)
         # Discovered requires-python can refine the constraint description,
         # but cannot silently select a different interpreter for the locked graph.
         if locked_plan is not None and {k: v for k, v in runtime.items() if k != 'requires_python'} != {
                 k: v for k, v in locked_plan['runtime'].items() if k != 'requires_python'}:
             raise Invalid('Local runtime changed during locked export')
-        from .package_install import target_environment
-        environment = target_environment(runtime['executable'])
         if local_build:
             local_constraints = [r for r in constraints
                                  if canonicalize_name(checked_requirement(r).name) == local_name]
@@ -477,7 +475,7 @@ def resolve_python(root, stage, rules, *, executable=None, source=None, groups=(
         if not uv:
             raise Invalid('uv is required; no resolver fallback')
         save(stage / 'resolver-tool.json', {'path': str(Path(uv).resolve()),
-            'sha256': hashlib.sha256(Path(uv).read_bytes()).hexdigest(), 'runtime': runtime,
+            'sha256': file_sha256(uv), 'runtime': runtime,
             'inputs': inputs, 'cutoff_policy': rules})
         runner = runner or run_metadata
         if registry_config is not None:

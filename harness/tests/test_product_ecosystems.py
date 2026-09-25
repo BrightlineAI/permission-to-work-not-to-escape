@@ -18,7 +18,7 @@ from ptw.dependency_resolution import (ResolutionError, compiled_pins, python_in
     requirement_lines, resolve_python, resolver_environment, run_metadata)
 from ptw.package_evidence import EvidenceError
 from ptw.package_install import install_wheels, target_environment
-from ptw.policy import Invalid, approve, compile_policy, digest, load
+from ptw.policy import Invalid, approve, compile_policy, digest, file_sha256, load
 from ptw.python_runtime import identify, select, verify
 from ptw.setup_templates import RULES, selected, template
 from ptw.store import Store
@@ -34,6 +34,48 @@ class ProductEcosystemTests(unittest.TestCase):
         self.repo = self.root / 'repo'
         self.repo.mkdir()
         self.calls = []
+
+    def test_tool_digest_reads_full_binary_and_observes_same_metadata_mutation(self):
+        path = self.root / 'tool'
+        for size in (0, 1, 262143, 262144, 262145, 1048583):
+            with self.subTest(size=size):
+                data = (bytes(range(256)) * (size // 256 + 1))[:size]
+                path.write_bytes(data)
+                self.assertEqual(file_sha256(path), hashlib.sha256(data).hexdigest())
+        before = path.stat()
+        original = file_sha256(path)
+        with path.open('r+b') as stream:
+            stream.seek(-1, os.SEEK_END)
+            stream.write(b'X')
+        os.utime(path, ns=(before.st_atime_ns, before.st_mtime_ns))
+        self.assertEqual(path.stat().st_size, before.st_size)
+        self.assertEqual(path.stat().st_mtime_ns, before.st_mtime_ns)
+        self.assertNotEqual(file_sha256(path), original)
+        replacement = self.root / 'replacement'
+        replacement.write_bytes(b'new binary')
+        replacement.replace(path)
+        self.assertEqual(file_sha256(path), hashlib.sha256(b'new binary').hexdigest())
+        path.unlink()
+        with self.assertRaises(FileNotFoundError):
+            file_sha256(path)
+
+    def test_tool_digest_read_failure_closes_stream_without_partial_result(self):
+        import io
+        error = OSError('synthetic binary read failure')
+        stream = io.BytesIO(b'first bytes')
+        class Reader:
+            def __enter__(self): return self
+            def __exit__(self, *exc): stream.close()
+            def readable(self): return True
+            def readinto(self, buffer):
+                if stream.tell():
+                    raise error
+                return stream.readinto(buffer)
+        with patch.object(Path, 'open', return_value=Reader()):
+            with self.assertRaises(OSError) as failed:
+                file_sha256(self.root / 'tool')
+        self.assertIs(failed.exception, error)
+        self.assertTrue(stream.closed)
 
     def resolve(self, text='demo>=1,<3', **options):
         (self.repo / 'requirements.txt').write_text(text + '\n')
@@ -198,6 +240,80 @@ test = [{include-group="common"}, "test>=1"]
             select('>=3', str(self.repo / 'python3'))
         with self.assertRaises(Invalid):
             verify({**runtime, 'sha256': 'a' * 64})
+
+    def test_joint_runtime_probe_preserves_identity_markers_and_fresh_reads(self):
+        import ptw.python_runtime as runtime_module
+        expected = identify('/usr/bin/python3')
+        markers = target_environment('/usr/bin/python3')
+        with patch.object(runtime_module.subprocess, 'run', wraps=subprocess.run) as probe, \
+                patch.object(runtime_module, 'file_sha256', wraps=file_sha256) as hashed:
+            runtime, observed = select('>=3,<4', '/usr/bin/python3', with_environment=True)
+            for _ in range(2):
+                executable, current = verify(runtime, with_environment=True)
+                self.assertEqual(executable, expected['executable'])
+                self.assertEqual(current, markers)
+            self.assertEqual(probe.call_count, 3)
+            self.assertEqual(hashed.call_count, 3)
+            for call in probe.call_args_list:
+                self.assertEqual(call.args[0][1:4], ['-I', '-S', '-c'])
+                self.assertEqual(call.kwargs['timeout'], 5)
+                self.assertEqual(call.kwargs['env'], {'PATH': '/usr/bin:/bin', 'LANG': 'C.UTF-8'})
+        self.assertEqual(runtime, {**expected, 'requires_python': '>=3,<4'})
+        self.assertEqual(observed, markers)
+        # No marker fields enter the persisted runtime/approval format.
+        self.assertEqual(set(runtime), set(expected) | {'requires_python'})
+        with patch.object(runtime_module, 'file_sha256', return_value='0' * 64):
+            with self.assertRaisesRegex(Invalid, 'runtime changed'):
+                verify(runtime, with_environment=True)
+        for changed in ({**runtime, 'requires_python': '>=100'},
+                        {**runtime, 'version_request': '3.0'}):
+            with self.subTest(changed=changed), self.assertRaises(Invalid):
+                verify(changed, with_environment=True)
+        with self.assertRaises(Invalid):
+            select('>=100', '/usr/bin/python3', with_environment=True)
+        with self.assertRaises(Invalid):
+            select('>=3', str(self.repo / 'missing-python'), with_environment=True)
+
+    def test_joint_runtime_probe_rejects_invalid_output_and_execution_failure(self):
+        import ptw.python_runtime as runtime_module
+        runtime = identify('/usr/bin/python3')
+        fields = {k: v for k, v in runtime.items() if k not in ('executable', 'sha256')}
+        environment = target_environment('/usr/bin/python3')
+        markers = {k: environment[k] for k in runtime_module.MARKER_FIELDS}
+        good = {**fields, 'markers': markers}
+        for value in (None, [], {}, fields, {**good, 'markers': []},
+                      {**good, 'markers': {**markers, 'extra': ''}},
+                      {**good, 'markers': {**markers, 'implementation_version': None}},
+                      {**good, 'markers': {**markers, 'python_full_version': '0.0'}},
+                      {**good, 'prefix': '/tmp/untrusted'}):
+            with self.subTest(value=value), patch.object(runtime_module.subprocess, 'run',
+                    return_value=SimpleNamespace(stdout=json.dumps(value))), \
+                    self.assertRaisesRegex(Invalid, 'Cannot identify'):
+                identify('/usr/bin/python3', with_environment=True)
+        for failure in (OSError('unavailable'), subprocess.TimeoutExpired('probe', 5),
+                        subprocess.CalledProcessError(1, 'probe')):
+            with self.subTest(failure=type(failure).__name__), patch.object(
+                    runtime_module.subprocess, 'run', side_effect=failure), self.assertRaises(Invalid):
+                identify('/usr/bin/python3', with_environment=True)
+        with patch.object(runtime_module.subprocess, 'run', side_effect=KeyboardInterrupt), \
+                self.assertRaises(KeyboardInterrupt):
+            identify('/usr/bin/python3', with_environment=True)
+
+    def test_marker_probe_keeps_language_implementation_and_prereleases_distinct(self):
+        from ptw.python_runtime import MARKER_PROBE
+        for level, suffix in (('final', ''), ('alpha', 'a2'), ('beta', 'b2'), ('candidate', 'rc2')):
+            with self.subTest(level=level):
+                namespace = {}
+                fake_sys = SimpleNamespace(version_info=(3, 11, 9), implementation=SimpleNamespace(
+                    name='pypy', version=SimpleNamespace(major=7, minor=3, micro=19,
+                                                        releaselevel=level, serial=2)))
+                fake_platform = SimpleNamespace(python_version=lambda: '3.11.9',
+                                                python_implementation=lambda: 'PyPy')
+                with patch.dict(sys.modules, sys=fake_sys, platform=fake_platform):
+                    exec(MARKER_PROBE, namespace)
+                self.assertEqual(namespace['markers'], dict(python_version='3.11',
+                    python_full_version='3.11.9', implementation_name='pypy',
+                    implementation_version='7.3.19' + suffix, platform_python_implementation='PyPy'))
 
     def test_python_startup_hook_uses_its_actual_package_mount(self):
         artifacts = self.root / 'wheels'

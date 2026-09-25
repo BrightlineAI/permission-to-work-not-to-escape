@@ -126,6 +126,321 @@ class DiagnosticTimingTests(unittest.TestCase):
     def events(self):
         return [json.loads(line) for line in self.trace.path.read_text().splitlines()]
 
+    def test_editable_profile_separates_exclusive_work_and_wait_without_private_data(self):
+        from regression_timing import EDITABLE_TARGET, editable_profile
+        namespace = {}
+        exec(compile('def private_function(value):\n return value\n',
+                     '/private-profile-path', 'exec'), namespace)
+        value = object()
+
+        def production(depth, argument):
+            if depth:
+                return production(depth - 1, argument)
+            return namespace['private_function'](argument)
+
+        def fixture(argument):
+            result = production(3, argument)
+            subprocess.run([sys.executable, '-I', '-c', 'import time; time.sleep(.01)'],
+                           check=True, capture_output=True)
+            return result
+
+        codes = {fixture.__code__: ('fixture', 'fixture'),
+                 production.__code__: ('production', 'production')}
+        with patch('regression_timing.profile_codes', return_value=codes):
+            with editable_profile(self.trace, EDITABLE_TARGET):
+                returned = fixture(value)
+        self.assertIs(returned, value)
+        self.assertIsNone(sys.getprofile())
+        record, = self.events()
+        self.assertTrue(record['completed'])
+        self.assertEqual(record['scope'], 'current-thread-only')
+        rows = {row['function']: row for row in record['functions']}
+        self.assertEqual(rows['fixture']['calls'], 1)
+        self.assertEqual(rows['production']['calls'], 4)
+        self.assertEqual(rows['production']['recursive_calls'], 3)
+        self.assertGreater(record['categories']['wait']['self_seconds'], 0)
+        self.assertGreater(record['categories']['other']['calls'], 0)
+        self.assertGreater(rows['fixture']['cumulative_seconds'], rows['fixture']['self_seconds'])
+        self.assertLessEqual(sum(row['self_seconds'] for row in record['categories'].values()),
+                             record['elapsed_seconds'])
+        self.assertEqual(record['omitted_functions'], 0)
+        self.assertNotIn('private', self.trace.path.read_text())
+        self.assertNotIn(sys.executable, self.trace.path.read_text())
+
+    def test_editable_profile_bounds_rows_and_accounts_for_unlisted_work(self):
+        from types import SimpleNamespace
+        from regression_timing import PROFILE_LIMIT, profile_summary
+        codes, entries = {}, []
+        # Distinct code objects, including an unknown dynamically supplied filename/name.
+        for index in range(PROFILE_LIMIT + 7):
+            code = compile('value = ' + str(index), '/private-' + str(index), 'exec')
+            codes[code] = ('fixture', 'fixture.' + str(index))
+            entries.append(SimpleNamespace(code=code, callcount=2, reccallcount=0,
+                                          inlinetime=float(index), totaltime=float(index + 1), calls=None))
+        entries.append(SimpleNamespace(code='private-unknown-builtin', callcount=3,
+                                      reccallcount=0, inlinetime=9., totaltime=10., calls=None))
+        summary = profile_summary(entries, codes)
+        self.assertEqual(len(summary['functions']), PROFILE_LIMIT)
+        self.assertEqual(summary['omitted_functions'], 7)
+        self.assertEqual(summary['omitted_self_seconds'], sum(range(7)))
+        self.assertEqual(summary['categories']['other'], dict(calls=3, functions=1, self_seconds=9.))
+        self.assertEqual(sum(row['self_seconds'] for row in summary['functions']) +
+                         summary['omitted_self_seconds'], summary['categories']['fixture']['self_seconds'])
+        self.assertNotIn('private', json.dumps(summary))
+
+    def test_editable_profile_retains_actual_subprocess_and_file_hash_callers(self):
+        from regression_timing import EDITABLE_TARGET, editable_profile, profile_codes
+        from ptw.policy import file_sha256
+        source = self.directory / 'private-input'
+        source.write_bytes(b'private-content')
+
+        def first():
+            for _ in range(2):
+                self.assertEqual(subprocess.run([sys.executable, '-I', '-c', 'pass'],
+                    capture_output=True, check=True).returncode, 0)
+                self.assertEqual(file_sha256(source), hashlib.sha256(b'private-content').hexdigest())
+
+        def second():
+            return subprocess.run([sys.executable, '-I', '-c', 'raise SystemExit(7)'],
+                                  capture_output=True, check=True)
+
+        codes = profile_codes()
+        codes.update({first.__code__: ('fixture', 'fixture.first'),
+                      second.__code__: ('fixture', 'fixture.second')})
+        with patch('regression_timing.profile_codes', return_value=codes):
+            with editable_profile(self.trace, EDITABLE_TARGET):
+                first()
+            with self.assertRaises(subprocess.CalledProcessError) as caught:
+                with editable_profile(self.trace, EDITABLE_TARGET):
+                    second()
+        self.assertEqual(caught.exception.returncode, 7)
+        self.assertIsNone(sys.getprofile())
+        success, failure = self.events()
+        self.assertTrue(success['completed'])
+        self.assertFalse(failure['completed'])
+        edges = {(row['caller'], row['callee']): row for row in success['caller_edges']}
+        for pair in (('fixture.first', 'subprocess.run'),
+                     ('fixture.first', 'ptw.policy.file_sha256'),
+                     ('ptw.policy.file_sha256', 'hashlib.file_digest'),
+                     ('hashlib.file_digest', 'hashlib.update')):
+            self.assertEqual(edges[pair]['calls'], 2)
+            self.assertEqual(edges[pair]['recursive_calls'], 0)
+            self.assertGreaterEqual(edges[pair]['cumulative_seconds'], edges[pair]['self_seconds'])
+        failed, = [row for row in failure['caller_edges'] if row['callee'] == 'subprocess.run']
+        self.assertEqual((failed['caller'], failed['calls']), ('fixture.second', 1))
+        self.assertNotIn('private', self.trace.path.read_text())
+        self.assertNotIn(sys.executable, self.trace.path.read_text())
+
+    def test_editable_profile_edges_share_bound_and_collapse_unknown_callers(self):
+        from types import SimpleNamespace
+        from regression_timing import PROFILE_LIMIT, PROFILE_EDGE_LIMIT, profile_summary
+        codes, entries = {}, []
+        for index in range(PROFILE_LIMIT + 7):
+            code = compile('value = ' + str(index), '/private-' + str(index), 'exec')
+            codes[code] = ('fixture', 'fixture.' + str(index))
+            call = SimpleNamespace(code="<method 'update' of '_hashlib.HASH' objects>",
+                callcount=3, reccallcount=1, inlinetime=float(index), totaltime=float(index + 1))
+            entries.append(SimpleNamespace(code=code, callcount=2, reccallcount=0,
+                inlinetime=float(index), totaltime=float(index + 1), calls=[call]))
+        for index in range(2):
+            code = compile('secret = ' + str(index), '/private-caller-' + str(index), 'exec')
+            call = SimpleNamespace(code="<method 'update' of '_hashlib.HASH' objects>",
+                callcount=4, reccallcount=0, inlinetime=100., totaltime=200.)
+            unknown = SimpleNamespace(code='private-builtin', callcount=1,
+                reccallcount=0, inlinetime=500., totaltime=500.)
+            entries.append(SimpleNamespace(code=code, callcount=1, reccallcount=0,
+                inlinetime=1., totaltime=2., calls=[call, unknown]))
+        summary = profile_summary(entries, codes)
+        self.assertEqual(len(summary['caller_edges']), PROFILE_EDGE_LIMIT)
+        self.assertEqual(len(summary['functions']) + len(summary['caller_edges']), PROFILE_LIMIT)
+        self.assertEqual(summary['omitted_edges'], len(codes) + 1 - PROFILE_EDGE_LIMIT)
+        other, = [row for row in summary['caller_edges'] if row['caller'] == 'other']
+        self.assertEqual(other, dict(caller='other', callee='hashlib.update', calls=8,
+            recursive_calls=0, self_seconds=200., cumulative_seconds=400.))
+        self.assertEqual(sum(row['calls'] for row in summary['caller_edges']) +
+                         summary['omitted_edge_calls'], len(codes) * 3 + 8)
+        self.assertEqual(sum(row['cumulative_seconds'] for row in summary['caller_edges']) +
+                         summary['omitted_edge_cumulative_seconds'], sum(range(1, len(codes) + 1)) + 400.)
+        self.assertEqual(sum(row['self_seconds'] for row in summary['functions']) +
+                         summary['omitted_self_seconds'], summary['categories']['fixture']['self_seconds'])
+        self.assertEqual(summary['categories']['other']['functions'], 2)
+        self.assertNotIn('private', json.dumps(summary))
+        self.assertEqual(profile_summary([], {}), dict(functions=[], categories={},
+            omitted_functions=0, omitted_self_seconds=0, caller_edges=[], omitted_edges=0,
+            omitted_edge_calls=0, omitted_edge_cumulative_seconds=0))
+
+    def test_editable_profile_restores_on_errors_interrupts_and_record_failure(self):
+        from regression_timing import EDITABLE_TARGET, editable_profile
+        for error in (ValueError('private-error'), EOFError('private-eof'),
+                      KeyboardInterrupt('private-interrupt'), SystemExit(2)):
+            with self.subTest(error=type(error).__name__):
+                with self.assertRaises(type(error)) as caught:
+                    with editable_profile(self.trace, EDITABLE_TARGET):
+                        raise error
+                self.assertIs(caught.exception, error)
+                self.assertIsNone(sys.getprofile())
+                self.assertFalse(self.events()[-1]['completed'])
+        self.assertNotIn('private', self.trace.path.read_text())
+        with patch.object(self.trace, 'emit', side_effect=OSError('record failure')):
+            with self.assertRaises(OSError):
+                with editable_profile(self.trace, EDITABLE_TARGET):
+                    pass
+        self.assertIsNone(sys.getprofile())
+
+    def test_editable_profile_exact_selection_source_labels_and_existing_hook(self):
+        from regression_timing import EDITABLE_TARGET, editable_profile, profile_codes
+        from ptw import python_runtime
+        import test_product_python_local as local
+        codes = profile_codes()
+        self.assertEqual(codes[python_runtime.identify.__code__],
+                         ('production', 'ptw.python_runtime.identify'))
+        self.assertEqual(codes[local.CombinedEditableDiscoveryTests.setUp.__code__][0], 'fixture')
+        def hook(*args):
+            pass
+        sys.setprofile(hook)
+        try:
+            with editable_profile(self.trace, EDITABLE_TARGET + '_other'):
+                self.assertIs(sys.getprofile(), hook)
+            with self.assertRaisesRegex(RuntimeError, 'unused profiling hook'):
+                with editable_profile(self.trace, EDITABLE_TARGET):
+                    self.fail('must not replace existing profiler')
+            self.assertIs(sys.getprofile(), hook)
+        finally:
+            sys.setprofile(None)
+        self.assertFalse(self.trace.path.exists())
+
+    def test_pressure_counters_keep_only_bounded_numeric_totals(self):
+        from regression_timing import pressure_totals
+        path = self.directory / 'pressure'
+        path.write_bytes(b'some avg10=1.25 total=123\nfull avg10=0.10 total=4\nprivate-extra secret\n')
+        self.assertEqual(pressure_totals(path), {
+            'status': 'available', 'total_us': {'some': 123, 'full': 4}})
+        path.write_bytes(b'some total=0\n')  # System CPU may omit full.
+        self.assertEqual(pressure_totals(path)['total_us'], {'some': 0})
+        for raw in (b'', b'some total=-1', b'some total=NaN', b'some total=1.2',
+                    b'some total=1 total=2', b'some total=1\nsome total=2',
+                    b'full total=2', b'some total=\xff', b'x' * 4097):
+            with self.subTest(raw=raw[:40]):
+                path.write_bytes(raw)
+                self.assertEqual(pressure_totals(path), {'status': 'unavailable'})
+        path.unlink()
+        self.assertEqual(pressure_totals(path), {'status': 'unavailable'})
+        with patch.object(Path, 'open', side_effect=PermissionError('private-secret')):
+            self.assertEqual(pressure_totals(path), {'status': 'unavailable'})
+
+    def test_cpu_throttle_counters_are_bounded_numeric_and_require_all_fields(self):
+        from regression_timing import cpu_throttle_totals
+        path = self.directory / 'cpu.stat'
+        valid = b'nr_periods 12\nnr_throttled 3\nthrottled_usec 456\n'
+        path.write_bytes(valid + b'usage_usec 999\nprivate-field private-secret\n')
+        self.assertEqual(cpu_throttle_totals(path), {'status': 'available', 'totals': {
+            'nr_periods': 12, 'nr_throttled': 3, 'throttled_usec': 456}})
+        path.write_bytes(b'nr_periods 0\nnr_throttled 0\nthrottled_usec 0\n')
+        self.assertEqual(cpu_throttle_totals(path)['totals'], {
+            'nr_periods': 0, 'nr_throttled': 0, 'throttled_usec': 0})
+        invalid = [b'', b'usage_usec 123\n', valid.replace(b'nr_periods 12\n', b''),
+                   valid + b'nr_throttled 3\n', b'x' * 4097]
+        invalid += [valid.replace(b'throttled_usec 456', b'throttled_usec ' + value)
+                    for value in (b'', b'-1', b'+1', b'NaN', b'1.2', b'1 2', b'\xff')]
+        for raw in invalid:
+            with self.subTest(raw=raw[:80]):
+                path.write_bytes(raw)
+                self.assertEqual(cpu_throttle_totals(path), {'status': 'unavailable'})
+        path.unlink()
+        self.assertEqual(cpu_throttle_totals(path), {'status': 'unavailable'})
+        with patch.object(Path, 'open', side_effect=PermissionError('private-secret')):
+            self.assertEqual(cpu_throttle_totals(path), {'status': 'unavailable'})
+
+    def test_pressure_snapshot_binds_cgroup_without_exporting_paths(self):
+        from io import BytesIO
+        from regression_timing import pressure_snapshot
+        opened = []
+        def read(path, mode):
+            self.assertEqual(mode, 'rb')
+            opened.append(str(path))
+            if str(path) == '/proc/self/cgroup':
+                return BytesIO(b'0::/private-unit\n')
+            if path.name == 'cpu.stat':
+                return BytesIO(b'nr_periods 5\nnr_throttled 2\nthrottled_usec 30\n')
+            return BytesIO(b'some avg10=0.00 total=21\nfull total=3\n')
+        with patch.object(Path, 'open', read):
+            result = pressure_snapshot()
+        self.assertEqual(opened, ['/proc/pressure/cpu', '/proc/pressure/io', '/proc/self/cgroup',
+            '/sys/fs/cgroup/private-unit/cpu.pressure', '/sys/fs/cgroup/private-unit/io.pressure',
+            '/sys/fs/cgroup/private-unit/cpu.stat'])
+        self.assertEqual(result['cgroup_id'], hashlib.sha256(b'/private-unit').hexdigest())
+        for scope in ('system', 'cgroup'):
+            self.assertEqual(set(result[scope]), {'cpu', 'io'} if scope == 'system' else
+                             {'cpu', 'io', 'cpu_stat'})
+            self.assertEqual(result[scope]['io']['total_us'], {'some': 21, 'full': 3})
+        self.assertEqual(result['cgroup']['cpu_stat'], {'status': 'available', 'totals': {
+            'nr_periods': 5, 'nr_throttled': 2, 'throttled_usec': 30}})
+        self.assertNotIn('private-', json.dumps(result))
+        self.assertNotIn('/proc', json.dumps(result))
+
+    def test_unavailable_cpu_stat_preserves_pressure_and_group_identity(self):
+        from io import BytesIO
+        from regression_timing import pressure_snapshot
+        def read(path, mode):
+            if str(path) == '/proc/self/cgroup':
+                return BytesIO(b'0::/private-unit\n')
+            if path.name == 'cpu.stat':
+                raise PermissionError('private-secret')
+            return BytesIO(b'some total=2\n')
+        with patch.object(Path, 'open', read):
+            result = pressure_snapshot()
+        self.assertEqual(result['cgroup']['cpu_stat'], {'status': 'unavailable'})
+        self.assertEqual(result['cgroup']['cpu']['total_us'], {'some': 2})
+        self.assertEqual(result['cgroup_id'], hashlib.sha256(b'/private-unit').hexdigest())
+        self.assertNotIn('private-', json.dumps(result))
+
+    def test_pressure_missing_invalid_or_denied_membership_does_not_escape(self):
+        from io import BytesIO
+        from regression_timing import pressure_snapshot
+        for membership in (b'', b'1:cpu:/private', b'0::/../private', b'0::/a\n0::/b',
+                           b'0::/\xff', b'x' * 4097, PermissionError('private-denied')):
+            with self.subTest(membership=str(membership)[:40]):
+                opened = []
+                def read(path, mode):
+                    opened.append(str(path))
+                    if str(path) == '/proc/self/cgroup':
+                        if isinstance(membership, Exception):
+                            raise membership
+                        return BytesIO(membership)
+                    return BytesIO(b'some total=0')
+                with patch.object(Path, 'open', read):
+                    result = pressure_snapshot()
+                self.assertEqual(result['cgroup'], {'status': 'unavailable'})
+                self.assertNotIn('cgroup_id', result)
+                self.assertEqual(len(opened), 3)
+                self.assertNotIn('private', json.dumps(result))
+
+    def test_pressure_sampling_is_only_at_suite_and_selected_test_boundaries(self):
+        from regression_timing import EDITABLE_TARGET, POETRY_TARGET
+        snapshot = {'system': {'cpu': {'status': 'unavailable'}}}
+        with patch('regression_timing.pressure_snapshot', return_value=snapshot) as read:
+            for target in (EDITABLE_TARGET, POETRY_TARGET):
+                with self.assertRaisesRegex(EOFError, 'private-original'):
+                    with self.trace.span('test', target):
+                        with self.trace.span('phase', target + ':nested'):
+                            raise EOFError('private-original')
+            with self.trace.span('test', EDITABLE_TARGET + '_other'):
+                pass
+            with self.assertRaises(KeyboardInterrupt):
+                with self.trace.span('suite', 'unittest'):
+                    self.trace.emit(kind='suite', event='sample', name='unittest')
+                    raise KeyboardInterrupt('private-interruption')
+        self.assertEqual(read.call_count, 6)
+        events = self.events()
+        selected = [e for e in events if 'pressure' in e]
+        self.assertEqual(len(selected), 6)
+        self.assertEqual([e['event'] for e in selected], ['start', 'end'] * 3)
+        self.assertTrue(all(e['pressure'] == snapshot for e in selected))
+        self.assertEqual([e['kind'] for e in selected], ['test'] * 4 + ['suite'] * 2)
+        self.assertEqual([e['outcome'] for e in selected if e['event'] == 'end'],
+                         ['error', 'error', 'interrupted'])
+        self.assertNotIn('private-', self.trace.path.read_text())
+
     def test_timings_preserve_order_results_and_cleanup(self):
         from regression_timing import instrument
         order = []
@@ -323,12 +638,118 @@ class DiagnosticTimingTests(unittest.TestCase):
                 for event in events:
                     if event['event'] == 'start':
                         pending.append(event['span'])
-                    else:
+                    elif event['event'] == 'end':
                         self.assertEqual(pending.pop(), event['span'])
                 self.assertEqual(pending, [])
                 self.assertEqual(events[-1]['outcome'], 'completed' if mode == 'success' else
                                  'interrupted' if mode == 'interrupted' else 'error')
                 self.assertNotIn('private-', self.trace.path.read_text())
+
+    def test_poetry_child_clocks_preserve_script_outputs_arguments_and_exit(self):
+        from regression_timing import POETRY_TARGET, poetry_wait
+        wait = poetry_wait(self.trace, POETRY_TARGET, subprocess.run)
+        for mode, exit_code in (('success', 0), ('exit', 7), ('error', 1), ('abrupt', 9)):
+            with self.subTest(mode=mode):
+                script = ('import os,sys,json\n'
+                    'print(json.dumps([sys.argv, __name__]))\n'
+                    'sys.stderr.write("private-error-without-newline"); sys.stderr.flush()\n'
+                    + {'success': '', 'exit': 'raise SystemExit(7)',
+                       'error': 'raise ValueError("private-failure")',
+                       'abrupt': 'os._exit(9)'}[mode])
+                command = [sys.executable, '-I', '-S', '-B', '-c', script, 'private-config']
+                result = wait(command, capture_output=True, text=True, timeout=10)
+                self.assertEqual(result.args, command)
+                self.assertEqual(result.returncode, exit_code)
+                if mode != 'abrupt':
+                    self.assertEqual(json.loads(result.stdout), [['-c', 'private-config'], '__main__'])
+                if mode == 'error':
+                    self.assertIn('ValueError: private-failure', result.stderr)
+                else:
+                    self.assertEqual(result.stderr, 'private-error-without-newline')
+                self.assertNotIn('PTW-CLOCK', result.stderr)
+                rows = self.events()[-3:]
+                start, child, end = rows
+                self.assertEqual(start['call'], child['call'])
+                self.assertEqual(start['call'], end['call'])
+                self.assertEqual(child['status'], 'incomplete' if mode == 'abrupt' else 'complete')
+                self.assertEqual([s['event'] for s in child['samples']],
+                                 ['start'] if mode == 'abrupt' else ['start', 'end'])
+                for sample in child['samples']:
+                    self.assertLessEqual(start['monotonic_ns'], sample['monotonic_ns'])
+                    self.assertLessEqual(sample['monotonic_ns'], end['monotonic_ns'])
+                    self.assertGreater(sample['cpu_self_ns'], 0)
+        self.assertNotIn('private-', self.trace.path.read_text())
+
+    def test_poetry_child_missing_invalid_and_duplicate_samples_stay_incomplete(self):
+        from regression_timing import POETRY_TARGET, poetry_wait
+        # Exercise the real injected child code, then alter only its diagnostic
+        # frames at the substituted wait boundary. Product outputs stay intact.
+        import re
+        pattern = re.compile(r'\x1ePTW-CLOCK-[0-9]+-[0-9]+:(?:start|end):[0-9]+:[0-9]+\x1f')
+        command = [sys.executable, '-I', '-S', '-B', '-c',
+                   'import sys; sys.stderr.write("private-output")', 'private-config']
+        for mode in ('missing', 'duplicate', 'reversed', 'invalid', 'malformed-extra', 'decreasing'):
+            with self.subTest(mode=mode):
+                def run(copied, **kwargs):
+                    result = subprocess.run(copied, **kwargs)
+                    frames = pattern.findall(result.stderr)
+                    self.assertEqual(len(frames), 2)
+                    replacement = {'missing': '', 'duplicate': ''.join(frames * 2),
+                        'reversed': ''.join(reversed(frames)),
+                        'invalid': frames[0].replace(':start:', ':private-invalid:'),
+                        'malformed-extra': ''.join(frames) + frames[0].replace(':start:', ':private-invalid:'),
+                        'decreasing': frames[0] + re.sub(r':end:[0-9]+:[0-9]+', ':end:0:0', frames[1])}[mode]
+                    result.stderr = 'private-output' + replacement
+                    return result
+                result = poetry_wait(self.trace, POETRY_TARGET, run)(
+                    command, capture_output=True, text=True, timeout=10)
+                self.assertEqual(result.returncode, 0)
+                self.assertTrue(result.stderr.startswith('private-output'))
+                self.assertEqual(self.events()[-2]['status'], 'incomplete')
+                self.assertLessEqual(len(self.events()[-2]['samples']), 3)
+        self.assertNotIn('private-', self.trace.path.read_text())
+
+    def test_poetry_child_operation_ids_use_only_known_scripts(self):
+        from regression_timing import POETRY_TARGET, poetry_wait
+        from ptw.poetry_export import EXPORT, INSPECT
+        from ptw.poetry_resolution import SOLVE
+        from ptw.poetry_revision import EDIT
+        for name, script in (('inspect', INSPECT), ('export', EXPORT), ('solve', SOLVE),
+                             ('edit', EDIT), ('other', 'private-script')):
+            command = [sys.executable, '-I', '-S', '-B', '-c',
+                       'import sys; sys.path.insert(0,"/poetry-tools");\n' + script, 'private-config']
+            def run(copied, **kwargs):
+                self.assertEqual(copied[:-2], command[:-2])
+                self.assertTrue(copied[-2].endswith(command[-2]))
+                self.assertEqual(copied[-1], command[-1])
+                return subprocess.CompletedProcess(copied, 2, '', '')
+            self.assertEqual(poetry_wait(self.trace, POETRY_TARGET, run)(command).returncode, 2)
+            self.assertEqual([row['operation'] for row in self.events()[-3:]], [name] * 3)
+            self.assertEqual(self.events()[-2]['status'], 'incomplete')
+        self.assertNotIn('private-', self.trace.path.read_text())
+
+    def test_poetry_child_timeout_bytes_and_changed_boundary_preserve_failure(self):
+        from regression_timing import POETRY_TARGET, poetry_wait
+        command = [sys.executable, '-I', '-S', '-B', '-c', 'pass', 'private-config']
+        original_error = subprocess.TimeoutExpired(command, 23, output=b'private-stdout')
+        def timeout(copied, **kwargs):
+            result = subprocess.run(copied, capture_output=True, timeout=10)
+            # An actual TimeoutExpired can retain bytes even with text=True.
+            original_error.stderr = b'private-stderr' + result.stderr
+            raise original_error
+        with self.assertRaises(subprocess.TimeoutExpired) as caught:
+            poetry_wait(self.trace, POETRY_TARGET, timeout)(command, timeout=23, text=True)
+        self.assertIs(caught.exception, original_error)
+        self.assertEqual(original_error.cmd, command)
+        self.assertEqual(original_error.output, b'private-stdout')
+        self.assertEqual(original_error.stderr, b'private-stderr')
+        self.assertEqual(self.events()[-1]['outcome'], 'error')
+        with patch('subprocess.run') as native:
+            with self.assertRaisesRegex(ValueError, 'command shape changed'):
+                poetry_wait(self.trace, POETRY_TARGET, native)(['other-command'])
+            native.assert_not_called()
+        self.assertEqual(self.events()[-2]['status'], 'incomplete')
+        self.assertNotIn('private-', self.trace.path.read_text())
 
     def test_poetry_phase_selection_is_exact_and_integrated_with_runner(self):
         from regression_timing import POETRY_TARGET, instrument, poetry_phases
@@ -416,6 +837,78 @@ class DiagnosticTimingTests(unittest.TestCase):
                 self.assertEqual(events[-1]['outcome'], 'completed' if error is None else
                     'interrupted' if isinstance(error, KeyboardInterrupt) else 'error')
                 self.assertNotIn('private-', self.trace.path.read_text())
+
+    def test_editable_runtime_callers_separate_selection_verification_and_failure(self):
+        from regression_timing import EDITABLE_TARGET, editable_phases
+        from ptw import python_runtime
+        identity = {'executable': '/usr/bin/python3', 'version': '3.12.0',
+                    'sha256': 'private-digest', 'implementation': 'cpython',
+                    'abi': 'private-abi', 'prefix': '/usr'}
+        runtime = {**identity, 'requires_python': '>=3.11'}
+        interrupted = KeyboardInterrupt('private-interruption')
+        with patch.object(python_runtime, 'identify', return_value=identity) as original:
+            with editable_phases(self.trace, EDITABLE_TARGET):
+                self.assertEqual(python_runtime.select('>=3.11', executable='/usr/bin/python3'), runtime)
+                self.assertEqual(python_runtime.verify(runtime), '/usr/bin/python3')
+                original.return_value = {**identity, 'sha256': 'private-changed'}
+                with self.assertRaisesRegex(Invalid, 'runtime changed'):
+                    python_runtime.verify(runtime)
+                original.side_effect = Invalid('private-unavailable')
+                with self.assertRaisesRegex(Invalid, 'Selected Python is unavailable'):
+                    python_runtime.select(executable='/usr/bin/python3')
+                original.side_effect = interrupted
+                with self.assertRaises(KeyboardInterrupt) as caught:
+                    python_runtime.verify(runtime)
+                self.assertIs(caught.exception, interrupted)
+            self.assertIs(python_runtime.identify, original)
+            self.assertEqual(original.call_args_list, [unittest.mock.call('/usr/bin/python3')] * 5)
+        events = self.events()
+        starts = [e for e in events if e['event'] == 'start']
+        ends = [e for e in events if e['event'] == 'end']
+        self.assertEqual(len(starts), 5)
+        self.assertEqual([e['callers'][0]['function'] for e in starts],
+                         ['ptw.python_runtime.' + name for name in
+                          ('select', 'verify', 'verify', 'select', 'verify')])
+        # The mismatch is raised by verify after identify returns; this span
+        # must not misreport successful identification as failed verification.
+        self.assertEqual([e['outcome'] for e in ends],
+                         ['completed', 'completed', 'completed', 'error', 'interrupted'])
+        for start, end in zip(starts, ends):
+            self.assertEqual(start['callers'], end['callers'])
+            self.assertFalse(start['caller_scan_truncated'])
+            self.assertGreater(end['monotonic_ns'], start['monotonic_ns'])
+            self.assertTrue(all(type(c['line']) is int and c['line'] > 0 for c in start['callers']))
+        self.assertNotIn('private-', self.trace.path.read_text())
+        self.assertNotIn('/usr/bin/python3', self.trace.path.read_text())
+
+    def test_runtime_caller_trace_is_bounded_and_ignores_unlisted_frames(self):
+        from regression_timing import caller_fields
+
+        def unlisted(private_value):
+            return caller_fields(codes)
+
+        def selected():
+            first = unlisted('private-first')
+            second = unlisted('private-second')
+            return first, second
+
+        codes = {selected.__code__: 'selected'}
+        first, second = selected()
+        self.assertEqual([c['function'] for c in first['callers']], ['selected'])
+        self.assertEqual([c['function'] for c in second['callers']], ['selected'])
+        self.assertNotEqual(first['callers'][0]['line'], second['callers'][0]['line'])
+        self.assertFalse(first['caller_scan_truncated'])
+        self.assertEqual(caller_fields({})['callers'], [])
+
+        def recursive(depth):
+            return recursive(depth - 1) if depth else caller_fields(codes)
+
+        codes = {recursive.__code__: 'recursive'}
+        bounded = recursive(40)
+        self.assertTrue(bounded['caller_scan_truncated'])
+        self.assertEqual(len(bounded['callers']), 32)
+        self.assertEqual({c['function'] for c in bounded['callers']}, {'recursive'})
+        self.assertNotIn('private-', json.dumps([first, second, bounded]))
 
     def test_editable_lock_preserves_entry_exit_errors_and_suppression(self):
         from regression_timing import EDITABLE_TARGET, Trace, editable_phases
@@ -515,6 +1008,8 @@ class DiagnosticTimingTests(unittest.TestCase):
             self.assertEqual(original.call_args_list,
                              [unittest.mock.call('private-other'), unittest.mock.call('private-input')])
         self.assertEqual(sum(e['kind'] == 'phase' and e['event'] == 'start' for e in self.events()), 1)
+        self.assertEqual(sum(e['kind'] == 'profile' and e['name'] == EDITABLE_TARGET
+                             for e in self.events()), 1)
         self.assertNotIn('private-', self.trace.path.read_text())
 
     def test_terminal_child_uses_separate_trace_and_retains_failure(self):
@@ -578,6 +1073,16 @@ class DiagnosticTimingTests(unittest.TestCase):
         self.assertEqual(events[-1]['outcome'], 'success')
         self.assertEqual(events[-1]['tests_run'], 1)
         self.assertEqual(sum(e['kind'] == 'test' and e['event'] == 'end' for e in events), 1)
+        snapshots = [e for e in events if 'pressure' in e]
+        self.assertEqual([(e['kind'], e['event']) for e in snapshots],
+                         [('suite', 'start'), ('suite', 'end')])
+        for event in snapshots:
+            pressure = event['pressure']
+            self.assertIn('system', pressure)
+            if 'cgroup_id' in pressure:
+                self.assertIn(pressure['cgroup']['cpu_stat']['status'], ('available', 'unavailable'))
+            else:
+                self.assertEqual(pressure['cgroup'], {'status': 'unavailable'})
 
 
 class AdvisoryFixture:

@@ -56,11 +56,12 @@ For a task-scope observation failure, inspect the affected private
 path, session, unit and PID where applicable, numeric errno and up to eight
 traceback source locations. Tracebacks omit source text, locals and arguments;
 the receipt still contains private paths and process details and must not be
-shared as a public demo artifact. An `ENODEV` (19) error remains fatal in this
-observer, even when earlier process rows exist. Its presence alone does not
-identify cgroup teardown as the cause. Preserve the original receipt for
-diagnosis; complete physical observations and the authorized useful-work control
-are still required. A receipt write failure also fails the run.
+shared as a public demo artifact. `ENOENT` (2) or `ENODEV` (19) while reading
+cgroup membership records an unavailable sample and does not interrupt sampling
+other workloads. Neither error proves cessation; complete physical observations
+and the authorized useful-work control are still required. Errors from other
+operations, including receipt persistence, remain fatal. Preserve the original
+receipt for diagnosis.
 
 ## New, existing and everyday projects
 

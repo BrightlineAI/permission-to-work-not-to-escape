@@ -41,10 +41,12 @@ def load_tests(loader, tests, pattern):
 class TaskScopeOfflineTests(unittest.TestCase):
     def test_observer_failure_context_survives_failed_command_receipt(self):
         # Real observer thread and process() failure persistence, synthetic I/O.
-        # ENODEV remains fatal until native evidence identifies its operation.
-        cases = [('read-membership', errno.ENODEV), ('read-membership', errno.EACCES),
+        # Unavailable membership alone cannot prove process observation.
+        cases = [('read-membership', errno.ENODEV), ('read-membership', errno.ENOENT),
+                 ('read-membership', errno.EACCES),
                  ('read-membership', None), ('read-cmdline', errno.ENODEV),
-                 ('locate-cgroup', errno.ENODEV), ('list-memberships', errno.EIO),
+                 ('locate-cgroup', errno.ENODEV), ('list-memberships', errno.ENODEV),
+                 ('list-memberships', errno.EIO),
                  ('list-workloads', errno.EIO)]
         for operation, number in cases:
             with self.subTest(operation=operation, errno=number), tempfile.TemporaryDirectory() as name:
@@ -117,6 +119,17 @@ class TaskScopeOfflineTests(unittest.TestCase):
                                                'vega', 'authority', 'authority-edit')
                 receipt = load(root / 'authority-edit-process.json')
                 self.assertEqual(receipt['processes'], [])
+                if operation == 'read-membership' and number in (errno.ENOENT, errno.ENODEV):
+                    self.assertEqual(receipt['observer_errors'], [])
+                    self.assertEqual(len(receipt['unavailable_memberships']), 1)
+                    missing = receipt['unavailable_memberships'][0]
+                    self.assertEqual(missing['errno'], number)
+                    self.assertEqual(missing['operation'], operation)
+                    self.assertEqual(missing['path'], str(members))
+                    self.assertEqual(missing['unit'], 'synthetic.service')
+                    self.assertGreaterEqual(missing['samples'], 1)
+                    self.assertNotIn('final_states', receipt)
+                    continue
                 self.assertEqual(len(receipt['observer_errors']), 1)
                 error = receipt['observer_errors'][0]
                 self.assertEqual(error['operation'], operation)
@@ -165,7 +178,12 @@ class TaskScopeOfflineTests(unittest.TestCase):
         with self.subTest(intermediate_empty=True):
             self._observe_snapshot_transitions(intermediate_empty=True)
 
-    def _observe_snapshot_transitions(self, *, intermediate_empty):
+    def test_unavailable_membership_preserves_other_workload_observations(self):
+        for number in (errno.ENOENT, errno.ENODEV):
+            with self.subTest(errno=number):
+                self._observe_snapshot_transitions(intermediate_empty=False, unavailable=number)
+
+    def _observe_snapshot_transitions(self, *, intermediate_empty, unavailable=None):
         with tempfile.TemporaryDirectory() as name:
             root = Path(name)
             (root / 'repo/A').mkdir(parents=True)
@@ -188,8 +206,23 @@ class TaskScopeOfflineTests(unittest.TestCase):
             after = [*before[:3], 'attempt', 'temptation-child']
             (proc / 'cmdline').write_bytes(('\0'.join(before) + '\0').encode())
             observation = {'launcher_pid': 321, 'mode': 'child', 'processes': []}
+            store = MagicMock()
+            if unavailable is not None:
+                observation['session'] = 'synthetic-session'
+                store.locked.return_value.__enter__.return_value.execute.return_value = [
+                    {'unit': name, 'session': observation['session']} for name in ('gone', 'live')]
+                for name in ('gone', 'live'):
+                    (root / name).mkdir()
+                    (root / name / 'cgroup.procs').write_text('321')
             def path(value):
+                if str(value).startswith('/sys/fs/cgroup/'):
+                    return root / Path(value).name
                 return root / 'proc' if value == '/proc' else Path(value)
+            original_text = Path.read_text
+            def read_text(path, *args, **kwargs):
+                if path == root / 'gone/cgroup.procs':
+                    raise OSError(unavailable, 'Synthetic cgroup teardown')
+                return original_text(path, *args, **kwargs)
             def readlink(value):
                 value = str(value)
                 if value == '/proc/self/ns/net':
@@ -233,9 +266,11 @@ class TaskScopeOfflineTests(unittest.TestCase):
                 staged.write_bytes(data)
                 staged.replace(path)
             with patch('demo_task_scope.Path', side_effect=path), \
+                 patch.object(Path, 'read_text', read_text), \
+                 patch('ptw.supervisor.Supervisor.state', side_effect=lambda unit: {'ControlGroup': '/' + unit}), \
                  patch('demo_task_scope.os.readlink', side_effect=readlink), \
                  patch('demo_task_scope.digest', side_effect=digest):
-                with scope_demo.observe_processes(None, root, observation, registered=False):
+                with scope_demo.observe_processes(store, root, observation, registered=unavailable is not None):
                     wait_rows(1, scope_demo.SHARED)
                     replace(proc / 'cmdline', ('\0'.join(after) + '\0').encode())
                     wait_rows(2, scope_demo.SHARED)
@@ -255,6 +290,13 @@ class TaskScopeOfflineTests(unittest.TestCase):
             self.assertEqual({(r['pid'], r['start_ticks']) for r in rows}, {(321, '100')})
             self.assertEqual([r['shared_sha256'] for r in rows],
                              [hashlib.sha256(content.encode()).hexdigest() for content in contents])
+            if unavailable is not None:
+                self.assertEqual({r['unit'] for r in rows}, {'live'})
+                self.assertEqual(len(observation['unavailable_memberships']), 1)
+                missing = observation['unavailable_memberships'][0]
+                self.assertEqual(missing['unit'], 'gone')
+                self.assertEqual(missing['errno'], unavailable)
+                self.assertGreater(missing['samples'], 1)
 
     def test_reviewed_payload_and_wrapper_runtime_identity(self):
         from ptw.package_build import bounded_command

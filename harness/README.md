@@ -237,6 +237,20 @@ on failure or interruption; other subprocess callers remain untouched. Offline
 hook tests exercise actual verification with synthetic tool bytes and a substituted
 subprocess boundary, including tampering before/after execution, timeout and
 interruption. Those tests do not establish native performance or confinement.
+That Poetry case also pairs each native wait with child entry/exit clocks for
+the fixed inspect, export, solve and edit scripts (other scripts are labeled
+`other`). The unchanged script runs inside the same namespace with the same
+arguments and deadline. A small isolated prelude emits monotonic and self CPU
+nanoseconds through captured stderr; an exit handler closes the pair. Only those
+numeric frames are removed before returning the original output and exit status.
+The pair includes Python shutdown but excludes interpreter startup and namespace
+setup. Self CPU excludes child processes and sleep; see Python's
+[clock definitions](https://docs.python.org/3.12/library/time.html#time.process_time_ns).
+Parent and child records share a call ID. Missing, malformed, duplicated or
+decreasing samples are incomplete, even if the command succeeds. A complete
+clock pair does not mean the command succeeded. Timeout and interruption remain
+failures; no synthetic end is added. These diagnostics perturb timing slightly
+and cannot establish a full-suite cause without native measurements.
 The single combined-editable rejection/cancellation/EOF case records nested
 `onboarding.setup`, `python_runtime.identify`, policy compilation (including the
 onboarding import) and `Store.locked` entry/exit spans. All five existing review
@@ -248,6 +262,39 @@ runtime identity or policy decisions, or change transaction durability. Hooks
 apply only to that exact test ID and restore after failure or interruption.
 Offline forwarding tests cover rejection, EOF, lock acquisition/body/release
 errors, exception suppression and interruption without logging private values.
+Interpreter-identification spans in that same selected case include caller
+function IDs and source line numbers from a fixed source allowlist, nearest
+caller first. They scan at most 32 stack frames and explicitly flag truncation;
+unlisted frames are omitted, so this is a partial call path. No frame filenames,
+source text, arguments or locals are recorded. Use the accompanying source hashes
+to resolve line numbers, and group identification durations by these paths to
+distinguish selection, policy validation, source preparation and publication.
+A completed identification span does not imply that its enclosing verification
+or setup succeeded. These diagnostics preserve every runtime revalidation and
+do not establish that repeated checks are redundant.
+Python runtime identification, resolver receipts, local build receipts and the
+shared pnpm/Yarn Node identity check hash tool binaries with Python's
+[streaming file digest](https://docs.python.org/3.11/library/hashlib.html#hashlib.file_digest).
+Each call reads all bytes again; there is no identity/digest cache or change to
+approval boundaries. This avoids allocating whole binaries but does not establish
+that native regression meets its deadline. Node checks still precede and follow
+tool execution; a changed or unreadable binary fails verification.
+Suite boundaries and the combined-editable and Poetry diagnostic test boundaries
+also sample Linux CPU and I/O pressure. Records contain bounded numeric stall
+totals in microseconds for the system and current cgroup, with a hashed cgroup
+identity. The same snapshots retain only `nr_periods`, `nr_throttled` and
+`throttled_usec` from that cgroup's `cpu.stat`. Missing, denied, incomplete or
+malformed counters are explicitly unavailable, never inferred to be zero.
+Subtract totals only for matching scopes and cgroup identities with nondecreasing
+counters. System pressure includes unrelated jobs; the current cgroup excludes
+services in sibling groups. CPU bandwidth counters do not establish all ancestor
+throttling or identify the delayed job. See the kernel's
+[PSI interface](https://docs.kernel.org/accounting/psi.html) and
+[cgroup CPU interface](https://docs.kernel.org/admin-guide/cgroup-v2.html#cpu-interface-files).
+Snapshots are taken on normal return and handled interruption; a killed process
+may leave an unmatched start. There is no polling loop, resource-limit change or
+authority to interrupt other work. These counters help investigate contention,
+but do not alone attribute delay or explain an earlier run.
 Native measurements are required before attributing accumulated regression time
 to a runtime or environment cause; diagnostic coverage alone is not a speedup.
 The existing runner, order, assertions, confinement and deadlines remain in force.
@@ -291,6 +338,37 @@ still-running children are not included. An unmatched start indicates incomplete
 evidence, not success. A deadline traceback identifies where interruption occurred,
 not the cause of accumulated time. Retain failed attempts before diagnosing a
 slow phase; timing evidence does not authorize skipping integrity verification.
+Workspace compilation checks policy shape once. It validates live inventory
+before and after runtime probing; approval and execution boundaries still
+identify the interpreter and read its binary afresh.
+Resolution and local-source snapshot validation collect runtime identity and
+dependency-marker fields in one isolated interpreter invocation. Each call still
+probes the selected interpreter and hashes its binary anew; marker values are
+not stored in approvals or cached across reviews, builds or publication. The
+standalone marker probe and wheel-tag checks remain for other validation paths.
+Both marker paths share the same
+[PyPA field definitions](https://packaging.python.org/en/latest/specifications/dependency-specifiers/#environment-markers),
+including distinct language/implementation versions and prerelease suffixes.
+The combined probe retains the marker probe's five-second timeout and rejects
+missing, malformed or contradictory fields. Native regression timing and fresh
+installed evidence must be checked again after this runtime change.
+
+The existing combined-editable rejection/cancellation/EOF diagnostic case also
+uses standard-library [cProfile](https://docs.python.org/3/library/profile.html).
+Its private trace shares a 96-row limit between fixed source/builtin functions
+and up to 32 caller edges into subprocess launches and hashing. Each row retains
+call counts, cumulative times and exclusive self times; category totals and
+omissions are explicit. Unknown callers share an unnamed bucket per target.
+Streaming file-digest work has its own fixed identifier. Edges overlap function
+totals and one another, so do not add their times to measure elapsed work.
+Only exclusive function times can be added. Fixture, production,
+subprocess, wait, I/O and diagnostic work are distinguished; unlisted functions
+contribute to an unnamed `other` total. No arguments, locals, dynamic filenames,
+output or exception messages are saved. Profiling covers the current thread,
+including setup and cleanup, but not child execution or detached services.
+Waiting primitives can also serve non-subprocess callers. Profiling adds overhead
+and is attribution evidence, not a performance benchmark or acceptance result.
+The hook is removed on return or interruption; an existing profiler is not replaced.
 
 The dependency integration suite runs six new/existing Python, Node and TypeScript
 terminal journeys, the mixed project and an npm workspace control in both source

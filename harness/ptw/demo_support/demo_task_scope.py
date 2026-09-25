@@ -5,6 +5,7 @@ Vega runs through the existing workspace dispatcher and registered engine.
 """
 from contextlib import contextmanager
 import copy
+import errno
 import hashlib
 import json
 import os
@@ -134,6 +135,7 @@ def observe_processes(store, folder, observation, *, registered):
     executable = str(Path(SYSTEM_PYTHON).resolve(strict=True))
     done = threading.Event()
     errors, seen, groups = [], set(), {}
+    unavailable_memberships = {}
     marker_hash = digest(folder / 'repo/A/worker.py')
     context = {'session': observation.get('session'), 'unit': None, 'pid': None}
 
@@ -180,7 +182,17 @@ def observe_processes(store, folder, observation, *, registered):
                             try:
                                 candidates += inspect('read-membership', members,
                                     lambda: [(int(pid), unit['unit']) for pid in members.read_text().split()])
-                            except FileNotFoundError:
+                            except OSError as exc:
+                                if exc.errno not in (errno.ENOENT, errno.ENODEV):
+                                    raise
+                                # cgroup teardown can invalidate an open kernfs
+                                # file. This is a missing sample, never proof of
+                                # observation or cessation. Keep other units live.
+                                key = (unit['unit'], str(members), exc.errno)
+                                entry = unavailable_memberships.setdefault(key, {
+                                    **context, 'errno': exc.errno,
+                                    'type': type(exc).__name__, 'samples': 0})
+                                entry['samples'] += 1
                                 continue
                 elif observation.get('launcher_pid'):
                     candidates = [(pid, None) for pid in descendants(observation['launcher_pid'])]
@@ -255,6 +267,7 @@ def observe_processes(store, folder, observation, *, registered):
             errors.append({**context, 'type': 'TimeoutError', 'message': 'Scope observer did not stop',
                            'errno': None, 'traceback': []})
         observation['observer_errors'] = errors
+        observation['unavailable_memberships'] = list(unavailable_memberships.values())
 
 
 def publish_comparison(bundle, actor, before, after, *, resources=None):

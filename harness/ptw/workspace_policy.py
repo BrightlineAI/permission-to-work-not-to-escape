@@ -4,7 +4,7 @@ import os
 from pathlib import Path, PurePosixPath
 import stat
 
-from .policy import ECOSYSTEM_SCHEMA, ID, Invalid, obj, scope, validate
+from .policy import ECOSYSTEM_SCHEMA, ID, Invalid, inventory, obj, scope, validate
 
 FILE_ACTIONS = ["read", "write", "append", "create", "delete"]
 WORKSPACE_SCHEMA = copy.deepcopy(ECOSYSTEM_SCHEMA)
@@ -171,8 +171,11 @@ def resource_info(inv, resource):
         os.close(fd)
 
 
-def validate_workspace(policy, inv):
+def validate_workspace(policy, inv, *, planned_trees=()):
     validate(WORKSPACE_SCHEMA, policy)
+    inventory(inv, workspace=True, planned_trees=planned_trees)
+    # The compiler rechecks live inventory after this function's runtime probe.
+    # Only the duplicate pure schema traversal is removed.
     if 'python_runtime' in policy['project']:
         from .python_runtime import verify
         verify(policy['project']['python_runtime'])

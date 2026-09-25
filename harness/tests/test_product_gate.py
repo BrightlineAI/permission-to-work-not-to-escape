@@ -554,6 +554,56 @@ class NativeReceiptTests(unittest.TestCase):
         text = (directory / 'outcomes.jsonl').read_text()
         self.assertIn('setUpClass', text)
         self.assertIn('"passed": false', text)
+        events = [json.loads(line) for line in text.splitlines()]
+        failures = [e for e in events if 'error' in e]
+        self.assertEqual(len(failures), 4)
+        self.assertEqual({e['event'] for e in failures}, {'addFailure', 'addError', 'addSubTest'})
+        for event in failures:
+            self.assertEqual(set(event['error']), {'type', 'traceback'})
+            self.assertTrue(0 < len(event['error']['traceback']) <= 8)
+        self.assertIn('setUpClass', [e['error']['traceback'][-1]['function'] for e in failures])
+        self.assertNotIn('actual failing fixture', text)
+        self.assertNotIn('actual error fixture', text)
+        self.assertNotIn('fixture setup failed', text)
+
+    def test_failure_locations_flush_before_interruption_without_private_text(self):
+        owner = self
+        def recurse(depth):
+            private_local = 'PRIVATE_LOCAL_SENTINEL'
+            if depth:
+                return recurse(depth - 1)
+            raise RuntimeError('PRIVATE_EXCEPTION_SENTINEL')
+
+        class Failing(unittest.TestCase):
+            def runTest(self):
+                recurse(16)
+
+        class Interrupted(unittest.TestCase):
+            def runTest(self):
+                # Read while the recorder is still open, before runner cleanup
+                # or its deferred traceback printing can flush anything.
+                directory = next(owner.parent.iterdir())
+                text = (directory / 'outcomes.jsonl').read_text()
+                events = [json.loads(line) for line in text.splitlines()]
+                error = next(e['error'] for e in events if e['event'] == 'addError')
+                owner.assertEqual(error['type'], 'RuntimeError')
+                owner.assertEqual(len(error['traceback']), 8)
+                for frame in error['traceback']:
+                    owner.assertEqual(set(frame), {'file', 'line', 'function'})
+                    owner.assertEqual(frame['file'], __file__)
+                    owner.assertEqual(frame['function'], 'recurse')
+                    owner.assertGreater(frame['line'], 0)
+                owner.assertNotIn('PRIVATE_', text)
+                raise KeyboardInterrupt()
+
+        runner = unittest.TextTestRunner(stream=io.StringIO())
+        make_result = runner._makeResult
+        with self.assertRaises(KeyboardInterrupt):
+            self.run_suite(unittest.TestSuite([Failing(), Interrupted()]), runner=runner)
+        self.assertEqual(runner._makeResult, make_result)
+        directory = next(self.parent.iterdir())
+        self.assertFalse((directory / 'complete.json').exists())
+        self.assertEqual(load(directory / 'interrupted.json')['error_type'], 'KeyboardInterrupt')
 
     def test_expected_failures_and_unexpected_successes_are_not_native_success(self):
         class Outcomes(unittest.TestCase):
@@ -672,6 +722,106 @@ class NativeReceiptTests(unittest.TestCase):
 
 
 class EvidenceCaptureTests(unittest.TestCase):
+    def test_ordered_terminal_prompts_do_not_reuse_reviews_or_discard_buffered_prompts(self):
+        terminal = Terminal.__new__(Terminal)
+        terminal.text, terminal.expect_position = '', 0
+        terminal.started, terminal.exited = time.monotonic(), False
+        terminal.folder = Path('synthetic-terminal')
+        chunks = iter(('Approve', ' discovery? details\nReviewed inputs\nApprove discovery?',
+                       ' yes\nApprove build?', ' yes\nApprove discovery?'))
+        reads = []
+        def read(timeout=.2):
+            chunk = next(chunks, '')
+            reads.append(chunk)
+            terminal.text += chunk
+        with patch.object(terminal, 'read', side_effect=read):
+            terminal.expect_next('Approve discovery?', 1)
+            self.assertEqual(len(reads), 2)
+            terminal.expect_next('Reviewed inputs', 1)
+            terminal.expect_next('Approve discovery?', 1)
+            terminal.expect_next('Approve build?', 1)
+            terminal.expect_next('Approve discovery?', 1)
+            self.assertEqual(terminal.expect_position, len(terminal.text))
+            position = terminal.expect_position
+            terminal.exited = True
+            with self.assertRaises(AssertionError):
+                terminal.expect_next('Approve discovery?', 1)
+            self.assertEqual(terminal.expect_position, position)
+            # The original whole-transcript search remains available to callers.
+            terminal.expect('Reviewed inputs', 1)
+
+    def test_dynamic_terminal_failure_preserves_original_and_retained_evidence(self):
+        from unittest.mock import Mock
+        from test_product_python_local import CombinedDynamicDiscoveryTests
+        for failure in (AssertionError('original prompt failure'), KeyboardInterrupt(), None):
+            with self.subTest(failure=type(failure).__name__), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                retained, fixture = root / 'retained', root / 'fixture'
+                retained.mkdir()
+                fixture.mkdir()
+                test = CombinedDynamicDiscoveryTests()
+                test.root, test.repo = fixture, fixture / 'repo'
+                test.dynamic_projects = Mock()
+                test.options = Mock(return_value={'editable': 'src'})
+                terminal = Mock(text='', expect_next=Mock(side_effect=failure))
+                terminal.close.return_value = 9
+                def create(argv, folder, **kwargs):
+                    folder.mkdir()
+                    (folder / 'terminal.txt').write_text('SYNTHETIC PROMPT\n')
+                    return terminal
+                with patch('terminal_driver.Terminal', side_effect=create), \
+                     patch('test_product_python_local.tempfile.mkdtemp', return_value=str(retained)), \
+                     patch('test_product_python_local.subprocess.Popen') as child, \
+                     patch('ptw.onboarding.private_directory', return_value=fixture / 'state'), \
+                     patch('native_receipt.sources', return_value={'synthetic-source': 'fixture'}), \
+                     patch('builtins.print'):
+                    with self.assertRaises(type(failure) if failure is not None else AssertionError) as caught:
+                        test.native_dynamic_sources()
+                if failure is not None:
+                    self.assertIs(caught.exception, failure)
+                    terminal.send.assert_not_called()
+                terminal.close.assert_called_once_with(graceful=False)
+                child.return_value.terminate.assert_called_once_with()
+                child.return_value.wait.assert_called_once_with(timeout=5)
+                import shutil
+                shutil.rmtree(fixture)
+                self.assertEqual((retained / 'dynamic-pty-0/terminal.txt').read_text(), 'SYNTHETIC PROMPT\n')
+                self.assertEqual(load(retained / 'source.json'), {'synthetic-source': 'fixture'})
+
+    def test_native_interrupt_timeout_captures_state_before_cleanup_once(self):
+        from unittest.mock import Mock
+        with tempfile.TemporaryDirectory() as name:
+            root = Path(name)
+            terminal = Mock(folder=root / 'normal', inputs=[], started=time.monotonic(), fd=123)
+            terminal.folder.mkdir()
+            failure = AssertionError('synthetic real Ctrl-C timeout')
+            terminal.wait.side_effect = failure
+            terminal.close.return_value = -15
+            test = NativeEvidenceTests('test_terminal_interrupt_ignores_launcher_signal_state')
+            test.root = root
+            def snapshot(value):
+                self.assertIs(value, terminal)
+                terminal.close.assert_not_called()
+                return {'pid': 321, 'threads': []}
+            with patch('test_product_gate.Terminal', return_value=terminal), \
+                 patch('test_product_gate.native.sources', return_value={}), \
+                 patch('test_product_gate.signal.signal'), \
+                 patch('test_product_gate.signal.getsignal'), \
+                 patch('test_product_gate.signal.pthread_sigmask', return_value=set()), \
+                 patch('test_product_gate.os.write') as write, \
+                 patch('product_lifecycle.interrupt_state', side_effect=snapshot) as diagnostic:
+                # Direct method call exercises failure plumbing without a PTY,
+                # signal mutation or bypassing the mandatory native suite.
+                with self.assertRaises(AssertionError) as raised:
+                    test.test_terminal_interrupt_ignores_launcher_signal_state()
+            self.assertIs(raised.exception, failure)
+            write.assert_called_once_with(123, b'\x03')
+            diagnostic.assert_called_once_with(terminal)
+            terminal.wait.assert_called_once()
+            self.assertEqual(terminal.wait.call_args.args[1:], (3, 'real Ctrl-C exit'))
+            terminal.close.assert_called_once_with(graceful=False)
+            self.assertEqual(load(root / 'normal/interrupt-state.json'), {'pid': 321, 'threads': []})
+
     def test_interrupt_diagnostics_are_bounded_and_exclude_private_status_fields(self):
         from product_lifecycle import interrupt_state
         import termios
@@ -1247,7 +1397,7 @@ class ProductRunnerTests(unittest.TestCase):
                                 raise PermissionError(errno.EACCES, 'synthetic read failure')
                             return read_bytes(path)
                         after = dict(live, state='Z') if kind == 'exit-race' else live
-                        with patch('sandbox_diagnostics.process_state', side_effect=[live, after]), \
+                        with patch('sandbox_diagnostics.process_state', side_effect=[live, live, after]), \
                                 patch.object(Path, 'read_bytes', partial):
                             trace.sample(os.getpid())
                     folder.mkdir()
@@ -1535,6 +1685,16 @@ class ProductRunnerTests(unittest.TestCase):
         first, unchanged = rows
         self.assertEqual(first['discovery_end_monotonic'] - first['discovery_start_monotonic'], 2)
         self.assertEqual(first['read_end_monotonic'] - first['read_start_monotonic'], 8)
+        order = ('before', 'exe', 'cmdline', 'command_after', 'mountinfo', 'after')
+        self.assertEqual(set(first['reads']), set(order))
+        previous = first['read_start_monotonic']
+        for name in order:
+            measured = first['reads'][name]
+            self.assertLessEqual(previous, measured['start_monotonic'])
+            self.assertEqual(measured['end_monotonic'] - measured['start_monotonic'],
+                             {'cmdline': 3, 'mountinfo': 5}.get(name, 0))
+            previous = measured['end_monotonic']
+        self.assertLessEqual(previous, first['read_end_monotonic'])
         self.assertEqual(first['persistence_end_monotonic'] - first['persistence_start_monotonic'], 14)
         self.assertEqual(first['end_monotonic'] - first['start_monotonic'], 10)
         self.assertGreaterEqual(first['persistence_start_monotonic'], unchanged['end_monotonic'])
@@ -1545,6 +1705,101 @@ class ProductRunnerTests(unittest.TestCase):
         self.assertTrue(load(trace.folder / 'trace.json')['complete'])
         sample = json.loads((trace.folder / 'observations.jsonl').read_text())
         self.assertEqual(digest(trace.folder / '0.cmdline'), sample['cmdline_sha256'])
+
+    def test_boundary_command_identity_precedes_mounts_and_exits_remain_gaps(self):
+        import errno
+        from native_boundary import compiled_command
+        from sandbox_diagnostics import BoundaryTrace, process_state
+        base = Path('/proc') / str(os.getpid())
+        live = process_state(base)
+        order = ('before', 'exe', 'cmdline', 'command_after', 'mountinfo', 'after')
+        missing = {'error_type': 'FileNotFoundError', 'errno': errno.ENOENT}
+        read_bytes = Path.read_bytes
+        for exit_after in (None, *order[:-1]):
+            with self.subTest(exit_after=exit_after):
+                trace = BoundaryTrace(self.root / ('exit-after-' + str(exit_after)))
+                trace.pid = os.getpid()
+                events, captured = [], {}
+                gone = False
+                state_names = iter(('before', 'command_after', 'after'))
+
+                def observe(name, value):
+                    nonlocal gone
+                    events.append(name)
+                    if gone:
+                        raise FileNotFoundError(errno.ENOENT, 'synthetic process exited')
+                    captured[name] = value
+                    if name == exit_after:
+                        gone = True
+                    return value
+
+                def state(path):
+                    self.assertEqual(path, base)
+                    try:
+                        return observe(next(state_names), live)
+                    except FileNotFoundError:
+                        return missing
+
+                def payload(path):
+                    if path.parent == base:
+                        return observe(path.name, b'synthetic-' + path.name.encode() + b'\0')
+                    return read_bytes(path)
+
+                with patch('sandbox_diagnostics.process_state', side_effect=state), \
+                        patch('sandbox_diagnostics.os.readlink',
+                              side_effect=lambda path: observe(path.name, '/synthetic/executable')), \
+                        patch.object(Path, 'read_bytes', payload):
+                    trace.sample(trace.pid)
+                trace.close()
+                self.assertEqual(events, list(order))
+                self.assertEqual(trace.samples, int(exit_after is None))
+                self.assertEqual(trace.gaps, int(exit_after is not None))
+                timing = load(trace.folder / 'timing.json')['rows'][0]
+                self.assertEqual(set(timing['reads']), set(order))
+                self.assertNotIn('synthetic process exited', json.dumps(timing))
+                if exit_after is None:
+                    row = json.loads((trace.folder / 'observations.jsonl').read_text())
+                    self.assertEqual(row['command_after'], live)
+                    self.assertTrue(load(trace.folder / 'trace.json')['complete'])
+                else:
+                    gap = load(trace.folder / 'gap-0/observation.json')
+                    self.assertEqual(gap['classification'], 'exit-race')
+                    self.assertEqual(gap['executable'], captured.get('exe'))
+                    self.assertFalse(load(trace.folder / 'trace.json')['complete'])
+                    self.assertFalse((trace.folder / 'observations.jsonl').exists())
+                    for name in ('cmdline', 'mountinfo'):
+                        original = trace.folder / 'gap-0' / name
+                        self.assertEqual(original.exists(), name in captured)
+                        if name in captured:
+                            self.assertEqual(original.read_bytes(), captured[name])
+                            self.assertEqual(digest(original), gap['sha256'][name])
+                    # Even captured argv/exe plus a mount table cannot bypass
+                    # the final process bracket or satisfy the native oracle.
+                    with self.assertRaisesRegex(ValueError, 'Missing actual compiled native boundary'):
+                        compiled_command(trace.folder, ['synthetic-request'])
+
+    def test_boundary_intermediate_identity_errors_and_reuse_cannot_hide_behind_exit(self):
+        import errno
+        from sandbox_diagnostics import BoundaryTrace, process_state
+        live = process_state(Path('/proc') / str(os.getpid()))
+        gone = {'error_type': 'FileNotFoundError', 'errno': errno.ENOENT}
+        invalid = ({'error_type': 'PermissionError', 'errno': errno.EACCES},
+                   {'error_type': 'IndexError', 'raw': 'malformed'},
+                   dict(live, start_ticks=live['start_ticks'] + 1))
+        for index, middle in enumerate(invalid):
+            for final in (live, gone):
+                with self.subTest(middle=middle, final=final):
+                    trace = BoundaryTrace(self.root / f'identity-{index}-{final.get("state")}')
+                    trace.pid = os.getpid()
+                    with patch('sandbox_diagnostics.process_state', side_effect=[live, middle, final]):
+                        trace.sample(trace.pid)
+                    trace.close()
+                    gap = load(trace.folder / 'gap-0/observation.json')
+                    self.assertEqual(gap['command_after'], middle)
+                    self.assertEqual(gap['classification'], 'incomplete')
+                    self.assertFalse(load(trace.folder / 'trace.json')['complete'])
+                    self.assertEqual(trace.samples, 0)
+                    self.assertTrue(trace.errors)
 
     def test_boundary_timing_limits_disclose_omissions_without_changing_discovery(self):
         from sandbox_diagnostics import BoundaryTrace
@@ -1700,7 +1955,7 @@ class ProductRunnerTests(unittest.TestCase):
                     def empty(path):
                         return b'' if path == base / kind else read_bytes(path)
 
-                    with patch('sandbox_diagnostics.process_state', side_effect=[before, after]), \
+                    with patch('sandbox_diagnostics.process_state', side_effect=[before, before, after]), \
                             patch.object(Path, 'read_bytes', empty):
                         trace.sample(os.getpid())
                     trace.close()
@@ -1738,7 +1993,7 @@ class ProductRunnerTests(unittest.TestCase):
                     return read_bytes(path)
 
                 after = dict(live, state='Z') if code == errno.EACCES or exited else live
-                with patch('sandbox_diagnostics.process_state', side_effect=[live, after]), \
+                with patch('sandbox_diagnostics.process_state', side_effect=[live, live, after]), \
                         patch.object(Path, 'read_bytes', partial):
                     trace.sample(os.getpid())
                 trace.close()
@@ -1822,6 +2077,10 @@ class ProductRunnerTests(unittest.TestCase):
                 self.assertIn('conversation-only', first_prompt(case, 'synthetic-nonce'))
                 self.assertIn('synthetic-nonce', first_prompt(case, 'synthetic-nonce'))
                 self.assertNotIn('synthetic-nonce', resume_prompt(case))
+                for prompt in (first_prompt(case, 'synthetic-nonce'), resume_prompt(case)):
+                    self.assertIn('project_action(action="run", resource=<reviewed command ID>)', prompt)
+                    self.assertIn('build is a command resource, not an action.', prompt)
+                    self.assertIn(', '.join(commands(case)), prompt)
                 for kind, root in layout(case):
                     self.assertFalse((repo / root / 'src/site.py').exists())
                     self.assertIn(str(Path(root) / 'src'), record['editable'])
@@ -2449,7 +2708,12 @@ sys.exit(23)
                                             'seconds': time.monotonic() - terminal.started})
                     terminal._save_inputs()
                     os.write(terminal.fd, b'\x03')
-                    terminal.wait(lambda: terminal.exited, 3, 'real Ctrl-C exit')
+                    try:
+                        terminal.wait(lambda: terminal.exited, 3, 'real Ctrl-C exit')
+                    except AssertionError:
+                        from product_lifecycle import interrupt_state
+                        save(terminal.folder / 'interrupt-state.json', interrupt_state(terminal))
+                        raise
                     row = next(s for s in terminal.text.splitlines() if s.startswith('STATE='))
                     self.assertEqual(json.loads(row[6:]),
                                      {'ignored': False, 'blocked': False, 'foreground': True})

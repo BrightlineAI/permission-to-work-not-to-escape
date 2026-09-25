@@ -4,6 +4,7 @@ No tests are executed by discovery/validation. Receipts are consistency evidence
 not signatures: an independent operator still has to establish their provenance.
 """
 from collections import Counter
+from collections import deque
 from contextlib import ExitStack
 from functools import wraps
 import hashlib
@@ -18,6 +19,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import traceback
 import unittest
 from unittest.mock import patch
 
@@ -247,8 +249,19 @@ def run_recorded(runner, suite, original, *, repo=REPO, parent=None):
 
                     def observed(test, *args, name=name, method=method):
                         fields = {}
+                        error = None
                         if name == 'addSubTest':
                             fields = {'subtest_id': args[0].id(), 'passed': args[1] is None}
+                            error = args[1]
+                        elif name in ('addFailure', 'addError', 'addExpectedFailure'):
+                            error = args[0]
+                        if error is not None:
+                            # Flush causal locations before the next test can
+                            # time out. Never format exception text or locals.
+                            frames = deque(({'file': frame.f_code.co_filename,
+                                             'line': line, 'function': frame.f_code.co_name}
+                                            for frame, line in traceback.walk_tb(error[2])), maxlen=8)
+                            fields['error'] = {'type': error[0].__name__, 'traceback': list(frames)}
                         emit(name, test, **fields)
                         return method(test, *args)
 

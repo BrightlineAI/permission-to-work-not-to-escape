@@ -136,6 +136,68 @@ class PnpmToolTests(unittest.TestCase):
         with self.assertRaisesRegex(Invalid, 'tooling changed'):
             pnpm_tool.verified(directory)
 
+    def test_node_bytes_rechecked_before_and_after_pnpm_and_yarn_execution(self):
+        from ptw import yarn_tool
+        from test_product_yarn import YarnToolTests
+        # Redirect only the binary read to synthetic bytes. Keep path validation,
+        # real digesting, tool receipts and both verification boundaries intact.
+        node = Path('/usr/bin/node').resolve(strict=True)
+        binary = self.root / 'synthetic-node'
+        original = b'A' * (262144 + 1)
+        open_file = Path.open
+
+        def read_node(path, *args, **kwargs):
+            return open_file(binary if path == node else path, *args, **kwargs)
+
+        with patch.object(Path, 'open', read_node):
+            for tool in (pnpm_tool, yarn_tool):
+                with self.subTest(tool=tool.__name__):
+                    binary.write_bytes(original)
+                    if tool is pnpm_tool:
+                        directory = self.provision(self.root / 'pnpm')
+                        arguments = ['fetch']
+                    else:
+                        directory = YarnToolTests.provision(self)
+                        arguments = ['install', '--frozen-lockfile']
+                    receipt = tool.verified(directory)[1]
+                    self.assertEqual(receipt['node'], {
+                        'path': str(node), 'sha256': hashlib.sha256(original).hexdigest()})
+                    stage = self.root / tool.__name__
+                    stage.mkdir()
+                    save(stage / 'package.json', {'private': True})
+                    (stage / 'yarn.lock').write_text('# yarn lockfile v1\n')
+
+                    def mutate():
+                        before = binary.stat()
+                        with binary.open('r+b') as stream:
+                            stream.seek(-1, os.SEEK_END)
+                            stream.write(b'B')
+                        os.utime(binary, ns=(before.st_atime_ns, before.st_mtime_ns))
+                        self.assertEqual(binary.stat().st_size, before.st_size)
+                        self.assertEqual(binary.stat().st_mtime_ns, before.st_mtime_ns)
+
+                    mutate()
+                    with patch.object(tool.subprocess, 'run') as native:
+                        with self.assertRaisesRegex(Invalid, 'tooling changed'):
+                            tool.run(arguments, cwd=stage, directory=directory)
+                        native.assert_not_called()
+                    binary.write_bytes(original)
+
+                    def execute(*args, **kwargs):
+                        mutate()
+                        return subprocess.CompletedProcess([], 0, '', '')
+
+                    with patch('ptw.supervisor.runtime_namespace', return_value=['namespace']), \
+                            patch.object(tool.subprocess, 'run', side_effect=execute) as native:
+                        with self.assertRaisesRegex(Invalid, 'tooling changed'):
+                            tool.run(arguments, cwd=stage, directory=directory)
+                        native.assert_called_once()
+                    report = load(next(stage.glob('native-*.json')))
+                    self.assertEqual(report['outcome'], 'failed')
+                    binary.unlink()
+                    with self.assertRaises(FileNotFoundError):
+                        tool.verified(directory)
+
     def test_bad_integrity_keeps_failure_receipt_without_extraction(self):
         directory = self.root / 'bad'
         with self.assertRaisesRegex(Invalid, 'integrity mismatch'):
