@@ -225,8 +225,10 @@ class CIPrerequisiteTests(unittest.TestCase):
                         self.runtime.verify(npm, self.usr)
                     executable.write_bytes(original)
             # Version works, but namespace creation fails: do not fall back.
-            self.write_executable(bwrap, '[ "$1" = "--version" ] || exit 20\nprintf "fixture bwrap\\n"')
-            with self.assertRaises(installer.InstallError):
+            self.write_executable(bwrap, 'if [ "$1" != "--version" ]; then '
+                                  'printf "fixture namespace denied\\n" >&2; exit 20; fi\n'
+                                  'printf "fixture bwrap\\n"')
+            with self.assertRaisesRegex(installer.InstallError, r'CI namespace probe failed \(20\): fixture namespace denied'):
                 self.runtime.verify(npm, self.usr)
         self.assertEqual(self.unrelated.read_text(), 'preserve unrelated runtime')
 
