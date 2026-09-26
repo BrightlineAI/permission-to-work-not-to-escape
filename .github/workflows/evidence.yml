@@ -35,6 +35,7 @@ jobs:
         run: '"$RUNNER_TEMP/ptw-source-tests/bin/python" harness/scripts/provision_ci_runtime.py --npm "$(command -v npm)"'
       - name: Check previously failing hosted fixtures
         run: |
+          env -i PATH=/usr/bin:/bin HOME="$RUNNER_TEMP" /usr/bin/zsh -fc 'autoload -Uz compaudit; compaudit'
           PYTHONPATH=harness:harness/tests "$RUNNER_TEMP/ptw-source-tests/bin/python" -m unittest -v \
             test_product_install.InstallerTests.test_printed_zsh_login_interactive_and_zdotdir \
             test_product_audit.AuditInstallTests.test_dispatch_concurrent_reversed_slots_complete_and_replay_distinct_installs \
