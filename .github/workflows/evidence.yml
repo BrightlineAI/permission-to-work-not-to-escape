@@ -18,6 +18,10 @@ jobs:
           sudo apt-get update
           sudo apt-get install --yes bubblewrap fish zsh apparmor-profiles
           sudo apparmor_parser --replace /usr/share/apparmor/extra-profiles/bwrap-userns-restrict
+          # Normal zsh startup must pass compaudit, not wait for an unsafe override.
+          stat -c '%a %U:%G %n' /usr/share/zsh /usr/share/zsh/vendor-completions
+          sudo chown root:root /usr/share/zsh /usr/share/zsh/vendor-completions
+          sudo chmod go-w /usr/share/zsh /usr/share/zsh/vendor-completions
           sudo /usr/bin/python3 harness/scripts/provision_ci_runtime.py --node-source "$(command -v node)"
       - run: python scripts/verify_evidence.py
       - run: python scripts/check_docs.py

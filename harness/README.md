@@ -337,7 +337,12 @@ apparmor-profiles with apt, and selects Node 22 with the official setup-node
 action. It loads Ubuntu's packaged `bwrap-userns-restrict` AppArmor profile for
 the namespace prerequisite, following Ubuntu's
 [purpose-built bwrap profile guidance](https://discourse.ubuntu.com/t/understanding-apparmor-user-namespace-restriction/58007).
-Global user-namespace restrictions remain enabled. Its
+Global user-namespace restrictions remain enabled. The disposable runner setup
+also restores root ownership and removes group/other write access on
+`/usr/share/zsh` and its `vendor-completions` directory. A sanitized ordinary-user
+`compaudit` must then pass: the normal zsh startup test cannot answer an insecure
+completion prompt or bypass its security check. These two directories were the
+reported cause of the hosted terminal stall. Its
 `harness/scripts/provision_ci_runtime.py` copies the selected Node executable
 to `/usr/bin/node`, verifies its version and SHA-256, and atomically replaces
 only an absent or regular destination. Linked destinations are rejected. This
