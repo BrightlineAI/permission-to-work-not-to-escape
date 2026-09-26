@@ -339,20 +339,15 @@ def run_journey(config):
         report.update(error_type=type(exc).__name__, error=str(exc))
         raise
     finally:
+        from product_fixture_lifecycle import cleanup, owned_controllers
+        def retain_controller():
+            if store is not None:
+                write('events.json', {'actions': events()})
+                write('status.json', store.status(project))
         try:
-            for terminal in terminals:
-                terminal.close(graceful=False)
+            cleanup(lambda: owned_controllers(state) if state.is_dir() else [],
+                    closers=[*[lambda t=t: t.close(graceful=False) for t in terminals], retain_controller],
+                    report=report, destination=out / 'fixture-cleanup.json')
         finally:
-            try:
-                if store is not None:
-                    write('events.json', {'actions': events()})
-                    write('status.json', store.status(project))
-                    store.stop(project, 'product journey cleanup')
-                    write('cleanup.json', {'termination': Supervisor(store).reconcile()})
-                    remove(store)
-            except BaseException as exc:
-                report['cleanup_error'] = type(exc).__name__ + ': ' + str(exc)
-                raise
-            finally:
-                report['full_elapsed_seconds'] = time.monotonic() - start
-                write('attempt.json', report)
+            report['full_elapsed_seconds'] = time.monotonic() - start
+            write('attempt.json', report)

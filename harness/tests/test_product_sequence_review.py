@@ -462,15 +462,18 @@ class NativeSequenceTests(artifacts.ArtifactFixture):
         super().setUp()
         from ptw.monitor import ensure, remove
         patch('ptw.local_git.execute', side_effect=artifacts.native_git_execute).start()
-        ensure(self.store)
-        self.addCleanup(lambda: remove(self.store))
-        self.addCleanup(lambda: self.store.stop('python-demo'))
+        from product_fixture_lifecycle import stop_controller
+        self.temp.retain = True
+        self.addCleanup(stop_controller, self.store)
+        self.temp.ensure(self.store)
         self.evidence = Path(tempfile.mkdtemp(prefix='ptw-sequence-native-'))
         print('SEQUENCE_EVIDENCE=' + str(self.evidence), flush=True)
         source = Path(__file__).resolve().parents[1]
         save(self.evidence / 'sources.json', {
             str(p.relative_to(source)): hashlib.sha256(p.read_bytes()).hexdigest()
-            for p in sorted((source / 'ptw').rglob('*')) if p.is_file() and '__pycache__' not in p.parts})
+            for p in [*sorted((source / 'ptw').rglob('*')), Path(__file__),
+                      source / 'scripts/product_fixture_lifecycle.py', source / 'tests/test_workspace.py']
+            if p.is_file() and '__pycache__' not in p.parts})
         def retain():
             save(self.evidence / 'audit.json', self.store.audit_export('python-demo'))
             with self.store.locked() as db:

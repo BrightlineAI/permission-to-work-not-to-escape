@@ -1789,7 +1789,10 @@ class LocalSetupTests(unittest.TestCase):
 
 class LocalPythonTests(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory(prefix='ptw-local-python-')
+        import sys
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
+        from product_fixture_lifecycle import FixtureDirectory
+        self.tmp = FixtureDirectory(prefix='ptw-local-python-')
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
         self.repo = self.root / 'repo'
@@ -2541,7 +2544,7 @@ shutil.copyfile(root / 'uv.lock', '/target/fixture.lock')
             raise FixtureCreated()
 
         try:
-            ensure(store)
+            self.tmp.ensure(store)
             with patch('ptw.python_local.run_source_build', side_effect=generate):
                 with self.assertRaises(FixtureCreated):
                     validate_source_lock(store, actor['token'], 'local', provider=provider)
@@ -2694,7 +2697,7 @@ shutil.copyfile(root / 'uv.lock', '/target/fixture.lock')
                 return validate_source_lock(store, actor['token'], 'local', provider=provider)
         unrelated = subprocess.Popen(['/usr/bin/sleep', '120'])
         try:
-            ensure(store)
+            self.tmp.ensure(store)
             if stale or deny_build:
                 with self.assertRaisesRegex(EvidenceError, 'Confined offline lock validation failed') as raised:
                     validate()
@@ -2859,7 +2862,7 @@ shutil.copyfile(root / 'uv.lock', '/target/fixture.lock')
         store, actor, bundle = self.activate()
         unrelated = subprocess.Popen(['/usr/bin/sleep', '90'])
         try:
-            ensure(store)
+            self.tmp.ensure(store)
             install = install_editable if editable else install_wheel
             with patch.dict(os.environ, {'PYTHONPATH': 'SYNTHETIC_LOCAL_INJECTION',
                                           'UV_INDEX_URL': 'SYNTHETIC_LOCAL_INJECTION'}):
@@ -4484,7 +4487,7 @@ shutil.copyfile(root / 'uv.lock', '/target/fixture.lock')
 
         worker = threading.Thread(target=build, daemon=True)
         try:
-            ensure(store)
+            self.tmp.ensure(store)
             with patch.object(Supervisor, 'engine', observed):
                 worker.start()
                 deadline = time.monotonic() + 30
@@ -4607,7 +4610,7 @@ shutil.copyfile(root / 'uv.lock', '/target/fixture.lock')
         self.assertEqual(self.source['native_build_view'], 'setuptools-src-v1')
         store, actor, _ = self.activate()
         try:
-            ensure(store)
+            self.tmp.ensure(store)
             with self.assertRaisesRegex(EvidenceError, 'Confined editable install failed'):
                 install_editable(store, actor['token'], 'local', provider=provider)
             with store.locked() as db:
@@ -4768,7 +4771,7 @@ shutil.copyfile(root / 'uv.lock', '/target/fixture.lock')
         self.policy['project']['python_dependencies']['sources'] = [self.source]
         store, actor, _ = self.activate(pending=True)
         try:
-            ensure(store)
+            self.tmp.ensure(store)
             receipt = discover_build_requirements(store, actor['token'], 'local')
             self.assertEqual(receipt['requirements'], [])
             self.assertEqual(receipt['dependencies'], [])
@@ -4811,7 +4814,7 @@ shutil.copyfile(root / 'uv.lock', '/target/fixture.lock')
         store, actor, bundle = self.activate(pending=True)
         unrelated = subprocess.Popen(['/usr/bin/sleep', '90'])
         try:
-            ensure(store)
+            self.tmp.ensure(store)
             with patch.dict(os.environ, {k: 'SYNTHETIC_LOCAL_INJECTION' for k in
                     ('PYTHONPATH', 'PYTHONHOME', 'PIP_CONFIG_FILE', 'UV_INDEX_URL', 'FIXTURE_CREDENTIAL')}):
                 receipt = discover_build_requirements(store, actor['token'], 'local', provider=provider)
@@ -4844,7 +4847,7 @@ shutil.copyfile(root / 'uv.lock', '/target/fixture.lock')
         self.dynamic_project({'version': '2.0', 'dependencies': []})
         store, actor, _ = self.activate()
         try:
-            ensure(store)
+            self.tmp.ensure(store)
             with self.assertRaisesRegex(EvidenceError, 'unexpected identity'):
                 build_wheel(store, actor['token'], 'local')
             self.assertFalse(list(store.directory.glob('local-build-*')))
@@ -4878,7 +4881,7 @@ shutil.copyfile(root / 'uv.lock', '/target/fixture.lock')
         store, actor, bundle = self.activate(pending=pending)
         unrelated = subprocess.Popen(['/usr/bin/sleep', '90'])
         try:
-            ensure(store)
+            self.tmp.ensure(store)
             injected = {key: 'SYNTHETIC_LOCAL_INJECTION' for key in (
                 'PYTHONPATH', 'PYTHONHOME', 'UV_CONFIG_FILE', 'UV_INDEX_URL', 'PIP_CONFIG_FILE', 'PRIVATE_TOKEN',
                 'CC', 'CFLAGS', 'LDFLAGS')}
@@ -4987,7 +4990,7 @@ shutil.copyfile(root / 'uv.lock', '/target/fixture.lock')
             self.editable_policy()
             rebuilt_store, rebuilt_actor, _ = self.activate()
             try:
-                ensure(rebuilt_store)
+                self.tmp.ensure(rebuilt_store)
                 rebuilt_receipt = install_editable(rebuilt_store, rebuilt_actor['token'], 'local', provider=provider)
                 result = Workspace(rebuilt_store).request(rebuilt_actor['token'], 'rebuilt-import',
                     request('run', resource=command['id'],
@@ -5063,7 +5066,7 @@ shutil.copyfile(root / 'uv.lock', '/target/fixture.lock')
         store, actor, bundle = self.activate()
         unrelated = subprocess.Popen(['/usr/bin/sleep', '90'])
         try:
-            ensure(store)
+            self.tmp.ensure(store)
             install = install_editable if editable else install_wheel
             with patch.dict(os.environ, {'UV_EXTRA_INDEX_URL': 'SYNTHETIC_LOCAL_INJECTION',
                                           'PIP_EXTRA_INDEX_URL': 'SYNTHETIC_LOCAL_INJECTION'}):
@@ -5131,7 +5134,7 @@ shutil.copyfile(root / 'uv.lock', '/target/fixture.lock')
         self.policy['project']['python_dependencies']['sources'] = [self.source]
         store, actor, _ = self.activate()
         try:
-            ensure(store)
+            self.tmp.ensure(store)
             with self.assertRaisesRegex(EvidenceError, 'Confined local build failed'):
                 build_wheel(store, actor['token'], 'local')
             self.assertFalse(list(store.directory.glob('local-build-*')))
@@ -5162,7 +5165,7 @@ shutil.copyfile(root / 'uv.lock', '/target/fixture.lock')
             self.editable_policy()
         store, actor, _ = self.activate()
         try:
-            ensure(store)
+            self.tmp.ensure(store)
             injected = {key: 'SYNTHETIC_LOCAL_INJECTION' for key in ('CC', 'CFLAGS', 'LDFLAGS', 'PYTHONPATH')}
             with patch.dict(os.environ, injected), self.assertRaisesRegex(EvidenceError, 'native-wheel approval'):
                 (install_editable if editable else install_wheel)(store, actor['token'], 'local')
@@ -5185,7 +5188,7 @@ shutil.copyfile(root / 'uv.lock', '/target/fixture.lock')
         store, actor, bundle = self.activate()
         unrelated = subprocess.Popen(['/usr/bin/sleep', '90'])
         try:
-            ensure(store)
+            self.tmp.ensure(store)
             with self.assertRaisesRegex(Invalid, 'explicit approval'):
                 build_wheel(store, actor['token'], 'unapproved-source')
             self.assertFalse(list(store.directory.glob('local-build-*')))
@@ -5702,7 +5705,7 @@ class CombinedLocalPythonTests(unittest.TestCase):
         store, bundle = self.activate()
         unrelated = subprocess.Popen(['/usr/bin/sleep', '90'])
         try:
-            ensure(store)
+            self.tmp.ensure(store)
             with patch('ptw.registry.provider_for', return_value=self.provider):
                 with self.assertRaisesRegex(EvidenceError, 'Confined editable install failed'):
                     self.prepare(store, bundle)
@@ -5731,7 +5734,7 @@ class CombinedLocalPythonTests(unittest.TestCase):
         store, bundle = self.activate()
         unrelated = subprocess.Popen(['/usr/bin/sleep', '90'])
         try:
-            ensure(store)
+            self.tmp.ensure(store)
             with patch('ptw.registry.provider_for', return_value=self.provider), patch.dict(os.environ, {
                     k: 'SYNTHETIC_LOCAL_INJECTION' for k in ('PYTHONPATH', 'PYTHONHOME', 'PIP_CONFIG_FILE', 'UV_INDEX_URL')}):
                 receipts = self.prepare(store, bundle)

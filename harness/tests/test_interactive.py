@@ -186,6 +186,8 @@ class ProtocolTests(WorkspaceFixture):
         from ptw.monitor import ensure, remove
         from mcp import ClientSession, StdioServerParameters
         from mcp.client.stdio import stdio_client
+        from product_fixture_lifecycle import stop_controller
+        self.addCleanup(stop_controller, self.store)
         ensure(self.store)
         session_path = self.root / "session.json"
         save(session_path, self.actor)

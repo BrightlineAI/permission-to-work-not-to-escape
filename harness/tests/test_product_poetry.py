@@ -97,7 +97,9 @@ class CompatibilityProvider(ResolutionProvider, PyPIEvidence):
 
 class PoetryBoundaryTests(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory(prefix='ptw-poetry-unit-')
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
+        from product_fixture_lifecycle import FixtureDirectory
+        self.tmp = FixtureDirectory(prefix='ptw-poetry-unit-')
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
         self.repo = self.root / 'repo'
@@ -1166,8 +1168,6 @@ poetry.locker.set_lock_data(poetry.package, packages)
         from ptw.onboarding import private_directory
         from ptw.store import Store
         from ptw.workspace import Workspace, request
-        from ptw.monitor import remove
-        from ptw.supervisor import Supervisor
         self.provider = ResolutionProvider()
         result = self.export('initial-review', extras=('feature',))
         self.enterContext(patch.dict(os.environ, {'PTW_USER_STATE': str(self.root / 'operator')}))
@@ -1193,12 +1193,7 @@ poetry.locker.set_lock_data(poetry.package, packages)
         store = Store(directory / 'controller')
         store.activate(bundle)
 
-        def cleanup():
-            store.stop('poetry-revision')
-            Supervisor(store).reconcile()
-            remove(store)
-
-        self.addCleanup(cleanup)
+        self.tmp.own(store)
         save(directory / 'project.json', dict(project='poetry-revision', repo=str(self.repo), state=str(store.directory),
             bundle=str(directory / 'approved.json'), policy_sha256=bundle['approval']['sha256'], task='work',
             language='python', publication_sha256='synthetic-no-setup-publication'))
@@ -1216,7 +1211,6 @@ poetry.locker.set_lock_data(poetry.package, packages)
 
     def test_native_revision_terminal_decisions_and_protected_import(self):
         from test_product_onboarding import Terminal
-        from ptw.monitor import ensure
         from ptw.packages import PackageControl
         from ptw.workflow import dispatch
         from ptw.workspace import request
@@ -1271,7 +1265,7 @@ poetry.locker.set_lock_data(poetry.package, packages)
         self.assertEqual(current['policy']['tasks'], old['policy']['tasks'])
         self.assertEqual(current['policy']['project']['packages'], old['policy']['project']['packages'])
         self.assertEqual(load(directory / 'dependency-journal.json')['phase'], 'committed')
-        ensure(store)
+        self.tmp.ensure(store)
         actor = store.register('poetry-revision', 'work')
         installed = PackageControl(store, provider=self.provider).install(actor['token'], 'install', descriptor['pins'])
         self.assertTrue(installed.get('allowed'), installed)
@@ -1363,10 +1357,8 @@ poetry.locker.set_lock_data(poetry.package, packages)
         self.assertEqual({n: (self.repo / n).read_bytes() for n in original}, original)
 
     def test_native_protected_import_and_unrelated_job(self):
-        from ptw.monitor import ensure, remove
         from ptw.packages import PackageControl
         from ptw.store import Store
-        from ptw.supervisor import Supervisor
         from ptw.workflow import dispatch
         from ptw.workspace import request
         result = self.export()
@@ -1381,9 +1373,10 @@ poetry.locker.set_lock_data(poetry.package, packages)
         store = Store(self.root / 'controller')
         bundle = approve(policy, inv, digest(compile_policy(policy, inv)), 'synthetic operator')
         store.activate(bundle)
+        self.tmp.own(store)
         unrelated = subprocess.Popen(['/usr/bin/sleep', '120'])
         try:
-            ensure(store)
+            self.tmp.ensure(store)
             actor = store.register('poetry-native', 'work')
             installed = PackageControl(store, provider=self.provider).install(actor['token'], 'install', result['pins'])
             self.assertTrue(installed.get('allowed'), installed)
@@ -1395,9 +1388,20 @@ poetry.locker.set_lock_data(poetry.package, packages)
             self.assertEqual(store.status('poetry-native')['violations'], 0)
             self.assertIsNone(unrelated.poll())
         finally:
-            store.stop('poetry-native')
-            Supervisor(store).reconcile()
-            remove(store)
-            self.assertIsNone(unrelated.poll())
-            unrelated.terminate()
-            unrelated.wait(timeout=5)
+            self.cleanup_import(store, unrelated)
+
+    def cleanup_import(self, store, unrelated):
+        from product_fixture_lifecycle import cleanup
+        def close_control():
+            try:
+                self.assertIsNone(unrelated.poll())
+            finally:
+                unrelated.terminate()
+                unrelated.wait(timeout=5)
+        try:
+            cleanup([store], destination=self.root / 'import-cleanup.json')
+        finally:
+            # The live control must survive controller teardown, and must also
+            # be reaped when that teardown fails. Neither error hides the other.
+            cleanup([], closers=[close_control],
+                    destination=self.root / 'import-child-cleanup.json')

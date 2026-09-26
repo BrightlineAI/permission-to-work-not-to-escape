@@ -16,6 +16,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 from evidence_io import capture, reference, verify_wheel_identity
 
+from product_fixture_lifecycle import cleanup, owned_controllers
 from ptw import onboarding
 from ptw.monitor import ensure, remove
 from ptw.policy import load, save
@@ -197,19 +198,21 @@ def journey(out, case, *, terminal=False, revisions=False, installed_python=None
     started = time.monotonic()
     # This tests the real typed setup and controller. Only login and human input
     # are replaced: no model is invoked, and approval applies to these fixtures.
-    if terminal:
-        record = terminal_setup(repo, state, args, out,
-            refusals=('reject', 'cancel', 'eof') if language == 'mixed' else ())
-    else:
-        with patch('ptw.codex.require_login'), patch('sys.stdin.isatty', return_value=True), \
-                patch('builtins.input', return_value='yes'), redirect_stdout(transcript):
-            record = onboarding.setup(repo, state, args)
-        (out / 'review.txt').write_text(transcript.getvalue())
-    store = Store(record['state'])
-    results = {'setup_seconds': time.monotonic() - started, 'installs': [], 'commands': [],
+    store = unrelated = None
+    results = {'passed': False, 'installs': [], 'commands': [],
                'review_mode': 'real PTY with scripted answers' if terminal else 'scripted input fixture'}
-    unrelated = subprocess.Popen(['/usr/bin/sleep', '600'])
     try:
+        if terminal:
+            record = terminal_setup(repo, state, args, out,
+                refusals=('reject', 'cancel', 'eof') if language == 'mixed' else ())
+        else:
+            with patch('ptw.codex.require_login'), patch('sys.stdin.isatty', return_value=True), \
+                    patch('builtins.input', return_value='yes'), redirect_stdout(transcript):
+                record = onboarding.setup(repo, state, args)
+            (out / 'review.txt').write_text(transcript.getvalue())
+        store = Store(record['state'])
+        results['setup_seconds'] = time.monotonic() - started
+        unrelated = subprocess.Popen(['/usr/bin/sleep', '600'])
         ensure(store)
         if installed_python is not None:
             from ptw.monitor import call, unit_for
@@ -288,18 +291,21 @@ def journey(out, case, *, terminal=False, revisions=False, installed_python=None
             if kind == 'typescript' and not (repo / root / 'dist/app.js').is_file():
                 raise AssertionError('No compiled TypeScript artifact was published')
         results['passed'] = True
+    except BaseException as exc:
+        results.update(passed=False, error=type(exc).__name__ + ': ' + str(exc))
+        raise
     finally:
         try:
-            store.stop(record['project'])
-            Supervisor(store).reconcile()
-            results['unrelated_process_alive_after_stop'] = unrelated.poll() is None
-            if not results['unrelated_process_alive_after_stop']:
-                results['passed'] = False
-                raise AssertionError('Unrelated process did not survive project stop')
-            remove(store)
+            cleanup(owned_controllers(state), report=results, destination=out / 'fixture-cleanup.json')
+            if unrelated is not None:
+                results['unrelated_process_alive_after_stop'] = unrelated.poll() is None
+                if not results['unrelated_process_alive_after_stop']:
+                    results['passed'] = False
+                    raise AssertionError('Unrelated process did not survive project stop')
         finally:
-            unrelated.terminate()
-            unrelated.wait(timeout=5)
+            if unrelated is not None:
+                unrelated.terminate()
+                unrelated.wait(timeout=5)
             save(out / 'journey.json', results)
     return results
 
@@ -463,7 +469,7 @@ def main():
     source = Path(__file__).resolve().parents[1]
     measured_sources = [*sorted((source / 'ptw').glob('*.py')),
         source / 'scripts/product_ecosystems_acceptance.py', source / 'tests/test_product_ecosystems.py',
-        source / 'scripts/terminal_driver.py',
+        source / 'scripts/terminal_driver.py', source / 'scripts/product_fixture_lifecycle.py',
         source / 'tests/test_packages.py', source / 'tests/test_ecosystems.py',
         *sorted(p for p in (source / 'examples/product-ecosystems').rglob('*') if p.is_file())]
     report = {'passed': False, 'kind': 'scripted native dependency journeys; no model trajectories',

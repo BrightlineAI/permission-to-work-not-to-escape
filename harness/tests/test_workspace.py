@@ -193,7 +193,10 @@ class SharedStopFixtureTests(unittest.TestCase):
 
 class WorkspaceFixture(unittest.TestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory(prefix="ptw-workspace-")
+        import sys
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
+        from product_fixture_lifecycle import FixtureDirectory
+        self.temp = FixtureDirectory(prefix='ptw-workspace-')
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
         create(self.root / "example")

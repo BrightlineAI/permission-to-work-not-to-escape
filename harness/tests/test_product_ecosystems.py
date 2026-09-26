@@ -28,7 +28,10 @@ from test_packages import CRITICAL, FixtureProvider, wheel_bytes
 
 class ProductEcosystemTests(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory(prefix='ptw-product-deps-')
+        import sys
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
+        from product_fixture_lifecycle import FixtureDirectory
+        self.tmp = FixtureDirectory(prefix='ptw-product-deps-')
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
         self.repo = self.root / 'repo'
@@ -857,7 +860,7 @@ class WorkspaceSourceTests(unittest.TestCase):
         store.activate(approve(policy, inv, digest(compile_policy(policy, inv)), 'synthetic fixture operator'))
         unrelated = subprocess.Popen(['/usr/bin/sleep', '90'])
         try:
-            ensure(store)
+            self.tmp.ensure(store)
             parent = store.register('narrow-workspace', 'work')
             installed = PackageControl(store).install(parent['token'], 'local-install', lock, ecosystem='npm')
             self.assertTrue(installed.get('allowed'), installed)
@@ -1023,7 +1026,7 @@ class PrivateRegistryTests(unittest.TestCase):
             store = Store(self.root / 'private-controller')
             store.activate(approve(policy, inv, digest(compile_policy(policy, inv)), 'synthetic fixture operator'))
             try:
-                ensure(store)
+                self.tmp.ensure(store)
                 actor = store.register('private-native', 'work')
                 installed = PackageControl(store, provider=provider).install(actor['token'], 'private-install', lock, ecosystem='npm')
                 self.assertTrue(installed.get('allowed'), installed)
@@ -1636,7 +1639,7 @@ class PrivatePythonTests(unittest.TestCase):
             store.activate(bundle)
             unrelated = subprocess.Popen(['/usr/bin/sleep', '120'], env={'PATH': '/usr/bin:/bin'})
             try:
-                ensure(store)
+                self.tmp.ensure(store)
                 actor = store.register('private-python', 'work')
                 control = PackageControl(store, provider=provider)
                 violations = 0

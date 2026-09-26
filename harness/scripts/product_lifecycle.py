@@ -70,57 +70,52 @@ def cancellation(probe, ptw, env):
     directory = state / hashlib.sha256(str(repo).encode()).hexdigest()[:24]
     argv = [ptw, 'codex', '--repo', str(repo), '--goal', 'Maintain this Python application',
             '--editable', 'src', '--files', '-', '--setup-only']
-    for label, answer in (('reject', 'reject'), ('cancel', 'cancel'), ('eof', '\x04'),
-                          ('interrupt', '\x03'), ('blank', '')):
-        terminal = Terminal(argv, probe.folder / label, env=env, replace_env=True, cwd=probe.folder)
+    from product_fixture_lifecycle import cleanup, owned_controllers
+    state.mkdir(mode=0o700, exist_ok=True)
+    try:
+        for label, answer in (('reject', 'reject'), ('cancel', 'cancel'), ('eof', '\x04'),
+                              ('interrupt', '\x03'), ('blank', '')):
+            terminal = Terminal(argv, probe.folder / label, env=env, replace_env=True, cwd=probe.folder)
+            try:
+                terminal.expect('Approve exactly this policy?', 60)
+                if label in ('eof', 'interrupt'):
+                    terminal.inputs.append({'seconds': time.monotonic() - terminal.started,
+                                            'control': label})
+                    terminal._save_inputs()
+                    os.write(terminal.fd, answer.encode())
+                else:
+                    terminal.send(answer)
+                try:
+                    terminal.wait(lambda: terminal.exited, 30, label + ' exit')
+                except AssertionError:
+                    if label == 'interrupt':
+                        probe.response('interrupt timeout state', interrupt_state(terminal))
+                    raise
+            finally:
+                code = terminal.close(graceful=False)
+                probe.response(label + ' original PTY', reference(probe.evidence, terminal.folder / 'terminal.txt'))
+                probe.response(label + ' original inputs', reference(probe.evidence, terminal.folder / 'inputs.json'))
+                probe.response(label + ' process exit', {'exit_code': code})
+            probe.check(label + ' cancellation exit', 130 if label in ('eof', 'interrupt') else 2, code)
+            probe.check(label + ' no traceback', False, 'Traceback' in terminal.text)
+            probe.check(label + ' preserves repository', before, snapshot(repo))
+            probe.check(label + ' no active project', False, (directory / 'project.json').exists())
+        # Rejection is recoverable through the same advertised command and review.
+        terminal = Terminal(argv, probe.folder / 'retry', env=env, replace_env=True, cwd=probe.folder)
         try:
             terminal.expect('Approve exactly this policy?', 60)
-            if label in ('eof', 'interrupt'):
-                terminal.inputs.append({'seconds': time.monotonic() - terminal.started,
-                                        'control': label})
-                terminal._save_inputs()
-                os.write(terminal.fd, answer.encode())
-            else:
-                terminal.send(answer)
-            try:
-                terminal.wait(lambda: terminal.exited, 30, label + ' exit')
-            except AssertionError:
-                if label == 'interrupt':
-                    probe.response('interrupt timeout state', interrupt_state(terminal))
-                raise
+            terminal.send('yes')
+            terminal.wait(lambda: terminal.exited, 60, 'approved setup retry')
         finally:
             code = terminal.close(graceful=False)
-            probe.response(label + ' original PTY', reference(probe.evidence, terminal.folder / 'terminal.txt'))
-            probe.response(label + ' original inputs', reference(probe.evidence, terminal.folder / 'inputs.json'))
-            probe.response(label + ' process exit', {'exit_code': code})
-        probe.check(label + ' cancellation exit', 130 if label in ('eof', 'interrupt') else 2, code)
-        probe.check(label + ' no traceback', False, 'Traceback' in terminal.text)
-        probe.check(label + ' preserves repository', before, snapshot(repo))
-        probe.check(label + ' no active project', False, (directory / 'project.json').exists())
-    # Rejection is recoverable through the same advertised command and review.
-    terminal = Terminal(argv, probe.folder / 'retry', env=env, replace_env=True, cwd=probe.folder)
-    try:
-        terminal.expect('Approve exactly this policy?', 60)
-        terminal.send('yes')
-        terminal.wait(lambda: terminal.exited, 60, 'approved setup retry')
-    finally:
-        code = terminal.close(graceful=False)
-        probe.response('retry original PTY', reference(probe.evidence, terminal.folder / 'terminal.txt'))
-    try:
+            probe.response('retry original PTY', reference(probe.evidence, terminal.folder / 'terminal.txt'))
         probe.check('retry succeeds after explicit approval', 0, code)
         after = snapshot(repo)
         probe.check('retry preserves existing files/directories', before, {p: after.get(p) for p in before})
         probe.check('retry published project', True, (directory / 'project.json').is_file())
     finally:
-        if (directory / 'project.json').is_file():
-            from ptw.monitor import remove
-            from ptw.store import Store
-            from ptw.supervisor import Supervisor
-            record = load(directory / 'project.json')
-            store = Store(record['state'])
-            store.stop(record['project'], 'cancellation probe cleanup')
-            probe.response('cleanup', Supervisor(store).reconcile())
-            remove(store)
+        result = cleanup(owned_controllers(state), destination=probe.folder / 'fixture-cleanup.json')
+        probe.response('cleanup', result)
 
 
 def lifecycle_security(evidence, source, candidate, ptw, env):

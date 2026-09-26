@@ -208,6 +208,80 @@ checks. Source tests with mocked integrations establish only their stated
 behavior. For installed-user acceptance, use fresh wheel installations with
 PYTHONPATH unset, prove installed hashes, and never reuse this editable environment.
 
+Native fixtures own their controllers until cleanup finishes. Register cleanup
+before `monitor.ensure` or onboarding can acquire a service. Closing a terminal
+or stopping a project does not remove its persistent `Restart=always` monitor.
+The test-only `scripts/product_fixture_lifecycle.py` closes acquired children,
+stops projects in each exclusively owned controller, reconciles and checks every
+recorded workload, then uses `ptw.monitor.remove`. Removal must leave the exact
+unit inactive and its unit file absent. Cleanup attempts every owned resource;
+unconfirmed termination or removal fails the test. A body exception and cleanup
+exceptions remain visible together, and cleanup receipts cannot report success
+after a cleanup failure.
+
+The ownership boundaries are:
+
+| Owner | Cleanup boundary |
+| --- | --- |
+| Daily preview/resume journeys | Their explicit controller lists and terminal/socket lists, including partial acquisition |
+| Ecosystem journeys, product journeys and cancellation probes | Their fresh operator-state tree, including controllers created before onboarding returns |
+| Local Python, Poetry, workspace and ecosystem test fixtures | Their exclusively allocated `FixtureDirectory`, after test child/terminal cleanups; Poetry's live control is checked after controller teardown and reaped even on failure |
+| Native artifact/sequence fixtures, including installed safety reuse | Cleanup registered before monitor startup, bound to each acquired Store; replacement controllers get their own registration |
+| Standalone supplied-policy interactive probe | Its single fresh controller, even if launch fails |
+
+`FixtureDirectory` has no garbage-collection deletion callback. Use its `ensure`
+method (or `own` before indirect native acquisition) to remember each exact
+controller independently of its files. For child-created controllers, it also
+checks exact unit paths for directories in its own fresh tree and retained
+monitor identities; neither discovery requires a surviving database. It never
+selects targets from systemd service listings, ages or other evidence directories.
+Missing acquired state fails cleanup without creating a replacement database.
+A missing unit file still requires an inactive/failed service-state observation;
+an active or unqueryable service remains an unresolved cleanup failure.
+It retains native
+state, logs, history and numbered cleanup attempts (`FIXTURE_EVIDENCE`), including
+failed cleanup. Offline directories without native acquisition are disposable.
+Do not use this helper on borrowed controllers. In particular,
+`interactive_lifecycle.py` consumes supplied acceptance controllers, and the
+interactive acceptance driver intentionally hands its controller to that later
+probe. Foreground monitors in audit/workflow fixtures have their own subprocess
+cleanup. Audit fixtures explicitly register their foreground identity so that
+it is not mistaken for detached acquisition; an actual unit file still requires
+cleanup. Their evidence remains retained. The pnpm/Yarn build-only fixtures do
+not acquire a persistent monitor.
+Their existing lifecycle assertions remain required. Production monitor lifetime
+is unchanged.
+
+The bounded `test_product_fixture_lifecycle.py` gate runs two fresh iterations
+of successful and failed cleanup, observes exact persistent unit identities,
+checks that pre-cleanup lifecycle records remain unchanged and a stop request is
+recorded, verifies physical cessation, and keeps an unrelated native
+job making progress through both outcomes. It also injects failure after real
+artifact/sequence setup acquisition, exercises LocalPython owner cleanup, and
+repeats installed-safety fixture setup failure with a fresh verified wheel and
+matching detached interpreter. Offline fault cases cover missing state, linked
+roots, reconciliation/removal failures, partial onboarding and original-error
+preservation through the actual directory owner. The Poetry-owner native case
+injects removal failure, checks child termination and retained state, and then
+retries exact-owner cleanup while unrelated protected work continues. These are
+deterministic fixtures, not LLM trajectories.
+Run this gate and the existing bounded-preview and legacy/modified-unit removal
+regressions in the manager's isolated native environment, with zero mandatory
+skips. Socket/systemd tests cannot establish effects in a restricted coding
+sandbox. The full original product/security/incident/demo acceptance remains a
+separate combined final gate; a focused pass does not replace it.
+
+An uncatchable process kill cannot execute fixture cleanup. For an interrupted
+run, first bind each controller path and installed interpreter to its original
+receipt, preserve those originals, and freshly confirm every recorded workload
+inactive. The fixture-only `recover_inactive` operation requires that exact unit
+and interpreter, rejects active/unconfirmed workloads or modified units, and
+uses the same lifecycle APIs while retaining state. Unknown ownership or missing
+evidence means no cleanup and an unresolved finding. Record recovery outcomes in
+a new private receipt; never infer safe ownership from a unit prefix or age.
+This repair reuses inspected lifecycle interfaces without new dependencies or
+interface changes; external technical research adds no additional evidence.
+
 The standalone Node import gate includes its cross-manager cases and selected
 ecosystem, pnpm and Yarn regressions:
 

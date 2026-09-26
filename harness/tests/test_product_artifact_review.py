@@ -499,18 +499,19 @@ class NativeArtifactTests(ArtifactFixture):
         source = Path(__file__).resolve().parents[1]
         save(self.evidence / 'sources.json', {
             str(p.relative_to(source)): hashlib.sha256(p.read_bytes()).hexdigest()
-            for p in sorted((source / 'ptw').rglob('*')) if p.is_file() and '__pycache__' not in p.parts})
+            for p in [*sorted((source / 'ptw').rglob('*')), Path(__file__),
+                      source / 'scripts/product_fixture_lifecycle.py', source / 'tests/test_workspace.py']
+            if p.is_file() and '__pycache__' not in p.parts})
         patch('ptw.local_git.execute', side_effect=native_git_execute).start()
         command = next(c for c in self.policy['project']['commands'] if c['id'] == 'test')
         command['argv'] = ['/usr/bin/python3', '-B', '-c',
                           "from src.calculator import login; assert login('correct'); assert not login('wrong')"]
         self.configure(tests=['test'], resources=['src', 'tests'])
         from ptw.monitor import ensure, remove
-        ensure(self.store)
-        def cleanup():
-            self.store.stop('python-demo')
-            remove(self.store)
-        self.addCleanup(cleanup)
+        from product_fixture_lifecycle import stop_controller
+        self.temp.retain = True
+        self.addCleanup(stop_controller, self.store)
+        self.temp.ensure(self.store)
         def retain():
             save(self.evidence / 'audit.json', self.store.audit_export('python-demo'))
             with self.store.locked() as db:
@@ -778,7 +779,10 @@ class NativeArtifactTests(ArtifactFixture):
         self.store.stop('python-demo')
         remove(self.store)
         self.configure(tests=['test'], resources=['src', 'tests'])
-        ensure(self.store)
+        from product_fixture_lifecycle import stop_controller
+        self.temp.retain = True
+        self.addCleanup(stop_controller, self.store)
+        self.temp.ensure(self.store)
         result = self.ask('run', 'test', '')
         self.assertTrue(result['allowed'], result)
         self.assertEqual(result['exit_code'], 7)

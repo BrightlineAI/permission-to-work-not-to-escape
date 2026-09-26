@@ -4,6 +4,7 @@ import argparse
 import os
 from pathlib import Path
 from ptw.monitor import ensure
+from product_fixture_lifecycle import cleanup
 from ptw.policy import approve, compile_policy, digest, load, save
 from ptw.project_example import create
 from ptw.store import Store
@@ -19,10 +20,13 @@ example = args.out / "example"
 create(example, "python")
 policy, inv = load(example / "policy.json"), load(example / "inventory.json")
 store = Store(args.out / "state")
-ensure(store)
-store.activate(approve(policy, inv, digest(compile_policy(policy, inv)), "synthetic probe operator"))
-session = store.register("python-demo", "implementation")
-session_file = args.out / "session.json"
-save(session_file, session)
-print("Development supplied-policy probe. Private output:", args.out, flush=True)
-print(launch(store, session, session_file, args.out / "run", prompt=args.prompt), flush=True)
+try:
+    ensure(store)
+    store.activate(approve(policy, inv, digest(compile_policy(policy, inv)), "synthetic probe operator"))
+    session = store.register("python-demo", "implementation")
+    session_file = args.out / "session.json"
+    save(session_file, session)
+    print("Development supplied-policy probe. Private output:", args.out, flush=True)
+    print(launch(store, session, session_file, args.out / "run", prompt=args.prompt), flush=True)
+finally:
+    cleanup([store], destination=args.out / 'fixture-cleanup.json')

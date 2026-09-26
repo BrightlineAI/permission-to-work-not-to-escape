@@ -99,6 +99,11 @@ def _monitor_diagnostics(directory, since):
 
 
 class AuditMonitorRecoveryTests(workspace_fixtures.WorkspaceFixture):
+    def setUp(self):
+        super().setUp()
+        # These tests run serve synchronously with a mocked loop boundary.
+        self.temp.foreground.add(self.store.directory)
+
     def serve_iterations(self, count=1, *, outcomes=()):
         from ptw.monitor import serve
         class EndProbe(BaseException):
@@ -2412,6 +2417,7 @@ class NativeAuditTests(workspace_fixtures.WorkspaceFixture):
         self.policy['tasks'][0]['commands'].append('preview')
         self.store.activate(self.approve())
         self.actor = self.store.register('preview-audit', 'implementation')
+        self.temp.foreground.add(self.store.directory)
         monitor = subprocess.Popen([sys.executable, '-B', '-m', 'ptw.monitor', '--state', str(self.store.directory)],
                                    stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
         try:

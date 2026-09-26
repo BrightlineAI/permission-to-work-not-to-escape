@@ -29,6 +29,7 @@ from ptw.store import Store
 from ptw.supervisor import Supervisor
 from ptw.workspace import Workspace, request
 from terminal_driver import Terminal
+from product_fixture_lifecycle import cleanup
 
 
 def bounded_surface(surface):
@@ -115,7 +116,7 @@ def git_journey(root, *, probe=None):
     if root == source.parent or source.parent in root.parents or any(root.iterdir()):
         raise ValueError('Use an empty private evidence directory outside source')
     save(root / 'sources.json', {str(p.relative_to(source)): hashlib.sha256(p.read_bytes()).hexdigest()
-        for p in [*sorted((source / 'ptw').glob('*.py')), Path(__file__), source / 'tests/test_product_daily.py', source / 'requirements.lock']})
+        for p in [*sorted((source / 'ptw').glob('*.py')), Path(__file__), source / 'tests/test_product_daily.py', source / 'requirements.lock', source / 'scripts/product_fixture_lifecycle.py']})
     report = {'passed': False, 'trajectory': 'deterministic confined Git and actual operator terminal', 'checks': []}
     store, terminals = None, []
 
@@ -299,7 +300,7 @@ def preview_journey(root):
     if root == source.parent or source.parent in root.parents or any(root.iterdir()):
         raise ValueError('Use an empty private evidence directory outside source')
     save(root / 'sources.json', {str(p.relative_to(source)): hashlib.sha256(p.read_bytes()).hexdigest()
-        for p in [*sorted((source / 'ptw').glob('*.py')), Path(__file__), source / 'tests/test_product_daily.py', source / 'requirements.lock']})
+        for p in [*sorted((source / 'ptw').glob('*.py')), Path(__file__), source / 'tests/test_product_daily.py', source / 'requirements.lock', source / 'scripts/product_fixture_lifecycle.py']})
     report = {'passed': False, 'milestone': 'preview-native-feasibility',
               'trajectory': 'deterministic supervised workload and broker probes', 'checks': []}
     stores = []
@@ -508,13 +509,10 @@ http.server.HTTPServer(('127.0.0.1',int(os.environ['PORT'])),Handler).serve_fore
         report['error'] = type(exc).__name__ + ': ' + str(exc)
         raise
     finally:
-        for sock in held:
-            sock.close()
+        cleanup([store for store, _ in stores], closers=[sock.close for sock in held],
+                report=report, destination=root / 'result.json')
         for store, identity in stores:
-            store.stop(identity, 'preview acceptance cleanup')
-            report.setdefault('cleanup', []).extend(Supervisor(store).reconcile())
             save(root / (identity + '-status.json'), store.status(identity))
-        save(root / 'result.json', report)
 
 
 def resume_journey(root):
@@ -526,7 +524,7 @@ def resume_journey(root):
         raise ValueError('Use an empty private output directory outside the checkout')
     paths = [*sorted((source / 'ptw').glob('*.py')), Path(__file__),
              source / 'scripts/terminal_driver.py', source / 'tests/test_product_daily.py',
-             source / 'requirements.lock']
+             source / 'requirements.lock', source / 'scripts/product_fixture_lifecycle.py']
     save(root / 'sources.json', {str(p.relative_to(source)): hashlib.sha256(p.read_bytes()).hexdigest()
                               for p in paths})
     report = {'passed': False, 'milestone': 'composed-daily-work', 'checks': [],
@@ -918,18 +916,14 @@ def resume_journey(root):
         report['error'] = type(exc).__name__ + ': ' + str(exc)
         raise
     finally:
-        for terminal in terminals:
-            terminal.close(graceful=False)
+        cleanup([controller for controller in (store, other) if controller is not None],
+                closers=[lambda t=t: t.close(graceful=False) for t in terminals],
+                report=report, destination=root / 'result.json')
         if store is not None:
-            store.stop('python-demo', 'daily acceptance cleanup')
-            report['termination'] = Supervisor(store).reconcile()
             save(root / 'status.json', store.status('python-demo'))
             save(root / 'events.json', store.audit_events('python-demo'))
         if other is not None:
-            other.stop('unrelated', 'daily unrelated control cleanup')
-            report['unrelated_cleanup'] = Supervisor(other).reconcile()
             save(root / 'unrelated-status.json', other.status('unrelated'))
-        save(root / 'result.json', report)
 
 
 def main():
