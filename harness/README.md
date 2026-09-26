@@ -241,6 +241,15 @@ an active or unqueryable service remains an unresolved cleanup failure.
 It retains native
 state, logs, history and numbered cleanup attempts (`FIXTURE_EVIDENCE`), including
 failed cleanup. Offline directories without native acquisition are disposable.
+Their explicit cleanup reuses `TemporaryDirectory`'s permission-aware deletion
+for owned read-only package trees, without creating an automatic finalizer.
+Linked roots are rejected; links inside the tree are removed without changing
+outside target contents or modes. This relies on CPython's private `_rmtree`
+helper, so interpreter upgrades must retain the behavioral cleanup tests.
+Unresolved filesystem errors propagate with any active body exception chained;
+`cleaned` stays false. Correct the specific owned-tree failure before retrying
+explicit cleanup. Successful cleanup removes the offline tree and is idempotent;
+it does not change production package protection or native evidence retention.
 Do not use this helper on borrowed controllers. In particular,
 `interactive_lifecycle.py` consumes supplied acceptance controllers, and the
 interactive acceptance driver intentionally hands its controller to that later
@@ -260,7 +269,8 @@ job making progress through both outcomes. It also injects failure after real
 artifact/sequence setup acquisition, exercises LocalPython owner cleanup, and
 repeats installed-safety fixture setup failure with a fresh verified wheel and
 matching detached interpreter. Offline fault cases cover missing state, linked
-roots, reconciliation/removal failures, partial onboarding and original-error
+roots, nested read-only trees, outside/dangling links, unrecoverable filesystem
+errors and retry, reconciliation/removal failures, partial onboarding and original-error
 preservation through the actual directory owner. The Poetry-owner native case
 injects removal failure, checks child termination and retained state, and then
 retries exact-owner cleanup while unrelated protected work continues. These are
@@ -280,7 +290,11 @@ uses the same lifecycle APIs while retaining state. Unknown ownership or missing
 evidence means no cleanup and an unresolved finding. Record recovery outcomes in
 a new private receipt; never infer safe ownership from a unit prefix or age.
 This repair reuses inspected lifecycle interfaces without new dependencies or
-interface changes; external technical research adds no additional evidence.
+systemd interface changes. Python documents explicit deletion and error
+propagation in [tempfile](https://docs.python.org/3.12/library/tempfile.html#tempfile.TemporaryDirectory)
+and link-resistant deletion in [shutil](https://docs.python.org/3.12/library/shutil.html#shutil.rmtree).
+The cleanup cases check actual filesystem effects as an ordinary user; root
+execution cannot establish read-only permission recovery.
 
 The release evidence verifier closes read-only migration backup connections on
 success and failure, and synthetic backup fixtures commit before closing theirs.

@@ -79,6 +79,97 @@ class CleanupFailureTests(unittest.TestCase):
         self.addCleanup(shutil.rmtree, self.root)
         self.store = controller(self.root)
 
+    def offline_directory(self):
+        directory = lifetime.FixtureDirectory(prefix='ptw-fixture-offline-')
+        # Independent fallback also removes protected test data on assertion failure.
+        self.addCleanup(tempfile.TemporaryDirectory._rmtree, directory.name)
+        return directory, Path(directory.name)
+
+    def test_offline_cleanup_removes_ordinary_and_readonly_trees_idempotently(self):
+        for readonly in (False, True):
+            with self.subTest(readonly=readonly):
+                directory, root = self.offline_directory()
+                package = root / 'package-sets/pkg/nested'
+                package.mkdir(parents=True)
+                payload = package / 'payload'
+                payload.write_text('owned offline package')
+                if readonly:
+                    payload.chmod(0o444)
+                    for path in (package, package.parent, package.parent.parent, root):
+                        path.chmod(0o555)
+                    if os.geteuid() != 0:
+                        with self.assertRaises(PermissionError):
+                            payload.unlink()
+                directory.cleanup()
+                self.assertTrue(directory.cleaned)
+                self.assertFalse(root.exists())
+                directory.cleanup()
+
+    def test_offline_readonly_cleanup_preserves_outside_link_contents_and_modes(self):
+        # Separate protected parents force permission recovery at each link.
+        outside = self.root / 'outside'
+        outside.mkdir()
+        sentinel = outside / 'sentinel'
+        sentinel.write_text('unrelated work')
+        sentinel.chmod(0o444)
+        outside.chmod(0o555)
+        self.addCleanup(outside.chmod, 0o755)
+        before = {path: path.stat().st_mode for path in (outside, sentinel)}
+        directory, root = self.offline_directory()
+        for name, target in (('directory', outside), ('file', sentinel),
+                             ('dangling', outside / 'missing')):
+            parent = root / name
+            parent.mkdir()
+            (parent / 'link').symlink_to(target)
+            parent.chmod(0o555)
+        root.chmod(0o555)
+        directory.cleanup()
+        self.assertTrue(directory.cleaned)
+        self.assertFalse(root.exists())
+        self.assertEqual(sentinel.read_text(), 'unrelated work')
+        self.assertEqual({path: path.stat().st_mode for path in before}, before)
+        self.assertEqual(list(outside.iterdir()), [sentinel])
+
+    def test_offline_cleanup_rejects_replaced_linked_root(self):
+        directory, root = self.offline_directory()
+        root.rmdir()
+        root.symlink_to(self.root, target_is_directory=True)
+        self.addCleanup(root.unlink)
+        before = self.root.stat().st_mode
+        with self.assertRaisesRegex(RuntimeError, 'linked'):
+            directory.cleanup()
+        self.assertFalse(directory.cleaned)
+        self.assertTrue(root.is_symlink())
+        self.assertEqual(self.root.stat().st_mode, before)
+        self.assertTrue(self.store.db.is_file())
+
+    def test_offline_cleanup_propagates_unrecoverable_errors_and_allows_retry(self):
+        for error_type in (PermissionError, OSError):
+            with self.subTest(error=error_type.__name__):
+                directory, root = self.offline_directory()
+                payload = root / 'payload'
+                payload.write_text('retained on deletion failure')
+                original = AssertionError('original offline failure')
+                failure = error_type('injected filesystem denial')
+                # Inject at the filesystem boundary, including the permission
+                # recovery retry, rather than replacing the deletion helper.
+                with patch.object(os, 'unlink', side_effect=failure):
+                    try:
+                        try:
+                            raise original
+                        finally:
+                            directory.cleanup()
+                    except error_type as exc:
+                        self.assertIs(exc, failure)
+                        self.assertIs(exc.__context__, original)
+                    else:
+                        self.fail('Filesystem failure was hidden')
+                self.assertFalse(directory.cleaned)
+                self.assertEqual(payload.read_text(), 'retained on deletion failure')
+                directory.cleanup()
+                self.assertTrue(directory.cleaned)
+                self.assertFalse(root.exists())
+
     def test_original_failure_and_each_cleanup_error_remain_visible(self):
         original = AssertionError('original assertion')
         other = controller(self.root / 'other')

@@ -2,7 +2,6 @@
 import os
 import hashlib
 from pathlib import Path
-import shutil
 import sys
 import tempfile
 
@@ -176,5 +175,9 @@ class FixtureDirectory:
             self.attempt += 1
             cleanup(sorted(self.controllers), destination=root / ('fixture-cleanup-' + str(self.attempt) + '.json'))
         else:
-            shutil.rmtree(root)
+            # Reuse TemporaryDirectory's permission recovery for owned offline
+            # package trees, without constructing its unsafe-for-native finalizer.
+            # This private helper propagates unresolved errors and does not chmod
+            # symlink targets. Keep the read-only/outside-link regression cases.
+            tempfile.TemporaryDirectory._rmtree(str(root), ignore_errors=False)
         self.cleaned = True
