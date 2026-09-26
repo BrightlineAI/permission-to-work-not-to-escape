@@ -330,8 +330,12 @@ retain the failed job and rerun on a fresh runner after resolving the cause.
 Do not bypass verification or skip resolver tests to address a missing tool.
 For manual source tests above, keep the installer's verified uv on PATH.
 
-The hosted workflow also installs bubblewrap, fish and zsh with apt and selects
-Node 22 with the official setup-node action. Its
+The hosted workflow uses Ubuntu 24.04, installs bubblewrap, fish, zsh and
+apparmor-profiles with apt, and selects Node 22 with the official setup-node
+action. It loads Ubuntu's packaged `bwrap-userns-restrict` AppArmor profile for
+the namespace prerequisite, following Ubuntu's
+[purpose-built bwrap profile guidance](https://discourse.ubuntu.com/t/understanding-apparmor-user-namespace-restriction/58007).
+Global user-namespace restrictions remain enabled. Its
 `harness/scripts/provision_ci_runtime.py` copies the selected Node executable
 to `/usr/bin/node`, verifies its version and SHA-256, and atomically replaces
 only an absent or regular destination. Linked destinations are rejected. This

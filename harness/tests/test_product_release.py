@@ -108,6 +108,8 @@ class CIPrerequisiteTests(unittest.TestCase):
         self.assertLess(workflow.index(provision), workflow.index('harness/scripts/offline_checks.py'))
         for prerequisite in ('actions/setup-node@v4', "node-version: '22'",
                              'sudo apt-get install --yes bubblewrap fish zsh',
+                             'apparmor-profiles',
+                             'apparmor_parser --replace /usr/share/apparmor/extra-profiles/bwrap-userns-restrict',
                              'provision_ci_runtime.py --node-source',
                              'provision_ci_runtime.py --npm'):
             self.assertEqual(workflow.count(prerequisite), 1)
