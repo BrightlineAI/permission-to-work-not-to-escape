@@ -36,7 +36,7 @@ while verifying receipts. The native packaged-candidate check remains pending.
 PTW_KIT=$(mktemp -d /tmp/vega-kit.XXXXXXXX)
 cd /absolute/operator-supplied-candidate
 sha256sum --check SHA256SUMS
-bash ./install.sh --artifact "$PWD/ptw-0.5.0-linux-x86_64.tar.gz" \
+bash ./install.sh --artifact "$PWD/ptw-0.5.1-linux-x86_64.tar.gz" \
   --root "$PTW_KIT/installation" --bin-dir "$PTW_KIT/commands"
 PTW="$PTW_KIT/commands/ptw"
 "$PTW" doctor

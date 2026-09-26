@@ -12,6 +12,7 @@ from pathlib import Path
 import sys
 import tempfile
 import tarfile
+import tomllib
 import unittest
 from unittest.mock import patch
 import zipfile
@@ -215,14 +216,14 @@ class ReleaseArtifactTests(unittest.TestCase):
     def setUp(self):
         import test_product_install as fixtures
         self.root = Path(self.enterContext(tempfile.TemporaryDirectory(prefix='ptw-release-fixture-')))
-        self.archive = fixtures.release_fixture()
+        self.archive = fixtures.release_fixture(version='0.5.1')
 
     def fake_build(self, out, repo):
         """Real assembled source bytes; no claim of dependency installation."""
         out.mkdir()
-        name = 'ptw-0.5.0-linux-x86_64.tar.gz'
+        name = 'ptw-0.5.1-linux-x86_64.tar.gz'
         (out / name).write_bytes(self.archive)
-        url = 'https://github.com/BrightlineAI/permission-to-work-not-to-escape/releases/download/harness-v0.5.0/' + name
+        url = 'https://github.com/BrightlineAI/permission-to-work-not-to-escape/releases/download/harness-v0.5.1/' + name
         (out / 'install.sh').write_bytes(builder.bootstrap(
             (repo / 'harness/scripts/product_install.py').read_bytes(), installer.sha(self.archive), url))
         return {'archive': name, 'url': url}
@@ -232,16 +233,26 @@ class ReleaseArtifactTests(unittest.TestCase):
         with patch.object(preparation, 'build', side_effect=self.fake_build):
             value = preparation.prepare(out)
         self.assertEqual(load(out / 'release.json'), value)
-        self.assertEqual(value['tag'], 'harness-v0.5.0')
+        self.assertEqual(value['tag'], 'harness-v0.5.1')
         self.assertEqual(value['status'], 'private-candidate-unvalidated')
         self.assertEqual({a['path'] for a in value['assets']},
-                         {'ptw-0.5.0-linux-x86_64.tar.gz', 'install.sh', 'RELEASE.md', 'SHA256SUMS'})
+                         {'ptw-0.5.1-linux-x86_64.tar.gz', 'install.sh', 'RELEASE.md', 'SHA256SUMS'})
         for asset in value['assets']:
             self.assertEqual(artifact(out, asset), out / asset['path'])
-        _, contents = installer.release_files(self.archive)
-        self.assertEqual(set(contents) - {'permission_to_work_harness-0.5.0-py3-none-any.whl'},
+        manifest, contents = installer.release_files(self.archive)
+        self.assertEqual(manifest['version'], '0.5.1')
+        self.assertEqual(set(contents) - {'permission_to_work_harness-0.5.1-py3-none-any.whl'},
                          {'requirements.lock', 'package.json', 'package-lock.json', 'product_install.py',
                           'INSTALL.md', 'LICENSE', 'THIRD_PARTY_NOTICES.md'})
+        with zipfile.ZipFile(io.BytesIO(contents['permission_to_work_harness-0.5.1-py3-none-any.whl'])) as wheel:
+            metadata = tomllib.loads(wheel.read('ptw/release_data/pyproject.toml').decode())
+            self.assertEqual(metadata['project']['version'], manifest['version'])
+            self.assertIn(b'__version__ = "0.5.1"', wheel.read('ptw/__init__.py'))
+        expected_url = ('https://github.com/BrightlineAI/permission-to-work-not-to-escape/'
+                        'releases/download/harness-v0.5.1/ptw-0.5.1-linux-x86_64.tar.gz')
+        self.assertEqual((out / 'install.sh').read_bytes(), builder.bootstrap(
+            (builder.REPO / 'harness/scripts/product_install.py').read_bytes(),
+            installer.sha(self.archive), expected_url))
         notes = (out / 'RELEASE.md').read_text()
         for required in ('INCIDENT_SAFETY_ACCEPTANCE.json', 'original-only', 'AT1/AT3', 'AT2',
                          '<=60-second', 'eight-case/16-call', 'unvalidated', 'raw logs',
@@ -290,7 +301,7 @@ class ReleaseArtifactTests(unittest.TestCase):
         from product_safety_evidence import candidate_payload
         from product_gate import tree
         _, original = installer.release_files(self.archive)
-        wheel_name = 'permission_to_work_harness-0.5.0-py3-none-any.whl'
+        wheel_name = 'permission_to_work_harness-0.5.1-py3-none-any.whl'
         for target in [*[installer.release_data_path(n) for n in installer.SAFETY_FILES],
                        'ptw/demo_support/product_demo.py', 'ptw/demo_support/demo_swarm.py',
                        'ptw/store.py']:
@@ -302,7 +313,7 @@ class ReleaseArtifactTests(unittest.TestCase):
                         if member != target:
                             new.writestr(member, old.read(member))
                 files[wheel_name] = wheel.getvalue()
-                files['release.json'] = json.dumps({'format': 1, 'version': '0.5.0',
+                files['release.json'] = json.dumps({'format': 1, 'version': '0.5.1',
                     'files': {n: installer.sha(v) for n, v in files.items()}}).encode()
                 path = self.root / 'tampered.tar.gz'
                 path.write_bytes(builder.deterministic_tar(files))
@@ -317,7 +328,7 @@ class ReleaseArtifactTests(unittest.TestCase):
         self.assertEqual(installer.sha(amended), expected)
         self.assertEqual(CONTRACTS['PRODUCT_ACCEPTANCE.json'], expected)
         _, files = installer.release_files(self.archive)
-        wheel_name = 'permission_to_work_harness-0.5.0-py3-none-any.whl'
+        wheel_name = 'permission_to_work_harness-0.5.1-py3-none-any.whl'
         target = installer.release_data_path('PRODUCT_ACCEPTANCE.json')
         old_contract = amended.replace(b'in 60 seconds or less', b'in 30 seconds or less').replace(
             b'Absolute maximum <=60s on declared developer-machine profile; aim for about 40s;',
@@ -334,7 +345,7 @@ class ReleaseArtifactTests(unittest.TestCase):
         runtime = tree(builder.REPO / 'harness')
         candidate_payload(path, builder.REPO, runtime)
         files[wheel_name] = wheel.getvalue()
-        files['release.json'] = json.dumps({'format': 1, 'version': '0.5.0',
+        files['release.json'] = json.dumps({'format': 1, 'version': '0.5.1',
             'files': {n: installer.sha(v) for n, v in files.items() if n != 'release.json'}}).encode()
         path.write_bytes(builder.deterministic_tar(files))
         with self.assertRaisesRegex(ValueError, 'Candidate safety contracts/guides differ'):
@@ -355,7 +366,7 @@ class ReleaseArtifactTests(unittest.TestCase):
         out = self.root / 'candidate'
         def mismatch(out, repo):
             result = self.fake_build(out, repo)
-            result['url'] = result['url'].replace('harness-v0.5.0', 'harness-v9.9.9')
+            result['url'] = result['url'].replace('harness-v0.5.1', 'harness-v0.5.0')
             return result
         with patch.object(preparation, 'build', side_effect=mismatch), self.assertRaises(installer.InstallError):
             preparation.prepare(out)
@@ -374,9 +385,9 @@ class ReleaseArtifactTests(unittest.TestCase):
     def test_deterministic_assembly_and_recursive_wheel_source_equality(self):
         import test_product_install as fixtures
         from product_gate import tree
-        self.assertEqual(fixtures.release_fixture(), self.archive)
+        self.assertEqual(fixtures.release_fixture(version='0.5.1'), self.archive)
         _, files = installer.release_files(self.archive)
-        with zipfile.ZipFile(io.BytesIO(files['permission_to_work_harness-0.5.0-py3-none-any.whl'])) as wheel:
+        with zipfile.ZipFile(io.BytesIO(files['permission_to_work_harness-0.5.1-py3-none-any.whl'])) as wheel:
             actual = {n: installer.sha(wheel.read(n)) for n in wheel.namelist() if n.startswith('ptw/')}
         self.assertEqual(actual, tree(builder.REPO / 'harness'))
 
@@ -580,6 +591,7 @@ class NativeReleaseTests(unittest.TestCase):
         try:
             with trace.span('phase', 'release-build'):
                 value = preparation.prepare(root / 'candidate')
+            self.assertEqual(value['tag'], 'harness-v0.5.1')
             env = installer.clean_env(root)
             assets = [artifact(root / 'candidate', a) for a in value['assets']]
             archive = next(path for path in assets if path.name.endswith('.tar.gz'))
@@ -593,6 +605,14 @@ class NativeReleaseTests(unittest.TestCase):
             installed = installation / 'releases' / state['active']
             runtime = next((installed / 'venv/lib').glob('python*/site-packages'))
             self.assertEqual(tree(runtime), tree(builder.REPO / 'harness'))
+            from importlib.metadata import distributions
+            versions = [d.version for d in distributions(path=[str(runtime)])
+                        if d.metadata['Name'] == 'permission-to-work-harness']
+            self.assertEqual(versions, ['0.5.1'])
+            result = capture([commands / 'ptw', '--version'], root / 'version-process',
+                             env=env, cwd=root, timeout=30)
+            self.assertEqual(result.returncode, 0, result.stderr.decode(errors='replace'))
+            self.assertEqual(result.stdout.decode().strip(), '0.5.1')
             from terminal_driver import Terminal
             for label, arguments, expected in (
                     ('help', ['--help'], 0),

@@ -1,9 +1,11 @@
-# Private candidate: harness-v0.5.0
+# Private candidate: harness-v0.5.1
 
 This is an installable test candidate, not a public release or a completed
 acceptance certificate. The manager must review fresh final-source evidence,
 scan generated assets, install the exact published candidate and check CI before
 promotion. Never replace bytes under a previously published version.
+This patch packages the accepted runtime fixes after the existing
+`harness-v0.5.0` prerelease. That tag and its assets must remain unchanged.
 
 ## Install and try
 
@@ -16,7 +18,7 @@ Verify `SHA256SUMS` against the trusted candidate handoff. From its directory:
 
 ```sh
 sha256sum --check SHA256SUMS
-bash ./install.sh --artifact "$PWD/ptw-0.5.0-linux-x86_64.tar.gz"
+bash ./install.sh --artifact "$PWD/ptw-0.5.1-linux-x86_64.tar.gz"
 ~/.local/bin/ptw doctor
 PTW_DEMOS=$(mktemp -d /tmp/ptw-demos.XXXXXXXX)
 ~/.local/bin/ptw demo run --demo dependency --out "$PTW_DEMOS/dependency"

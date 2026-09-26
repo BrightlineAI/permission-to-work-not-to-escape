@@ -1,6 +1,7 @@
 # Recoverable Linux installation
 
-This application release path is implemented locally. No online release is claimed.
+These instructions target the pending 0.5.1 candidate. The existing 0.5.0
+prerelease remains unchanged; it does not contain the later runtime fixes.
 The paper repository and benchmark history are not part of the application artifact.
 
 Use an ordinary x86_64 Linux account with Python 3.11 to 3.13, Node 22/npm,
@@ -16,7 +17,7 @@ available after installation; Python is never downloaded automatically.
 For a built local release directory supplied by your operator:
 
 ```sh
-bash /absolute/release/install.sh --artifact /absolute/release/ptw-0.5.0-linux-x86_64.tar.gz
+bash /absolute/release/install.sh --artifact /absolute/release/ptw-0.5.1-linux-x86_64.tar.gz
 ```
 
 Verify the bootstrap's SHA-256 against your trusted release announcement before
@@ -32,7 +33,7 @@ The publisher must substitute the reviewed digest and matching version:
 PTW_BOOTSTRAP_SHA256=REPLACE_WITH_TRUSTED_RELEASE_DIGEST
 PTW_DOWNLOAD_DIR=$(mktemp -d)
 curl --fail --location --proto '=https' --proto-redir '=https' --max-time 60 \
-  https://github.com/BrightlineAI/permission-to-work-not-to-escape/releases/download/harness-v0.5.0/install.sh \
+  https://github.com/BrightlineAI/permission-to-work-not-to-escape/releases/download/harness-v0.5.1/install.sh \
   -o "$PTW_DOWNLOAD_DIR/install.sh" &&
 printf '%s  %s\n' "$PTW_BOOTSTRAP_SHA256" "$PTW_DOWNLOAD_DIR/install.sh" | sha256sum --check - &&
 bash "$PTW_DOWNLOAD_DIR/install.sh"
