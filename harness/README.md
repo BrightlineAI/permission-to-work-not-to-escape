@@ -182,6 +182,13 @@ For source tests, create a new isolated environment on the VPS. Install the
 hashed runtime dependencies and the same hashed build prerequisite used by the
 release builder, then install this checkout without further resolution:
 
+Provide bubblewrap, fish, zsh, Node 22 and npm before discovery. Node must be
+available at `/usr/bin/node`, resolve beneath `/usr`, and also work with
+`PATH=/usr/bin:/bin`; a tool-cache PATH entry alone does not meet the confined
+runtime requirement. The native gate additionally needs the installed nono and
+systemd user manager described above. Missing prerequisites are setup failures,
+not permission to skip mandatory tests.
+
 ```sh
 PTW_TEST_ENV=$(mktemp -d /tmp/ptw-source-tests.XXXXXXXX)
 uv venv --no-python-downloads --python python3 "$PTW_TEST_ENV/venv"
@@ -322,6 +329,27 @@ Download, integrity, archive or version failures stop the job before tests;
 retain the failed job and rerun on a fresh runner after resolving the cause.
 Do not bypass verification or skip resolver tests to address a missing tool.
 For manual source tests above, keep the installer's verified uv on PATH.
+
+The hosted workflow also installs bubblewrap, fish and zsh with apt and selects
+Node 22 with the official setup-node action. Its
+`harness/scripts/provision_ci_runtime.py` copies the selected Node executable
+to `/usr/bin/node`, verifies its version and SHA-256, and atomically replaces
+only an absent or regular destination. Linked destinations are rejected. This
+provisioning is for disposable hosted runners only, not shared development hosts.
+The subsequent check runs as the ordinary runner user: absolute and restricted
+PATH Node lookup, npm under the installer's sanitized environment, shell versions,
+and Node inside the actual product bubblewrap namespace must all succeed before
+discovery. A namespace denial remains a failed infrastructure prerequisite;
+retain the diagnostic and correct the runner rather than disabling OS controls,
+widening runtime mounts or adding an unconfined fallback.
+
+GitHub documents [apt provisioning on hosted runners](https://docs.github.com/en/actions/how-tos/manage-runners/github-hosted-runners/customize-runners)
+and [setup-node's version selection and PATH placement](https://github.com/actions/setup-node).
+The extra `/usr` placement follows this product's confined runtime requirement.
+Executable fixture tests cover copy integrity, invalid or missing tools, command
+failures, linked destinations and cleanup. They do not establish hosted namespace
+availability; the workflow and native manager checks must validate their actual
+environments.
 
 CI preserves discovered offline cases and explicitly reserves
 the installed safety/demo/release classes for the manager's native gate. Existing
