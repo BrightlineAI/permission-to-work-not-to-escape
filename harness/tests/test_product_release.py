@@ -106,6 +106,14 @@ class CIPrerequisiteTests(unittest.TestCase):
         provision = 'python harness/scripts/provision_ci_uv.py --out "$RUNNER_TEMP/ptw-ci-uv"'
         self.assertEqual(workflow.count(provision), 1)
         self.assertLess(workflow.index(provision), workflow.index('harness/scripts/offline_checks.py'))
+        for prerequisite in ('actions/setup-node@v4', "node-version: '22'",
+                             'sudo apt-get install --yes bubblewrap fish zsh',
+                             'provision_ci_runtime.py --node-source',
+                             'provision_ci_runtime.py --npm'):
+            self.assertEqual(workflow.count(prerequisite), 1)
+            self.assertLess(workflow.index(prerequisite), workflow.index('harness/scripts/offline_checks.py'))
+        self.assertLess(workflow.index('provision_ci_runtime.py --node-source'),
+                        workflow.index('provision_ci_runtime.py --npm'))
         loader = unittest.TestLoader()
         loader.errors.append('synthetic import failure')
         with patch.dict(os.environ, {'PTW_LINUX_TESTS': '0'}), \
@@ -115,6 +123,121 @@ class CIPrerequisiteTests(unittest.TestCase):
                 self.assertRaisesRegex(ValueError, 'Offline discovery failed'):
             offline_checks.main()
         partition.assert_not_called()
+
+    def runtime_fixture(self):
+        import provision_ci_runtime
+        self.runtime = provision_ci_runtime
+        self.usr = self.root / 'usr'
+        (self.usr / 'bin').mkdir(parents=True)
+        self.selected_node = self.root / 'tool-cache/node'
+        self.selected_node.parent.mkdir()
+        self.write_executable(self.selected_node, 'printf "v22.14.0\\n"')
+        self.unrelated = self.usr / 'bin/unrelated'
+        self.unrelated.write_text('preserve unrelated runtime')
+
+    def write_executable(self, path, body):
+        path.write_text('#!/bin/sh\n' + body + '\n')
+        path.chmod(0o755)
+        return path
+
+    def test_selected_node_copied_by_bytes_and_replaces_only_regular_destination(self):
+        self.runtime_fixture()
+        node = self.usr / 'bin/node'
+        for exists in (False, True):
+            with self.subTest(existing=exists):
+                if exists:
+                    node.write_text('previous node')
+                observed = self.runtime.install_node(self.selected_node, self.usr)
+                self.assertEqual(observed, {'version': 'v22.14.0',
+                                           'sha256': installer.sha(self.selected_node.read_bytes())})
+                self.assertFalse(node.is_symlink())
+                self.assertEqual(node.read_bytes(), self.selected_node.read_bytes())
+                self.assertEqual(installer.run([node, '--version'], env={'PATH': ''}), 'v22.14.0')
+                self.assertEqual(self.unrelated.read_text(), 'preserve unrelated runtime')
+                self.assertEqual(sorted(p.name for p in node.parent.iterdir()), ['node', 'unrelated'])
+
+    def test_invalid_selected_node_preserves_destination_and_cleans_staging(self):
+        self.runtime_fixture()
+        node = self.usr / 'bin/node'
+        node.write_text('previous node')
+        for body in ('printf "v20.0.0\\n"', 'printf "v220.0.0\\n"', 'exit 17', 'not-a-command'):
+            with self.subTest(body=body):
+                self.write_executable(self.selected_node, body)
+                with self.assertRaises(installer.InstallError):
+                    self.runtime.install_node(self.selected_node, self.usr)
+                self.assertEqual(node.read_text(), 'previous node')
+                self.assertEqual(sorted(p.name for p in node.parent.iterdir()), ['node', 'unrelated'])
+        self.selected_node.unlink()
+        with self.assertRaises(FileNotFoundError):
+            self.runtime.install_node(self.selected_node, self.usr)
+        self.assertEqual(node.read_text(), 'previous node')
+
+    def test_node_copy_failure_and_digest_mismatch_preserve_existing_bytes(self):
+        self.runtime_fixture()
+        node = self.usr / 'bin/node'
+        node.write_text('previous node')
+        for failure in (True, False):
+            def copy(source, destination):
+                destination.write_text('partial or corrupted copy')
+                if failure:
+                    raise OSError('fixture copy failure')
+            with self.subTest(failure=failure), patch.object(self.runtime.shutil, 'copy2', side_effect=copy):
+                with self.assertRaises((OSError, installer.InstallError)):
+                    self.runtime.install_node(self.selected_node, self.usr)
+            self.assertEqual(node.read_text(), 'previous node')
+            self.assertEqual(sorted(p.name for p in node.parent.iterdir()), ['node', 'unrelated'])
+
+    def test_node_destination_links_cannot_write_or_resolve_outside_usr(self):
+        self.runtime_fixture()
+        node = self.usr / 'bin/node'
+        node.symlink_to(self.selected_node)
+        before = self.selected_node.read_bytes()
+        with self.assertRaisesRegex(installer.InstallError, 'regular file'):
+            self.runtime.install_node(self.selected_node, self.usr)
+        with self.assertRaisesRegex(installer.InstallError, 'escapes /usr'):
+            self.runtime.verify(self.root / 'npm', self.usr)
+        self.assertEqual(self.selected_node.read_bytes(), before)
+        self.assertTrue(node.is_symlink())
+
+    def test_runtime_probe_executes_restricted_path_npm_shells_and_namespace(self):
+        self.runtime_fixture()
+        self.runtime.install_node(self.selected_node, self.usr)
+        for name in ('fish', 'zsh'):
+            self.write_executable(self.usr / 'bin' / name, 'printf "fixture shell\\n"')
+        bwrap = self.write_executable(self.usr / 'bin/bwrap',
+            'if [ "$1" = "--version" ]; then printf "fixture bwrap\\n"; '
+            'else shift; exec "$@"; fi')
+        npm = self.write_executable(self.root / 'npm',
+            '[ -z "$NODE_OPTIONS" ] && [ "$NPM_CONFIG_USERCONFIG" != "private-config" ] || exit 9\n'
+            '[ "$(/usr/bin/env node --version)" = "v22.14.0" ] || exit 10\n'
+            'printf "10.9.2\\n"')
+        with patch('ptw.supervisor.runtime_namespace', return_value=[str(bwrap), '--fixture-namespace']) as namespace, \
+                patch.dict(os.environ, {'PATH': '', 'NODE_OPTIONS': 'invalid fixture option',
+                                        'NPM_CONFIG_USERCONFIG': 'private-config'}):
+            self.runtime.verify(npm, self.usr)
+            namespace.assert_called_once_with()
+            for name in ('node', 'fish', 'zsh', 'bwrap', 'npm'):
+                executable = npm if name == 'npm' else self.usr / 'bin' / name
+                original = executable.read_bytes()
+                with self.subTest(failed=name):
+                    self.write_executable(executable, 'exit 19')
+                    with self.assertRaises(installer.InstallError):
+                        self.runtime.verify(npm, self.usr)
+                    executable.write_bytes(original)
+            # Version works, but namespace creation fails: do not fall back.
+            self.write_executable(bwrap, '[ "$1" = "--version" ] || exit 20\nprintf "fixture bwrap\\n"')
+            with self.assertRaises(installer.InstallError):
+                self.runtime.verify(npm, self.usr)
+        self.assertEqual(self.unrelated.read_text(), 'preserve unrelated runtime')
+
+    def test_missing_runtime_prerequisite_fails_before_namespace_execution(self):
+        self.runtime_fixture()
+        self.runtime.install_node(self.selected_node, self.usr)
+        with patch.object(self.runtime.shutil, 'which', return_value=None), \
+                patch('ptw.supervisor.runtime_namespace') as namespace, \
+                self.assertRaisesRegex(installer.InstallError, 'Missing CI prerequisite: fish'):
+            self.runtime.verify(self.root / 'npm', self.usr)
+        namespace.assert_not_called()
 
 
 class ReleaseInstallerTimingTests(unittest.TestCase):

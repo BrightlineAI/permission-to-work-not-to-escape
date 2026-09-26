@@ -10,6 +10,14 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install hosted test prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes bubblewrap fish zsh
+          sudo /usr/bin/python3 harness/scripts/provision_ci_runtime.py --node-source "$(command -v node)"
       - run: python scripts/verify_evidence.py
       - run: python scripts/check_docs.py
       - run: PYTHONPATH=src python -m unittest discover -s tests -v
@@ -21,6 +29,8 @@ jobs:
           "$RUNNER_TEMP/ptw-source-tests/bin/python" -m pip install --require-hashes -r "$RUNNER_TEMP/ptw-source-tests/build.lock"
           "$RUNNER_TEMP/ptw-source-tests/bin/python" -m pip install --no-deps --no-build-isolation -e ./harness
       - run: python harness/scripts/provision_ci_uv.py --out "$RUNNER_TEMP/ptw-ci-uv"
+      - name: Verify hosted runtime and confinement
+        run: '"$RUNNER_TEMP/ptw-source-tests/bin/python" harness/scripts/provision_ci_runtime.py --npm "$(command -v npm)"'
       # No operator login or systemd user manager on hosted CI.
       # Full mandatory discovery and installed acceptance remain manager gates.
       - run: '"$RUNNER_TEMP/ptw-source-tests/bin/python" harness/scripts/offline_checks.py'
