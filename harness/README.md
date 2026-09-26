@@ -323,7 +323,9 @@ Hosted CI runs `python harness/scripts/offline_checks.py` from an isolated edita
 source installation. Before discovery, `harness/scripts/provision_ci_uv.py`
 downloads the installer's pinned uv 0.12.15 into a fresh runner-local directory,
 verifies its SHA-256, validates the archive and checks the executable version.
-Only then does it expose that directory to later workflow steps through
+The same helper provisions the installer's SHA-256-pinned nono version with
+`--tool nono`, so offline audit fixtures execute the actual confinement tool.
+Only after integrity and version checks does it expose each directory through
 `GITHUB_PATH`. An ambient uv installation is not used for this prerequisite.
 Download, integrity, archive or version failures stop the job before tests;
 retain the failed job and rerun on a fresh runner after resolving the cause.

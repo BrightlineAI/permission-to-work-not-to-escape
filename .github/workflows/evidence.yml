@@ -30,8 +30,15 @@ jobs:
           "$RUNNER_TEMP/ptw-source-tests/bin/python" -m pip install --require-hashes -r "$RUNNER_TEMP/ptw-source-tests/build.lock"
           "$RUNNER_TEMP/ptw-source-tests/bin/python" -m pip install --no-deps --no-build-isolation -e ./harness
       - run: python harness/scripts/provision_ci_uv.py --out "$RUNNER_TEMP/ptw-ci-uv"
+      - run: python harness/scripts/provision_ci_uv.py --tool nono --out "$RUNNER_TEMP/ptw-ci-nono"
       - name: Verify hosted runtime and confinement
         run: '"$RUNNER_TEMP/ptw-source-tests/bin/python" harness/scripts/provision_ci_runtime.py --npm "$(command -v npm)"'
+      - name: Check previously failing hosted fixtures
+        run: |
+          PYTHONPATH=harness:harness/tests "$RUNNER_TEMP/ptw-source-tests/bin/python" -m unittest -v \
+            test_product_install.InstallerTests.test_printed_zsh_login_interactive_and_zdotdir \
+            test_product_audit.AuditInstallTests.test_dispatch_concurrent_reversed_slots_complete_and_replay_distinct_installs \
+            test_product_audit.AuditInstallTests.test_dispatch_nested_collision_installs_once_and_live_reopen_preserves_intents
       # No operator login or systemd user manager on hosted CI.
       # Full mandatory discovery and installed acceptance remain manager gates.
       - run: '"$RUNNER_TEMP/ptw-source-tests/bin/python" harness/scripts/offline_checks.py'

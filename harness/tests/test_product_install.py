@@ -506,13 +506,25 @@ class InstallerTests(unittest.TestCase):
     def check_terminal(self, shell, flags, env):
         executable = shutil.which(shell)
         self.assertIsNotNone(executable, "Validation prerequisite missing: " + shell)
-        transcript = terminal_output([executable, flags,
-            "command -v ptw; command -v ptw-install; ptw --version && ptw-install status"], env, self.base)
+        try:
+            transcript = terminal_output([executable, flags,
+                "command -v ptw; command -v ptw-install; ptw --version && ptw-install status"], env, self.base)
+        except subprocess.TimeoutExpired as exc:
+            self.fail("Synthetic fixture shell stalled; terminal output: " + repr((exc.output or b'')[-2000:]))
         for expected in (str(self.bin / "ptw"), str(self.bin / "ptw-install"), "0.5.0", self.state()["active"]):
             self.assertIn(expected.encode(), transcript)
         self.assertFalse((self.base / "injected").exists())
         selected = self.state()["releases"][self.state()["active"]]
         product.verify(self.root / "releases" / self.state()["active"], selected["receipt"])
+
+    def test_terminal_timeout_retains_output_and_ends_the_child(self):
+        started = time.monotonic()
+        with self.assertRaises(subprocess.TimeoutExpired) as caught:
+            terminal_output([sys.executable, '-c',
+                'import time;print("fixture-stalled",flush=True);time.sleep(60)'],
+                terminal_environment(self.base, {'PATH':'/usr/bin:/bin'}), self.base, timeout=.3)
+        self.assertIn(b'fixture-stalled', caught.exception.output)
+        self.assertLess(time.monotonic() - started, 3)
 
     def test_printed_bash_login_profile_precedence_and_interactive_startup(self):
         home, env, guidance = self.terminal_fixture()

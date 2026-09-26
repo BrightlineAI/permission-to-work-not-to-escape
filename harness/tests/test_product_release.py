@@ -40,18 +40,33 @@ class CIPrerequisiteTests(unittest.TestCase):
     def executable(self, version=None):
         return ('#!/bin/sh\nprintf "%s\\n" "uv ' + (version or self.version) + ' (fixture)"\n').encode()
 
-    def invoke(self, data, *, digest=None, failure=None):
+    def invoke(self, data, *, digest=None, failure=None, tool='uv'):
         # Mock the transport only: the production download hash and archive
         # validators, executable invocation and PATH-file publication all run.
-        with patch.dict(installer.PINS, {'uv': (self.version, installer.PINS['uv'][1],
+        with patch.dict(installer.PINS, {tool: (installer.PINS[tool][0], installer.PINS[tool][1],
                                                digest or installer.sha(data))}), \
                 patch.object(installer.urllib.request.OpenerDirector, 'open',
                              side_effect=failure or (lambda *a, **k: io.BytesIO(data))) as opened, \
                 patch.dict(os.environ, {'GITHUB_PATH': str(self.path_file), 'PATH': ''}), \
-                patch.object(sys, 'argv', ['provision_ci_uv.py', '--out', str(self.out)]), \
+                patch.object(sys, 'argv', ['provision_ci_uv.py', '--out', str(self.out), '--tool', tool]), \
                 redirect_stderr(io.StringIO()):
             self.ci.main()
-        self.assertEqual(opened.call_args.args[0], installer.PINS['uv'][1])
+        self.assertEqual(opened.call_args.args[0], installer.PINS[tool][1])
+
+    def test_pinned_nono_is_verified_before_export_and_wrong_version_is_rejected(self):
+        version = installer.PINS['nono'][0]
+        for actual in ('0.0.0', version):
+            self.out = self.root / ('nono-' + actual)
+            executable = ('#!/bin/sh\nprintf "nono ' + actual + '\\n"\n').encode()
+            data = builder.deterministic_tar({'nono-linux/nono': executable})
+            if actual != version:
+                with self.assertRaisesRegex(installer.InstallError, 'Unexpected CI nono version'):
+                    self.invoke(data, tool='nono')
+                self.assertEqual(self.path_file.read_text(), '')
+            else:
+                self.invoke(data, tool='nono')
+                self.assertEqual(installer.run([self.out / 'nono', '--version']), 'nono ' + version)
+                self.assertEqual(self.path_file.read_text(), str(self.out) + '\n')
 
     def test_verified_tool_is_available_to_next_step_without_ambient_uv(self):
         import shutil
