@@ -191,7 +191,10 @@ class MetadataView:
 
         self.server = HTTPServer(('127.0.0.1', 0), Handler)
         self.server.timeout = 1
-        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        # Keep short-lived resolver teardown responsive without changing any
+        # request deadline, metadata budget or validation boundary.
+        self.thread = threading.Thread(target=self.server.serve_forever,
+                                       kwargs={'poll_interval': .05}, daemon=True)
         self.thread.start()
         return 'http://127.0.0.1:' + str(self.server.server_port) + prefix
 

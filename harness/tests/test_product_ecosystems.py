@@ -35,6 +35,43 @@ class ProductEcosystemTests(unittest.TestCase):
         self.repo.mkdir()
         self.calls = []
 
+    def test_metadata_views_poll_promptly_and_close_on_success_or_failure(self):
+        from unittest.mock import Mock
+        from ptw import npm_resolution, python_index
+        for module, factory in (
+                (python_index, lambda: python_index.WheelIndex(
+                    None, self.root / 'view', time.monotonic() + 30)),
+                (npm_resolution, lambda: npm_resolution.MetadataView(
+                    None, set(), time.monotonic() + 30))):
+            for fail in (False, True):
+                with self.subTest(module=module.__name__, fail=fail):
+                    calls = Mock()
+                    with patch.object(module, 'HTTPServer') as server, \
+                            patch.object(module.threading, 'Thread') as thread:
+                        calls.attach_mock(server.return_value.shutdown, 'shutdown')
+                        calls.attach_mock(server.return_value.server_close, 'close')
+                        calls.attach_mock(thread.return_value.join, 'join')
+                        view = factory()
+                        error = RuntimeError('synthetic resolver failure')
+                        try:
+                            with view:
+                                thread.assert_called_once_with(
+                                    target=server.return_value.serve_forever,
+                                    kwargs={'poll_interval': .05}, daemon=True)
+                                thread.return_value.start.assert_called_once_with()
+                                if fail:
+                                    raise error
+                        except RuntimeError as exc:
+                            self.assertTrue(fail)
+                            self.assertIs(exc, error)
+                        else:
+                            self.assertFalse(fail, 'Resolver failure was suppressed')
+                        self.assertEqual([call[0] for call in calls.mock_calls],
+                                         ['shutdown', 'close', 'join'])
+                        thread.return_value.join.assert_called_once_with(timeout=16)
+                    if module is python_index:
+                        (self.root / 'view').rmdir()
+
     def test_tool_digest_reads_full_binary_and_observes_same_metadata_mutation(self):
         path = self.root / 'tool'
         for size in (0, 1, 262143, 262144, 262145, 1048583):

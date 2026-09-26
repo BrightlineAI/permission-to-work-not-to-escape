@@ -143,7 +143,10 @@ class WheelIndex:
 
         self.server = HTTPServer(('127.0.0.1', 0), Handler)
         self.server.timeout = 1
-        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        # These views are short-lived. serve_forever ignores server.timeout;
+        # its default poll would delay every idle shutdown by up to 0.5s.
+        self.thread = threading.Thread(target=self.server.serve_forever,
+                                       kwargs={'poll_interval': .05}, daemon=True)
         self.thread.start()
         return 'http://127.0.0.1:' + str(self.server.server_port) + prefix + 'simple/'
 

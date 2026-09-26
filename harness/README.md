@@ -329,6 +329,10 @@ acceptance; normal `PTW_LINUX_TESTS=1` discovery still executes every mandatory
 case and accepts zero skips. Do not use the CI subset for a release receipt.
 
 Timings are inclusive and nested, so do not add phase durations to test durations.
+The short-lived Python and npm metadata views poll shutdown every 0.05 seconds;
+[`serve_forever`](https://docs.python.org/3/library/socketserver.html#socketserver.BaseServer.serve_forever)
+otherwise defaults to 0.5 seconds and ignores `server.timeout`. This reduces idle
+teardown waits without changing request deadlines, budgets or integrity checks.
 Resource counters are cumulative for the process and its waited-for children:
 user/system CPU, block input/output, minor/major faults and voluntary/involuntary
 context switches. Subtract corresponding start/end counters. Block counters do
