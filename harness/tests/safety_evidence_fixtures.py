@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import shutil
 import sqlite3
+from contextlib import closing
 import unittest
 import zipfile
 
@@ -195,7 +196,7 @@ def extension(fixture):
                     snapshots = [before, before]
                 for number, snapshot in enumerate(snapshots):
                     path = run / str(index) / ('migration-' + str(number) + '.sqlite3')
-                    with sqlite3.connect(path) as db:
+                    with closing(sqlite3.connect(path)) as db, db:
                         db.execute('PRAGMA user_version=' + str(snapshot['schema_version']))
                         db.execute('CREATE TABLE projects(id,bundle,stopped,violations,reason)')
                         db.execute('INSERT INTO projects VALUES(?,?,?,?,?)', ('python-demo',

@@ -37,21 +37,37 @@ class CIPrerequisiteTests(unittest.TestCase):
         self.out = self.root / 'tools'
         self.version = installer.PINS['uv'][0]
 
-    def executable(self, version=None):
-        return ('#!/bin/sh\nprintf "%s\\n" "uv ' + (version or self.version) + ' (fixture)"\n').encode()
+    def executable(self, version=None, tool='uv'):
+        return ('#!/bin/sh\nprintf "%s\\n" "' + tool + ' ' +
+                (version or installer.PINS[tool][0]) + ' (fixture)"\n').encode()
 
-    def invoke(self, data, *, digest=None, failure=None):
+    def invoke(self, data, *, digest=None, failure=None, tool='uv'):
         # Mock the transport only: the production download hash and archive
         # validators, executable invocation and PATH-file publication all run.
-        with patch.dict(installer.PINS, {'uv': (self.version, installer.PINS['uv'][1],
+        with patch.dict(installer.PINS, {tool: (installer.PINS[tool][0], installer.PINS[tool][1],
                                                digest or installer.sha(data))}), \
                 patch.object(installer.urllib.request.OpenerDirector, 'open',
                              side_effect=failure or (lambda *a, **k: io.BytesIO(data))) as opened, \
                 patch.dict(os.environ, {'GITHUB_PATH': str(self.path_file), 'PATH': ''}), \
-                patch.object(sys, 'argv', ['provision_ci_uv.py', '--out', str(self.out)]), \
+                patch.object(sys, 'argv', ['provision_ci_uv.py', '--out', str(self.out), '--tool', tool]), \
                 redirect_stderr(io.StringIO()):
             self.ci.main()
-        self.assertEqual(opened.call_args.args[0], installer.PINS['uv'][1])
+        self.assertEqual(opened.call_args.args[0], installer.PINS[tool][1])
+
+    def test_pinned_nono_is_verified_before_export_and_wrong_version_is_rejected(self):
+        version = installer.PINS['nono'][0]
+        for actual in ('0.0.0', version):
+            self.out = self.root / ('nono-' + actual)
+            executable = ('#!/bin/sh\nprintf "nono ' + actual + '\\n"\n').encode()
+            data = builder.deterministic_tar({'nono-linux/nono': executable})
+            if actual != version:
+                with self.assertRaisesRegex(installer.InstallError, 'Unexpected CI nono version'):
+                    self.invoke(data, tool='nono')
+                self.assertEqual(self.path_file.read_text(), '')
+            else:
+                self.invoke(data, tool='nono')
+                self.assertEqual(installer.run([self.out / 'nono', '--version']), 'nono ' + version)
+                self.assertEqual(self.path_file.read_text(), str(self.out) + '\n')
 
     def test_verified_tool_is_available_to_next_step_without_ambient_uv(self):
         import shutil
@@ -72,33 +88,39 @@ class CIPrerequisiteTests(unittest.TestCase):
                          'uv ' + self.version + ' (fixture)')
 
     def test_invalid_download_archive_or_binary_never_updates_path(self):
-        good = builder.deterministic_tar({'bin/uv': self.executable()})
-        cases = [
-            ('download', good, None, OSError('synthetic transport failure')),
-            ('digest', good, '0' * 64, None),
-            ('malformed', b'not a tar archive', None, None),
-            ('missing', builder.deterministic_tar({'bin/uvx': b'unused'}), None, None),
-            ('duplicate', builder.deterministic_tar({'a/uv': self.executable(), 'b/uv': self.executable()}), None, None),
-            ('invalid-executable', builder.deterministic_tar({'bin/uv': b'not executable'}), None, None),
-            ('nonzero', builder.deterministic_tar({'bin/uv': b'#!/bin/sh\nexit 1\n'}), None, None),
-            ('wrong-version', builder.deterministic_tar({'bin/uv': self.executable('0.0.0')}), None, None),
-            ('version-prefix', builder.deterministic_tar({'bin/uv': self.executable(self.version + '0')}), None, None),
-        ]
-        for name, data, digest, failure in cases:
-            with self.subTest(case=name):
-                self.out = self.root / name
-                with self.assertRaises((installer.InstallError, tarfile.TarError)):
-                    self.invoke(data, digest=digest, failure=failure)
-                self.assertEqual(self.path_file.read_text(), '')
+        for tool in ('uv', 'nono'):
+            binary = self.executable(tool=tool)
+            good = builder.deterministic_tar({'bin/' + tool: binary})
+            cases = [
+                ('download', good, None, OSError('synthetic transport failure')),
+                ('digest', good, '0' * 64, None),
+                ('malformed', b'not a tar archive', None, None),
+                ('missing', builder.deterministic_tar({'bin/unused': b'unused'}), None, None),
+                ('duplicate', builder.deterministic_tar({'a/' + tool: binary, 'b/' + tool: binary}), None, None),
+                ('invalid-executable', builder.deterministic_tar({'bin/' + tool: b'not executable'}), None, None),
+                ('nonzero', builder.deterministic_tar({'bin/' + tool: b'#!/bin/sh\nexit 1\n'}), None, None),
+                ('wrong-version', builder.deterministic_tar({'bin/' + tool: self.executable('0.0.0', tool)}), None, None),
+                ('version-prefix', builder.deterministic_tar({
+                    'bin/' + tool: self.executable(installer.PINS[tool][0] + '0', tool)}), None, None),
+            ]
+            for name, data, digest, failure in cases:
+                with self.subTest(tool=tool, case=name):
+                    self.out = self.root / (tool + '-' + name)
+                    with self.assertRaises((installer.InstallError, tarfile.TarError)):
+                        self.invoke(data, digest=digest, failure=failure, tool=tool)
+                    self.assertEqual(self.path_file.read_text(), '')
 
     def test_existing_destination_is_preserved_and_not_exported(self):
-        self.out.mkdir()
-        original = self.out / 'uv'
-        original.write_bytes(b'previous attempt')
-        with self.assertRaises(FileExistsError):
-            self.invoke(builder.deterministic_tar({'bin/uv': self.executable()}))
-        self.assertEqual(original.read_bytes(), b'previous attempt')
-        self.assertEqual(self.path_file.read_text(), '')
+        for tool in ('uv', 'nono'):
+            with self.subTest(tool=tool):
+                self.out = self.root / tool
+                self.out.mkdir()
+                original = self.out / tool
+                original.write_bytes(b'previous attempt')
+                with self.assertRaises(FileExistsError):
+                    self.invoke(builder.deterministic_tar({'bin/' + tool: self.executable(tool=tool)}), tool=tool)
+                self.assertEqual(original.read_bytes(), b'previous attempt')
+                self.assertEqual(self.path_file.read_text(), '')
 
     def test_workflow_provisions_before_offline_discovery_and_discovery_errors_fail(self):
         import offline_checks
@@ -108,6 +130,8 @@ class CIPrerequisiteTests(unittest.TestCase):
         self.assertLess(workflow.index(provision), workflow.index('harness/scripts/offline_checks.py'))
         for prerequisite in ('actions/setup-node@v4', "node-version: '22'",
                              'sudo apt-get install --yes bubblewrap fish zsh',
+                             'apparmor-profiles',
+                             'apparmor_parser --replace /usr/share/apparmor/extra-profiles/bwrap-userns-restrict',
                              'provision_ci_runtime.py --node-source',
                              'provision_ci_runtime.py --npm'):
             self.assertEqual(workflow.count(prerequisite), 1)
@@ -225,8 +249,10 @@ class CIPrerequisiteTests(unittest.TestCase):
                         self.runtime.verify(npm, self.usr)
                     executable.write_bytes(original)
             # Version works, but namespace creation fails: do not fall back.
-            self.write_executable(bwrap, '[ "$1" = "--version" ] || exit 20\nprintf "fixture bwrap\\n"')
-            with self.assertRaises(installer.InstallError):
+            self.write_executable(bwrap, 'if [ "$1" != "--version" ]; then '
+                                  'printf "fixture namespace denied\\n" >&2; exit 20; fi\n'
+                                  'printf "fixture bwrap\\n"')
+            with self.assertRaisesRegex(installer.InstallError, r'CI namespace probe failed \(20\): fixture namespace denied'):
                 self.runtime.verify(npm, self.usr)
         self.assertEqual(self.unrelated.read_text(), 'preserve unrelated runtime')
 
@@ -339,14 +365,14 @@ class ReleaseArtifactTests(unittest.TestCase):
     def setUp(self):
         import test_product_install as fixtures
         self.root = Path(self.enterContext(tempfile.TemporaryDirectory(prefix='ptw-release-fixture-')))
-        self.archive = fixtures.release_fixture(version='0.5.1')
+        self.archive = fixtures.release_fixture(version='0.5.2')
 
     def fake_build(self, out, repo):
         """Real assembled source bytes; no claim of dependency installation."""
         out.mkdir()
-        name = 'ptw-0.5.1-linux-x86_64.tar.gz'
+        name = 'ptw-0.5.2-linux-x86_64.tar.gz'
         (out / name).write_bytes(self.archive)
-        url = 'https://github.com/BrightlineAI/permission-to-work-not-to-escape/releases/download/harness-v0.5.1/' + name
+        url = 'https://github.com/BrightlineAI/permission-to-work-not-to-escape/releases/download/harness-v0.5.2/' + name
         (out / 'install.sh').write_bytes(builder.bootstrap(
             (repo / 'harness/scripts/product_install.py').read_bytes(), installer.sha(self.archive), url))
         return {'archive': name, 'url': url}
@@ -356,23 +382,23 @@ class ReleaseArtifactTests(unittest.TestCase):
         with patch.object(preparation, 'build', side_effect=self.fake_build):
             value = preparation.prepare(out)
         self.assertEqual(load(out / 'release.json'), value)
-        self.assertEqual(value['tag'], 'harness-v0.5.1')
+        self.assertEqual(value['tag'], 'harness-v0.5.2')
         self.assertEqual(value['status'], 'private-candidate-unvalidated')
         self.assertEqual({a['path'] for a in value['assets']},
-                         {'ptw-0.5.1-linux-x86_64.tar.gz', 'install.sh', 'RELEASE.md', 'SHA256SUMS'})
+                         {'ptw-0.5.2-linux-x86_64.tar.gz', 'install.sh', 'RELEASE.md', 'SHA256SUMS'})
         for asset in value['assets']:
             self.assertEqual(artifact(out, asset), out / asset['path'])
         manifest, contents = installer.release_files(self.archive)
-        self.assertEqual(manifest['version'], '0.5.1')
-        self.assertEqual(set(contents) - {'permission_to_work_harness-0.5.1-py3-none-any.whl'},
+        self.assertEqual(manifest['version'], '0.5.2')
+        self.assertEqual(set(contents) - {'permission_to_work_harness-0.5.2-py3-none-any.whl'},
                          {'requirements.lock', 'package.json', 'package-lock.json', 'product_install.py',
                           'INSTALL.md', 'LICENSE', 'THIRD_PARTY_NOTICES.md'})
-        with zipfile.ZipFile(io.BytesIO(contents['permission_to_work_harness-0.5.1-py3-none-any.whl'])) as wheel:
+        with zipfile.ZipFile(io.BytesIO(contents['permission_to_work_harness-0.5.2-py3-none-any.whl'])) as wheel:
             metadata = tomllib.loads(wheel.read('ptw/release_data/pyproject.toml').decode())
             self.assertEqual(metadata['project']['version'], manifest['version'])
-            self.assertIn(b'__version__ = "0.5.1"', wheel.read('ptw/__init__.py'))
+            self.assertIn(b'__version__ = "0.5.2"', wheel.read('ptw/__init__.py'))
         expected_url = ('https://github.com/BrightlineAI/permission-to-work-not-to-escape/'
-                        'releases/download/harness-v0.5.1/ptw-0.5.1-linux-x86_64.tar.gz')
+                        'releases/download/harness-v0.5.2/ptw-0.5.2-linux-x86_64.tar.gz')
         self.assertEqual((out / 'install.sh').read_bytes(), builder.bootstrap(
             (builder.REPO / 'harness/scripts/product_install.py').read_bytes(),
             installer.sha(self.archive), expected_url))
@@ -424,7 +450,7 @@ class ReleaseArtifactTests(unittest.TestCase):
         from product_safety_evidence import candidate_payload
         from product_gate import tree
         _, original = installer.release_files(self.archive)
-        wheel_name = 'permission_to_work_harness-0.5.1-py3-none-any.whl'
+        wheel_name = 'permission_to_work_harness-0.5.2-py3-none-any.whl'
         for target in [*[installer.release_data_path(n) for n in installer.SAFETY_FILES],
                        'ptw/demo_support/product_demo.py', 'ptw/demo_support/demo_swarm.py',
                        'ptw/store.py']:
@@ -436,7 +462,7 @@ class ReleaseArtifactTests(unittest.TestCase):
                         if member != target:
                             new.writestr(member, old.read(member))
                 files[wheel_name] = wheel.getvalue()
-                files['release.json'] = json.dumps({'format': 1, 'version': '0.5.1',
+                files['release.json'] = json.dumps({'format': 1, 'version': '0.5.2',
                     'files': {n: installer.sha(v) for n, v in files.items()}}).encode()
                 path = self.root / 'tampered.tar.gz'
                 path.write_bytes(builder.deterministic_tar(files))
@@ -451,7 +477,7 @@ class ReleaseArtifactTests(unittest.TestCase):
         self.assertEqual(installer.sha(amended), expected)
         self.assertEqual(CONTRACTS['PRODUCT_ACCEPTANCE.json'], expected)
         _, files = installer.release_files(self.archive)
-        wheel_name = 'permission_to_work_harness-0.5.1-py3-none-any.whl'
+        wheel_name = 'permission_to_work_harness-0.5.2-py3-none-any.whl'
         target = installer.release_data_path('PRODUCT_ACCEPTANCE.json')
         old_contract = amended.replace(b'in 60 seconds or less', b'in 30 seconds or less').replace(
             b'Absolute maximum <=60s on declared developer-machine profile; aim for about 40s;',
@@ -468,7 +494,7 @@ class ReleaseArtifactTests(unittest.TestCase):
         runtime = tree(builder.REPO / 'harness')
         candidate_payload(path, builder.REPO, runtime)
         files[wheel_name] = wheel.getvalue()
-        files['release.json'] = json.dumps({'format': 1, 'version': '0.5.1',
+        files['release.json'] = json.dumps({'format': 1, 'version': '0.5.2',
             'files': {n: installer.sha(v) for n, v in files.items() if n != 'release.json'}}).encode()
         path.write_bytes(builder.deterministic_tar(files))
         with self.assertRaisesRegex(ValueError, 'Candidate safety contracts/guides differ'):
@@ -489,7 +515,7 @@ class ReleaseArtifactTests(unittest.TestCase):
         out = self.root / 'candidate'
         def mismatch(out, repo):
             result = self.fake_build(out, repo)
-            result['url'] = result['url'].replace('harness-v0.5.1', 'harness-v0.5.0')
+            result['url'] = result['url'].replace('harness-v0.5.2', 'harness-v0.5.0')
             return result
         with patch.object(preparation, 'build', side_effect=mismatch), self.assertRaises(installer.InstallError):
             preparation.prepare(out)
@@ -508,9 +534,9 @@ class ReleaseArtifactTests(unittest.TestCase):
     def test_deterministic_assembly_and_recursive_wheel_source_equality(self):
         import test_product_install as fixtures
         from product_gate import tree
-        self.assertEqual(fixtures.release_fixture(version='0.5.1'), self.archive)
+        self.assertEqual(fixtures.release_fixture(version='0.5.2'), self.archive)
         _, files = installer.release_files(self.archive)
-        with zipfile.ZipFile(io.BytesIO(files['permission_to_work_harness-0.5.1-py3-none-any.whl'])) as wheel:
+        with zipfile.ZipFile(io.BytesIO(files['permission_to_work_harness-0.5.2-py3-none-any.whl'])) as wheel:
             actual = {n: installer.sha(wheel.read(n)) for n in wheel.namelist() if n.startswith('ptw/')}
         self.assertEqual(actual, tree(builder.REPO / 'harness'))
 
@@ -544,6 +570,35 @@ class ReleaseEvidenceTests(unittest.TestCase):
         import product_demo_evidence
         f = self.fixture
         return product_demo_evidence.verify(f.out, f.report, f.repo)
+
+    def test_lifecycle_backup_connections_close_on_success_and_read_failure(self):
+        import sqlite3
+        import product_safety_evidence
+        connect = sqlite3.connect
+        for fail in (False, True):
+            connections = []
+
+            class Connection(sqlite3.Connection):
+                def execute(self, sql, *args, **kwargs):
+                    if fail and sql.startswith('SELECT * FROM projects'):
+                        raise sqlite3.DatabaseError('synthetic backup read failure')
+                    return super().execute(sql, *args, **kwargs)
+
+            def tracked(*args, **kwargs):
+                connection = connect(*args, **kwargs, factory=Connection)
+                connections.append(connection)
+                return connection
+
+            with self.subTest(failure=fail), patch.object(product_safety_evidence.sqlite3, 'connect', tracked):
+                if fail:
+                    with self.assertRaisesRegex(ValueError, 'Invalid original lifecycle backup'):
+                        self.fixture.verify()
+                else:
+                    self.assertTrue(self.fixture.verify()['passed'])
+            self.assertTrue(connections)
+            for connection in connections:
+                with self.assertRaisesRegex(sqlite3.ProgrammingError, 'closed database'):
+                    connection.execute('SELECT 1')
 
     def test_original_and_extensions_green_cannot_omit_installed_demos(self):
         f = self.fixture
@@ -714,7 +769,7 @@ class NativeReleaseTests(unittest.TestCase):
         try:
             with trace.span('phase', 'release-build'):
                 value = preparation.prepare(root / 'candidate')
-            self.assertEqual(value['tag'], 'harness-v0.5.1')
+            self.assertEqual(value['tag'], 'harness-v0.5.2')
             env = installer.clean_env(root)
             assets = [artifact(root / 'candidate', a) for a in value['assets']]
             archive = next(path for path in assets if path.name.endswith('.tar.gz'))
@@ -731,11 +786,11 @@ class NativeReleaseTests(unittest.TestCase):
             from importlib.metadata import distributions
             versions = [d.version for d in distributions(path=[str(runtime)])
                         if d.metadata['Name'] == 'permission-to-work-harness']
-            self.assertEqual(versions, ['0.5.1'])
+            self.assertEqual(versions, ['0.5.2'])
             result = capture([commands / 'ptw', '--version'], root / 'version-process',
                              env=env, cwd=root, timeout=30)
             self.assertEqual(result.returncode, 0, result.stderr.decode(errors='replace'))
-            self.assertEqual(result.stdout.decode().strip(), '0.5.1')
+            self.assertEqual(result.stdout.decode().strip(), '0.5.2')
             from terminal_driver import Terminal
             for label, arguments, expected in (
                     ('help', ['--help'], 0),

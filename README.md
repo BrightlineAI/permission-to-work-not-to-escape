@@ -62,8 +62,8 @@ from the frozen paper and historical evidence.
 The [project safety harness](harness/README.md) adds reviewed policies, narrower tasks,
 shared controls across agents, and auditing of selected Codex logs.
 Use the [recoverable Linux installer](harness/INSTALL.md) from a compact, verified
-application artifact. The existing `harness-v0.5.0` prerelease remains unchanged;
-the patched `harness-v0.5.1` candidate awaits final acceptance and publication.
+application artifact. The published `harness-v0.5.0` and `harness-v0.5.1` prereleases remain unchanged;
+the patched `harness-v0.5.2` candidate awaits final acceptance and publication.
 The [private candidate guide](harness/RELEASE.md) gives install,
 three-demo, recovery and normal-use commands. The packaged CLI passed native
 installation/demo checks; full final-source product acceptance remains pending.

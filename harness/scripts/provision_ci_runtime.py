@@ -3,6 +3,7 @@ import argparse
 from pathlib import Path
 import re
 import shutil
+import subprocess
 import tempfile
 
 from product_install import clean_env, require, run, sha
@@ -62,7 +63,21 @@ def verify(npm, usr=Path('/usr')):
                 'Invalid CI npm version')
         # Exercise the product's actual namespace as the ordinary runner user.
         # An OS denial is a failed prerequisite, never permission to bypass it.
-        require(run(runtime_namespace() + [str(node), '--version'], env=env) == version,
+        probe = subprocess.run(runtime_namespace() + [str(node), '--version'],
+                               env=env, capture_output=True, text=True, timeout=60)
+        # This fixed, disposable-runner probe has no dependency/configuration
+        # payload. Retain its bounded native denial instead of a generic exit.
+        settings = {}
+        if probe.returncode:
+            for name in ('kernel/apparmor_restrict_unprivileged_userns',
+                         'kernel/unprivileged_userns_clone', 'user/max_user_namespaces'):
+                path = Path('/proc/sys') / name
+                if path.is_file():
+                    settings[name] = path.read_text().strip()[:40]
+        require(probe.returncode == 0,
+                f'CI namespace probe failed ({probe.returncode}): {probe.stderr.strip()[:2000]}; '
+                f'namespace settings: {settings}')
+        require(probe.stdout.strip() == version,
                 'Node unavailable inside the product namespace')
 
 

@@ -63,8 +63,8 @@ clearly separated from offline checks.
 For a compact installation without cloning the benchmark repository, use the
 [recoverable release installer](INSTALL.md). Its built version-specific entry
 command installs private tools, runs doctor automatically, and provides retry,
-upgrade, rollback and conservative uninstall. The patched 0.5.1 candidate awaits
-publication; the existing 0.5.0 prerelease remains unchanged.
+upgrade, rollback and conservative uninstall. The patched 0.5.2 candidate awaits
+publication; the published 0.5.0 and 0.5.1 prereleases remain unchanged.
 The source installation below remains the legacy compatibility path.
 
 Use an ordinary operator account, not root. The tested platform is x86_64 Linux with systemd, bubblewrap 0.12.0, Node 22 and Python 3.12. The installer downloads pinned, checksum verified nono and uv releases, an isolated Python environment, and Codex CLI 0.154.0. It does not modify global packages.
@@ -282,6 +282,12 @@ a new private receipt; never infer safe ownership from a unit prefix or age.
 This repair reuses inspected lifecycle interfaces without new dependencies or
 interface changes; external technical research adds no additional evidence.
 
+The release evidence verifier closes read-only migration backup connections on
+success and failure, and synthetic backup fixtures commit before closing theirs.
+SQLite's [connection context manager](https://docs.python.org/3/library/sqlite3.html#how-to-use-the-connection-context-manager)
+manages transactions but does not close the connection. The release regression
+checks explicit closure after both successful validation and a failed read.
+
 The standalone Node import gate includes its cross-manager cases and selected
 ecosystem, pnpm and Yarn regressions:
 
@@ -397,15 +403,26 @@ Hosted CI runs `python harness/scripts/offline_checks.py` from an isolated edita
 source installation. Before discovery, `harness/scripts/provision_ci_uv.py`
 downloads the installer's pinned uv 0.12.15 into a fresh runner-local directory,
 verifies its SHA-256, validates the archive and checks the executable version.
-Only then does it expose that directory to later workflow steps through
+The same helper provisions the installer's SHA-256-pinned nono version with
+`--tool nono`, so offline audit fixtures execute the actual confinement tool.
+Only after integrity and version checks does it expose each directory through
 `GITHUB_PATH`. An ambient uv installation is not used for this prerequisite.
 Download, integrity, archive or version failures stop the job before tests;
 retain the failed job and rerun on a fresh runner after resolving the cause.
 Do not bypass verification or skip resolver tests to address a missing tool.
 For manual source tests above, keep the installer's verified uv on PATH.
 
-The hosted workflow also installs bubblewrap, fish and zsh with apt and selects
-Node 22 with the official setup-node action. Its
+The hosted workflow uses Ubuntu 24.04, installs bubblewrap, fish, zsh and
+apparmor-profiles with apt, and selects Node 22 with the official setup-node
+action. It loads Ubuntu's packaged `bwrap-userns-restrict` AppArmor profile for
+the namespace prerequisite, following Ubuntu's
+[purpose-built bwrap profile guidance](https://discourse.ubuntu.com/t/understanding-apparmor-user-namespace-restriction/58007).
+Global user-namespace restrictions remain enabled. The disposable runner setup
+also restores root ownership and removes group/other write access on
+`/usr/share/zsh` and its `vendor-completions` directory. A sanitized ordinary-user
+`compaudit` must then pass: the normal zsh startup test cannot answer an insecure
+completion prompt or bypass its security check. These two directories were the
+reported cause of the hosted terminal stall. Its
 `harness/scripts/provision_ci_runtime.py` copies the selected Node executable
 to `/usr/bin/node`, verifies its version and SHA-256, and atomically replaces
 only an absent or regular destination. Linked destinations are rejected. This
@@ -424,6 +441,16 @@ Executable fixture tests cover copy integrity, invalid or missing tools, command
 failures, linked destinations and cleanup. They do not establish hosted namespace
 availability; the workflow and native manager checks must validate their actual
 environments.
+
+Before full offline discovery, CI runs normal login/interactive zsh startup
+(including ZDOTDIR) and both previously failing audit dispatch fixtures. The
+completion check follows [zsh's security rules](https://zsh.sourceforge.io/Doc/Release/Completion-System.html);
+never answer an insecure-directory prompt automatically. Namespace failures
+retain bounded stderr and namespace settings. PTY timeouts retain captured
+output and reap the owned child without extending the deadline. Keep these
+diagnostics private. Provisioning tests exercise download, hash, archive,
+executable, version and reused-directory failures for both uv and nono; a failed
+attempt cannot publish its directory to `GITHUB_PATH`.
 
 CI preserves discovered offline cases and explicitly reserves
 the installed safety/demo/release classes for the manager's native gate. Existing

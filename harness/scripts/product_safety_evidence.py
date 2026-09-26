@@ -4,6 +4,7 @@ Records establish consistency with original native observations, not authenticit
 against an author who can rewrite every receipt. No semantic model runs here.
 """
 import hashlib
+from contextlib import closing
 import io
 import json
 from pathlib import Path
@@ -286,7 +287,7 @@ def lifecycle_observations(root, rows):
                     'Lifecycle backup identity differs')
             # Open read-only: no recovery, schema upgrade or controller actions.
             try:
-                with sqlite3.connect(path.as_uri() + '?mode=ro', uri=True) as db:
+                with closing(sqlite3.connect(path.as_uri() + '?mode=ro', uri=True)) as db:
                     db.row_factory = sqlite3.Row
                     db.create_function('ptw_evidence_runtime', 0, lambda: 1)
                     version = db.execute('PRAGMA user_version').fetchone()[0]

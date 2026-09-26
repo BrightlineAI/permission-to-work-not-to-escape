@@ -64,6 +64,8 @@ def terminal_output(argv, env, cwd, timeout=30, expected=0, *, evidence=None):
         require(code == expected, "Fresh terminal command failed")
         return bytes(transcript)
     except BaseException as exc:
+        if isinstance(exc, subprocess.TimeoutExpired):
+            exc.output = bytes(transcript)
         receipt['error_type'] = type(exc).__name__
         raise
     finally:
