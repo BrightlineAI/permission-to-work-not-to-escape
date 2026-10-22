@@ -1,5 +1,7 @@
 # Start once, then work in Codex
 
+This quickstart is for the separate experimental test harness. It is unrelated to the paper and does not reproduce its experiments. For the paper and research reproduction, use the [repository README](../README.md).
+
 Installed package reuse follows the approved [freshness and quarantine policy](REASSESSMENT.md).
 If evidence is unavailable, restore the approved service and retry; this does not
 count as misconduct. Quarantined sets require a freshly assessed replacement.

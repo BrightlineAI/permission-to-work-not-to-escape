@@ -6,9 +6,27 @@ Allister Lundberg · Bright Line AI · With Apart Research
 
 All agents working on a project should stay within its scope, even when their technical access is broader. This project tests an approach that compiles project policies into executable controls, preserves restrictions across delegated workers, and escalates combined violations from warnings to a project wide stop.
 
-[Read the paper](paper/submission.pdf) · [Experiments](experiments/paper-2026/README.md) · [Reproduction instructions](docs/reproduction.md)
+## Start here
 
-The latest PDF is the source of truth for this project.
+| What you want to do | Where to start |
+|---|---|
+| Read the paper | [Paper PDF](paper/submission.pdf) |
+| Inspect the experiments and published results | [Experiment catalog](experiments/paper-2026/README.md): experiments 1 and 2 are in `vega-core`; experiment 3 is in `native-stop` |
+| Run the paper experiments | [Reproduction guide](docs/reproduction.md): setup, a small integration run, fresh experiment commands and audits |
+
+The linked PDF is the reference for the research claims. The separate [test harness](#separate-test-harness) is unrelated to the paper and is not needed to inspect or reproduce its experiments.
+
+### Check the published evidence
+
+With Git and Python 3.11+, start from a fresh clone:
+
+```sh
+git clone https://github.com/BrightlineAI/permission-to-work-not-to-escape.git
+cd permission-to-work-not-to-escape
+python3 scripts/verify_evidence.py
+```
+
+Success prints JSON with `"passed": true`. This checks published files and selected result calculations; it does **not** rerun the experiments. It needs no model account, makes no network requests after cloning and incurs no model charges. For a new execution, follow the [Linux reproduction walkthrough](docs/reproduction.md#run-a-small-integration-check).
 
 ## Results
 
@@ -24,103 +42,24 @@ The policy comparisons used different data splits and validation guidance. Scrip
 
 These controlled tests support a mechanism toward swarm protection, not a demonstrated defense against adaptive swarms. Supporting file, worker, diagnostic and escalation checks are in the [experiment catalog](experiments/paper-2026/README.md).
 
-## Run the checks
+## Additional offline checks
 
-Python 3.11+. These commands inspect the evidence and run offline unit tests without model calls:
+From the repository root, these check documentation links and core unit tests without model calls:
 
 ```sh
-python3 scripts/verify_evidence.py
 python3 scripts/check_docs.py
 PYTHONPATH=src python3 -m unittest discover -s tests -v
 ```
 
-For a small booking-policy demo, run `PYTHONPATH=src python3 -m permission_to_work demo`. It rejects fake approval and accepts genuine approval without making a booking.
+The optional booking-policy demonstration is `PYTHONPATH=src python3 -m permission_to_work demo`. It rejects fake approval and accepts genuine approval without making a booking. This is a demonstration, not a paper experiment.
 
-Run fresh benchmark workloads on an isolated Linux VPS using the [reproduction instructions](docs/reproduction.md) and each experiment's README.
+## Separate test harness
 
-## Build on the work
+The [experimental test harness](harness/README.md) is **unrelated to the paper**. It is for trying project policies and agent controls; it was not used for the paper's experiments, and the paper's results do not validate it. You do not need to install it to read the paper, inspect results or reproduce the experiments.
 
-Start with the [three-demo try-it-now guide](docs/demos/TRY-VEGA.md): executing
-dependencies, task-scoped fixes and a three-worker private report. The shared
-installed CLI runs real deterministic fixtures and verifies physical effects,
-useful work and child/resume continuity. It can export a small Markdown summary
-from verified originals. The [status and evidence contract](docs/demos/README.md)
-distinguish accepted task20/21 native evidence from this candidate's pending
-final-source checks. These are synthetic reconstructions, not spontaneous model
-trajectories.
+If you specifically want to try the test harness, use its [installation guide](harness/INSTALL.md), [three-demo quickstart](docs/demos/TRY-VEGA.md) and [interactive quickstart](harness/INTERACTIVE.md). Its platform requirements and limitations are documented separately.
 
-The [incident-inspired report demo](harness/DEMO.md) retains the separate fair
-sandbox comparison and scripted shared-stop sequence, with a
-[measured historical sample](harness/validation/demo-20260919/README.md).
-Task18 was accepted; fresh candidate and public-release gates remain separate.
-LinuxArena and broader benchmarks are deferred/unvalidated for this release.
-
-The [current harness safety contracts](harness/SAFETY.md) identify the reviewed
-extension, supported-route audit coverage and implementation limits separately
-from the frozen paper and historical evidence.
-
-The [project safety harness](harness/README.md) adds reviewed policies, narrower tasks,
-shared controls across agents, and auditing of selected Codex logs.
-Use the [recoverable Linux installer](harness/INSTALL.md) from a compact, verified
-application artifact. The published `harness-v0.5.0` and `harness-v0.5.1` prereleases remain unchanged;
-the patched `harness-v0.5.2` candidate awaits final acceptance and publication.
-The [private candidate guide](harness/RELEASE.md) gives install,
-three-demo, recovery and normal-use commands. The packaged CLI passed native
-installation/demo checks; full final-source product acceptance remains pending.
-With the [interactive quickstart](harness/INTERACTIVE.md), run
-`ptw codex` in a new or existing repository. Review the policy, then work in
-the normal Codex terminal. First setup uses typed templates without a model
-roundtrip. For root files, use `ptw codex --editable src,tests --files README.md,app.py`.
-Continue a protected conversation through
-`ptw codex --resume ID`; see [current daily-work limits](harness/DAILY.md).
-Agents can explicitly [surrender their own session](harness/INTERACTIVE.md) when
-blocked. Surrender closes descendant admission and requests physical stopping;
-it is distinct from task completion. Native incident acceptance passed; final-source
-installed acceptance remains pending. Operators can inspect [bounded linked
-activity](harness/DAILY.md#bounded-project-sequence-review) offline and use findings
-at checkpoint review without per-action model calls.
-The review shows warn1/stop3 and package restrictions before explicit approval;
-generated files are published recoverably afterward. Edits, packages, builds, tests and delegates use
-shared controls underneath. [Python and npm package checks](harness/ECOSYSTEMS.md)
-cover known vulnerabilities and release age. This prototype is separate from
-the paper's frozen experiments.
-
-Installed dependencies also undergo [bounded reassessment before reuse](harness/REASSESSMENT.md).
-Outages block unsafe reuse without misconduct counts; confirmed forbidden
-dependencies quarantine affected project sets and stop their registered work.
-
-Dependency setup supports reviewed Python runtimes, mixed-project setup,
-explicit source scopes and `ptw deps add/remove/update` reviews. For a local
-Python project, run:
-
-```sh
-ptw codex --editable src,tests --python-editable src --setup-only
-```
-
-Review the source resources and offline backend execution, then run `ptw codex`.
-Use `--python-wheel` for a fixed installation. Dynamic metadata and additional
-build requirements need separate explicit reviews. `--python-native-wheels`
-requests native output; changed compiled inputs need reviewed rebuilding.
-Multiple local sources keep separate build environments and share one validated
-runtime installation. Static and dynamic uv locks retain authoritative inputs.
-
-See the [local setup guide](harness/ONBOARDING.md#local-python-preparation)
-for live-edit limits, builds, rejection and recovery. Common formats include
-requirements, PEP 621, uv/Poetry locks, npm workspaces, pnpm v9 and Yarn Classic v1.
-Use the pinned tool setup in the [Poetry](harness/POETRY.md),
-[pnpm](harness/PNPM.md) and [Yarn](harness/YARN.md) guides. Frozen imports preserve
-their authority; dependency changes use explicit `ptw deps add/remove/update`
-review. Lifecycle builds require named approval.
-
-The accepted adapters and focused native journeys establish useful imports,
-builds, compatible dependency selection and confined local/private sources.
-The [bounded support matrix and validation status](harness/DEPENDENCY_STATUS.md)
-distinguish these results from final integration acceptance. Manager checks passed
-the source and fresh-wheel journey matrices; final-source integration acceptance,
-complete product readiness and first-setup timing remain separate gates.
-The [acceptance evidence guide](harness/ACCEPTANCE.md) provides the seven-journey
-runner, strict evidence gate and reproduction commands. Full final-source product
-acceptance and public installation remain pending manager validation.
+## Build on the research
 
 The repository includes experimental policy, authorization, diagnostic and escalation components. See the [architecture](docs/architecture.md), [data availability](docs/evidence.md), [future work](docs/roadmap.md) and [contribution guide](CONTRIBUTING.md).
 

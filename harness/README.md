@@ -1,4 +1,6 @@
-# Project safety harness
+# Experimental test harness
+
+This is a separate experimental test harness for trying project policies and agent controls. It is unrelated to the paper, was not used for its experiments, and is not validated by its results. To read the paper or reproduce the research, return to the [repository README](../README.md).
 
 The [private candidate guide](RELEASE.md) contains exact local installation,
 `ptw demo` and everyday-use commands. Build assets with
@@ -28,7 +30,7 @@ verification. These are not publication or project-completion claims.
 blocks uncertain evidence without misconduct counts, and quarantines confirmed
 forbidden dependencies. Read its caching, running-work and recovery semantics.
 
-A small working extension of the [paper](../paper/submission.pdf). Describe a project, review its proposed policy, and run agents through shared controls.
+To try the test harness, describe a project, review its proposed policy, and run agents through shared controls.
 
 The usable prototype handles [repository editing and reviewed build/test commands](PRACTICAL.md) and [controlled Python and npm package installation](ECOSYSTEMS.md), including native Python libraries and JavaScript/TypeScript. It supports multiple independent agents, narrower tasks and delegates, shared escalation, automatic monitoring, and review of existing Codex logs. Project differences are JSON configuration, not custom code.
 
