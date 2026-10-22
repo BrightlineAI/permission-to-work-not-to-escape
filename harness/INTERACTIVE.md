@@ -38,7 +38,7 @@ termination evidence if confirmation is unavailable. Protected continuation is
 an explicit operator action through `ptw codex --resume ID` with a fresh session,
 retained scope and history, as described in [daily work](DAILY.md).
 This surrender implementation is awaiting native qualification; see the
-[incident checklist and route coverage](SAFETY.md#frozen-task-17-checklist).
+[incident controls and route coverage](SAFETY.md#scenario-to-control-to-test-map).
 
 Use the [recoverable Linux installer](INSTALL.md), which runs doctor automatically,
 then open a fresh terminal. If `ptw` is absent, follow the installer's printed
